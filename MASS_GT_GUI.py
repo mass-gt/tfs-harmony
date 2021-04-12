@@ -6,6 +6,7 @@ Created on Fri May 29 10:47:15 2020
 """
 
 # Importeer de modules van het model
+import __module_FS__
 import __module_SIF__
 import __module_SHIP__
 import __module_TOUR__
@@ -42,7 +43,7 @@ class Root:
         self.datapath = os.path.dirname(os.path.realpath(argv[0]))
         self.datapath = self.datapath.replace(os.sep, '/') + '/'
 
-        self.moduleNames = ['SIF', 'SHIP','TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
+        self.moduleNames = ['FS', 'SIF', 'SHIP','TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
         
         # Set graphics parameters
         self.width  = 950
@@ -127,7 +128,7 @@ class Root:
         '''
         # De mogelijke sleutels in de control file
         self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                           "LINKS", "NODES","ZONES","SEGS", "FIRMS",\
+                           "LINKS", "NODES","ZONES","SEGS", \
                            "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
                            "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                            "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT", \
@@ -152,7 +153,7 @@ class Root:
                        "YEARFACTOR", "NUTSLEVEL_INPUT"]
         dirVars     = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
         moduleVars  = ["MODULES"]
-        fileVars    = ["SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES","SEGS", "FIRMS",\
+        fileVars    = ["SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES","SEGS", \
                        "COMMODITYMATRIX","PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH"]
         optionalVars = ["SHIPMENTS_REF", "SELECTED_LINKS", "N_CPU"]
         
@@ -348,6 +349,28 @@ class Root:
             f.write('########################################################################################\n')
 
             args = [self, varDict]
+
+            if run and 'FS' in varDict['MODULES']:
+                print('---------------------------------------------------------------------------------')
+                print('------------------------- Firm Synthesis ----------------------------------------')
+                print('---------------------------------------------------------------------------------')
+                f.write("Firm Synthesis" + '\n')
+                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
+                
+                self.statusBar.configure(text='Running Firm Synthesis...')
+                                         
+                result = __module_FS__.actually_run_module(args)
+                
+                if result[0] == 1:   
+                    errorMessage = []
+                    errorMessage.append('\nError in Firm Synthesis module!\n\n' )
+                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
+                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    run = False
+                    f.write(errorMessage[0] + errorMessage[2])    
+                else:
+                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
                     
             if run and 'SIF' in varDict['MODULES']:
                 print('---------------------------------------------------------------------------------')

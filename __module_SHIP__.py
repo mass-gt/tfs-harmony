@@ -115,7 +115,6 @@ def actually_run_module(args):
         datapathP = varDict['PARAMFOLDER']
         yearFac   = varDict['YEARFACTOR']
         zonesPath        = varDict['ZONES']
-        firmsPath        = varDict['FIRMS']
         skimTravTimePath = varDict['SKIMTIME']
         skimDistancePath = varDict['SKIMDISTANCE']
         shipmentsRef     = varDict['SHIPMENTS_REF']
@@ -132,10 +131,11 @@ def actually_run_module(args):
         
         
         # ----------------------- Import data -------------------------------------
-        
-        root.update_statusbar("Shipment Synthesizer: Importing and preparing data")
-        log_file.write("Importing and preparing data...\n")
-        root.progressBar['value'] = 0
+                
+        print("Importing and preparing data..."), log_file.write("Importing and preparing data...\n")
+        if root != '':
+            root.update_statusbar("Shipment Synthesizer: Importing and preparing data")
+            root.progressBar['value'] = 0
         
         nNSTR    = 10
         nLogSeg  = 8
@@ -154,13 +154,15 @@ def actually_run_module(args):
         for ls in range(nLogSeg):
             logSegToNstr[:,ls] = logSegToNstr[:,ls] / np.sum(logSegToNstr[:,ls])
         
-        root.progressBar['value'] = 0.2
+        if root != '':
+            root.progressBar['value'] = 0.2
         
         # Import make/use distribution tables (by NSTR and industry sector)
         makeDistribution = np.array(pd.read_csv(f"{datapathI}MakeDistribution.csv"))
         useDistribution  = np.array(pd.read_csv(f"{datapathI}UseDistribution.csv"))
         
-        root.progressBar['value'] = 0.4
+        if root != '':
+            root.progressBar['value'] = 0.4
         
         # Import external zones demand and coordinates
         superCommodityMatrixNSTR = pd.read_csv(datapathO + 'CommodityMatrixNUTS3.csv', sep=',')
@@ -210,7 +212,8 @@ def actually_run_module(args):
         superCommodityMatrix = pd.DataFrame(superCommodityMatrix, columns=['From','To','LogSeg','WeightDay'])
         superCommodityMatrix.loc[(superCommodityMatrix['From']!=0) & (superCommodityMatrix['To']!=0), 'WeightDay'] = 0
         
-        root.progressBar['value'] = 1
+        if root != '':
+            root.progressBar['value'] = 1
         
         # Import internal zones data
         zonesShape = read_shape(zonesPath)
@@ -228,10 +231,11 @@ def actually_run_module(args):
         invZoneDict = dict((v, k) for k, v in zoneDict.items())
         zoneID      = np.arange(nInternalZones)
         
-        root.progressBar['value'] = 1.2
+        if root != '':
+            root.progressBar['value'] = 1.2
         
         # Import firm data
-        firms    = pd.read_csv(firmsPath)
+        firms    = pd.read_csv(datapathO + 'Firms.csv')
         firmID   = np.array(firms['FIRM_ID'])
         firmZone = np.array([invZoneDict[firms['MRDH_ZONE'][i]] for i in firms.index])
         firmSize = np.array(firms['EMPL'])
@@ -242,7 +246,8 @@ def actually_run_module(args):
                       'DIENSTEN':4, 'OVERHEID':5,  'OVERIG':6}
         firmSector  = np.array([sectorDict[firms['SECTOR'][i]] for i in firms.index])
         
-        root.progressBar['value'] = 1.5
+        if root != '':
+            root.progressBar['value'] = 1.5
         
         # Import logistic nodes data
         logNodes  = pd.read_csv(datapathI + 'distributieCentra.csv')
@@ -258,7 +263,8 @@ def actually_run_module(args):
         # Flowtype distribution (10 NSTRs and 12 flowtypes)
         ftShares = np.array(pd.read_csv(datapathP + 'LogFlowtype_Shares.csv', index_col=0)) 
             
-        root.progressBar['value'] = 1.5
+        if root != '':
+            root.progressBar['value'] = 1.5
         
         # Skim with travel times and distances
         skimTravTime = read_mtx(skimTravTimePath)
@@ -281,7 +287,8 @@ def actually_run_module(args):
             if len(whereZero) > 0:
                 skimDistance[orig * nZones + whereZero] = 0.5 * np.min(skimDistance[orig * nZones + whereNonZero])
         
-        root.progressBar['value'] = 2.5
+        if root != '':
+            root.progressBar['value'] = 2.5
         
         # Cost parameters by vehicle type with size (small/medium/large)
         costParams  = pd.read_csv(datapathP + "CostParameters.csv", index_col=0)
@@ -301,7 +308,8 @@ def actually_run_module(args):
                     2:'heavy bulk', 3:'heavy bulk', 4:'heavy bulk', 5:'heavy bulk', 6:'heavy bulk', \
                     7:'chemicals', 8:'chemicals', 9:'manufactured'}
         
-        root.progressBar['value'] = 2.6
+        if root != '':
+            root.progressBar['value'] = 2.6
         
         # Consolidation potential per logistic segment (for UCC scenario)
         probConsolidation = np.array(pd.read_csv(datapathI + 'ConsolidationPotential.csv', index_col='Segment'))
@@ -352,7 +360,8 @@ def actually_run_module(args):
         cepDepotX      = [np.array(zonesShape['X'][[zoneDict[x] for x in cepDepotZones[i]]]) for i in range(len(cepList))]
         cepDepotY      = [np.array(zonesShape['Y'][[zoneDict[x] for x in cepDepotZones[i]]]) for i in range(len(cepList))]            
         
-        root.progressBar['value'] = 2.8
+        if root != '':
+            root.progressBar['value'] = 2.8
         
         
         
@@ -395,7 +404,8 @@ def actually_run_module(args):
         cumProbTT  = np.cumsum(probTT)
         cumProbTT  = cumProbTT / cumProbTT[-1]
 
-        root.progressBar['value'] = 2.9
+        if root != '':
+            root.progressBar['value'] = 2.9
         
         
         
@@ -424,7 +434,8 @@ def actually_run_module(args):
             demandExportByFT[ft]    = demandExport.copy() * ftShares[nFlowTypesInternal+ft,:]
             demandImportByFT[ft]    = demandImport.copy() * ftShares[nFlowTypesInternal+ft,:]
 
-        root.progressBar['value'] = 3
+        if root != '':
+            root.progressBar['value'] = 3
 
 
 
@@ -451,11 +462,13 @@ def actually_run_module(args):
             destX           = {}
             destY           = {}
 
-            root.update_statusbar("Shipment Synthesizer: Synthesizing shipments within study area")
-            log_file.write("Synthesizing shipments within study area...\n")            
+            
+            print("Synthesizing shipments within study area..."), log_file.write("Synthesizing shipments within study area...\n")               
             percStart = 3
             percEnd   = 40
-            root.progressBar['value'] = percStart
+            if root != '':
+                root.update_statusbar("Shipment Synthesizer: Synthesizing shipments within study area")
+                root.progressBar['value'] = percStart
 
             # For progress bar
             totalWeightInternal = np.sum([np.sum(demandInternalByFT[ft]) for ft in range(nFlowTypesInternal)])
@@ -466,8 +479,11 @@ def actually_run_module(args):
                 for nstr in range(nNSTR):
                     
                     if logSegToNstr[nstr,logSeg] > 0:
-                        root.update_statusbar("Shipment Synthesizer: Synthesizing shipments within study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
+                        
+                        print(f"\tFor logistic segment {logSeg} (NSTR{nstr})")
                         log_file.write(f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")
+                        if root != '':
+                            root.update_statusbar("Shipment Synthesizer: Synthesizing shipments within study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
                             
                         # Selecting the logit parameters for this NSTR group
                         logitParamsNSTR             = logitParams[dictNSTR[nstr]]
@@ -636,18 +652,21 @@ def actually_run_module(args):
                                 allocatedWeightInternal += shipmentSize[count]
                                 count += 1
                                 
-                                if count%300 == 0:
-                                    root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightInternal / totalWeightInternal)
+                                if root != '':
+                                    if count%300 == 0:
+                                        root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightInternal / totalWeightInternal)
 
 
                           
             if ExtArea:
                 
-                root.update_statusbar("Shipment Synthesizer: Synthesizing shipments leaving study area")
+                print("Synthesizing shipments leaving study area...")
                 log_file.write("Synthesizing shipments leaving study area...\n")
                 percStart = 40
                 percEnd   = 65
-                root.progressBar['value'] = percStart
+                if root != '':
+                    root.update_statusbar("Shipment Synthesizer: Synthesizing shipments leaving study area")
+                    root.progressBar['value'] = percStart
 
                 # For progress bar
                 totalWeightExport = np.sum([np.sum(np.sum(demandExportByFT[ft])) for ft in range(nFlowTypesExternal)])
@@ -658,8 +677,10 @@ def actually_run_module(args):
                     for nstr in range(nNSTR):
                         
                         if logSegToNstr[nstr,logSeg] > 0:
-                            root.update_statusbar("Shipment Synthesizer: Synthesizing shipments leaving study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
+                            print(f"\tFor logistic segment {logSeg} (NSTR{nstr})")
                             log_file.write(f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")
+                            if root != '':
+                                root.update_statusbar("Shipment Synthesizer: Synthesizing shipments leaving study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
                                    
                             # Selecting the logit parameter for this NSTR group
                             logitParamsNSTR             = logitParams[dictNSTR[nstr]]
@@ -786,18 +807,21 @@ def actually_run_module(args):
                                         allocatedWeightExport   += shipmentSize[count]  
                                         count += 1
 
-                                        if count%300 == 0:
-                                            root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightExport/ totalWeightExport)                                        
+                                        if root != '':
+                                            if count%300 == 0:
+                                                root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightExport/ totalWeightExport)                                        
                                         
                                          
                 fromDC = 0
                 
-                root.update_statusbar("Shipment Synthesizer: Synthesizing shipments entering study area")
+                print("Synthesizing shipments entering study area...")
                 log_file.write("Synthesizing shipments entering study area...\n")
                 percStart = 65
                 percEnd   = 90
-                root.progressBar['value'] = percStart
-
+                if root != '':
+                    root.progressBar['value'] = percStart
+                    root.update_statusbar("Shipment Synthesizer: Synthesizing shipments entering study area")
+                    
                 totalWeightImport = np.sum([np.sum(np.sum(demandImportByFT[ft])) for ft in range(nFlowTypesExternal)])
                 allocatedWeightImport  = 0
                 
@@ -806,9 +830,11 @@ def actually_run_module(args):
                     for nstr in range(nNSTR):
                         
                         if logSegToNstr[nstr,logSeg] > 0:
-                            root.update_statusbar("Shipment Synthesizer: Synthesizing shipments entering study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
-                            log_file.write(f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")                        
-                        
+                            print(f"\tFor logistic segment {logSeg} (NSTR{nstr})")
+                            log_file.write(f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")
+                            if root != '':
+                                root.update_statusbar("Shipment Synthesizer: Synthesizing shipments entering study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
+                                
                             # Selecting the logit parameter for this NSTR group
                             logitParamsNSTR             = logitParams[dictNSTR[nstr]]
                             B_TransportCosts            = logitParamsNSTR['B_TransportCosts']
@@ -933,9 +959,10 @@ def actually_run_module(args):
                                         allocatedWeight         += shipmentSize[count]
                                         allocatedWeightImport   += shipmentSize[count]
                                         count += 1            
-
-                                        if count%300 == 0:
-                                            root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightImport / totalWeightImport)                                        
+                                        
+                                        if root != '':
+                                            if count%300 == 0:
+                                                root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightImport / totalWeightImport)                                        
 
             
             # Shipment attributes in a list instead of a dictionary        
@@ -1008,17 +1035,20 @@ def actually_run_module(args):
         
         # Redirect shipments via UCCs and change vehicle type
         if label == 'UCC':
-
-            root.update_statusbar("Shipment Synthesizer: Exporting REF shipments to CSV")
+            print('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv")
             log_file.write('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv\n")
-            root.progressBar['value'] = 90
+            if root != '':
+                root.progressBar['value'] = 90
+                root.update_statusbar("Shipment Synthesizer: Exporting REF shipments to CSV")
             
             if shipmentsRef == "":
                 shipments.to_csv(datapathO + 'Shipments_REF.csv')
 
-            root.update_statusbar("Shipment Synthesizer: Redirecting shipments via UCC")
+            print("Redirecting shipments via UCC...")
             log_file.write("Redirecting shipments via UCC...\n")
-            root.progressBar['value'] = 91
+            if root != '':
+                root.progressBar['value'] = 91
+                root.update_statusbar("Shipment Synthesizer: Redirecting shipments via UCC")
             
             shipments['FROM_UCC'] = 0
             shipments['TO_UCC'  ] = 0
@@ -1170,10 +1200,12 @@ def actually_run_module(args):
             shipments['SHIP_ID'] = np.arange(nShips)
             shipments.index      = np.arange(nShips)                        
 
-        root.update_statusbar("Shipment Synthesizer: Exporting shipments to CSV")
+        print('Exporting ' + str(label) + ' shipments to ' + datapathO + f"Shipments_{label}.csv")
         log_file.write('Exporting ' + str(label) + ' shipments to ' + datapathO + f"Shipments_{label}.csv\n")
-        root.progressBar['value'] = 92               
-
+        if root != '':
+            root.progressBar['value'] = 92               
+            root.update_statusbar("Shipment Synthesizer: Exporting shipments to CSV")
+            
         dtypes = {'SHIP_ID':int,  'ORIG':int,       'DEST':int,         'NSTR':int, \
                   'WEIGHT':float, 'WEIGHT_CAT':int, 'FLOWTYPE':int,     'LOGSEG':int, \
                   'VEHTYPE':int,  'SEND_FIRM':int,  'RECEIVE_FIRM':int, 'SEND_DC':int, 'RECEIVE_DC':int}
@@ -1186,10 +1218,12 @@ def actually_run_module(args):
         if shipmentsRef == "":
             
             # ---------------------- Zonal productions and attractions ----------------
-            root.update_statusbar("Shipment Synthesizer: Writing zonal productions/attractions")
+            print("Writing zonal productions/attractions...\n")
             log_file.write("Writing zonal productions/attractions...\n")
-            root.progressBar['value'] = 93
-            
+            if root != '':
+                root.progressBar['value'] = 93
+                root.update_statusbar("Shipment Synthesizer: Writing zonal productions/attractions")
+                
             prodWeight = pd.pivot_table(shipments, values=['WEIGHT'], index=['ORIG','LOGSEG'], aggfunc=np.sum)
             attrWeight = pd.pivot_table(shipments, values=['WEIGHT'], index=['DEST','LOGSEG'], aggfunc=np.sum)
             zonalProductions = np.zeros((nInternalZones+nSuperZones,nLogSeg))
@@ -1225,11 +1259,13 @@ def actually_run_module(args):
             # ------------------------- Creating shipments SHP ------------------------
             
             # Write into a geopandas dataframe and export as shapefile
-            root.update_statusbar("Shipment Synthesizer: Writing GeoJSON")
+            print("Writing GeoJSON...")
             log_file.write("Writing GeoJSON...\n")
             percStart = 94
             percEnd   = 100
-            root.progressBar['value'] = percStart            
+            if root != '':
+                root.progressBar['value'] = percStart
+                root.update_statusbar("Shipment Synthesizer: Writing GeoJSON")
 
             Ax = np.array(list(origX.values()), dtype=str)
             Ay = np.array(list(origY.values()), dtype=str)
@@ -1246,8 +1282,9 @@ def actually_run_module(args):
                     outputStr = outputStr + Ax[i] + ', ' + Ay[i] + ' ], [ '
                     outputStr = outputStr + Bx[i] + ', ' + By[i] + ' ] ] } },\n'
                     geoFile.write(outputStr)
-                    if i%1000==0:
-                        root.progressBar['value'] = percStart + (percEnd - percStart) * (i / nShips)  
+                    if root != '':
+                        if i%1000==0:
+                            root.progressBar['value'] = percStart + (percEnd - percStart) * (i / nShips)  
                         
                 # Bij de laatste feature moet er geen komma aan het einde
                 i += 1
@@ -1270,36 +1307,43 @@ def actually_run_module(args):
         log_file.write("End simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
         log_file.close()    
 
-        root.update_statusbar("Shipment Synthesizer: Done")
-        root.progressBar['value'] = 100
+        if root != '':
+            root.update_statusbar("Shipment Synthesizer: Done")
+            root.progressBar['value'] = 100
         
-        # 0 means no errors in execution
-        root.returnInfo = [0, [0,0]]
+            # 0 means no errors in execution
+            root.returnInfo = [0, [0,0]]
         
-        return root.returnInfo
+            return root.returnInfo
         
-        
+        else:
+            return [0, [0,0]]
         
     except BaseException:
         import sys
         log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
-        import traceback
+        import traceback        
         log_file.write(str(traceback.format_exc())), log_file.write("\n")
         log_file.write("Execution failed!")
-        log_file.close()
+        log_file.close()        
+        print(sys.exc_info()[0])
+        print(traceback.format_exc())
+        print("Execution failed!")
         
-        # Use this information to display as error message in GUI
-        root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
+        if root != '':
+            # Use this information to display as error message in GUI
+            root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
         
-        if __name__ == '__main__':
-            root.update_statusbar("Shipment Synthesizer: Execution failed!")
-            errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
-            root.error_screen(text=errorMessage, size=[900,350])                
-        
+            if __name__ == '__main__':
+                root.update_statusbar("Shipment Synthesizer: Execution failed!")
+                errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
+                root.error_screen(text=errorMessage, size=[900,350])                
+            
+            else:
+                return root.returnInfo
+
         else:
-            return root.returnInfo
-
-
+            return [1, [sys.exc_info()[0], traceback.format_exc()]]
 
 
 #%% For if you want to run the module from this script itself (instead of calling it from the GUI module)
@@ -1316,7 +1360,6 @@ if __name__ == '__main__':
     NODES           = INPUTFOLDER + 'nodes_v5.shp'
     ZONES           = INPUTFOLDER + 'Zones_v4.shp'
     SEGS            = INPUTFOLDER + 'SEGS2016.csv'
-    FIRMS           = INPUTFOLDER + 'SynthFirms_v15_1.csv'
     COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
     PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
     MRDH_TO_NUTS3   = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
@@ -1342,10 +1385,10 @@ if __name__ == '__main__':
     
     LABEL = 'REF'
     
-    MODULES = ['SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
+    MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
     
     args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
-            LINKS, NODES, ZONES, SEGS, FIRMS, \
+            LINKS, NODES, ZONES, SEGS, \
             COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
             PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
@@ -1356,7 +1399,7 @@ if __name__ == '__main__':
             MODULES]
 
     varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                  "LINKS", "NODES", "ZONES", "SEGS", "FIRMS", \
+                  "LINKS", "NODES", "ZONES", "SEGS", \
                   "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
                   "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \

@@ -139,7 +139,7 @@ def actually_run_module(args):
         exportShp  = True
         addZezToLinks = False
         
-        log_file = open(datapathO + "Logfile_TrafficAssignment.log", "w")
+        log_file = open(datapathO + "Logfile_TrafficAssignment.log", 'w')
         log_file.write("Start simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
             
         # To convert emissions to kilograms
@@ -308,7 +308,7 @@ def actually_run_module(args):
                 linkDict[aNode][bNode] = i
         
         # Assume a speed of 50 km/h if there are links with speed <= 0
-        nSpeedZero = len(MRDHlinks[impedanceSpeed]<=0)
+        nSpeedZero = np.sum(MRDHlinks[impedanceSpeed]<=0)
         if nSpeedZero > 0:
             MRDHlinks.loc[MRDHlinks[impedanceSpeed]<=0, impedanceSpeed] = 50 
             print(         'Warning: ' + str(nSpeedZero) + ' links found with speed (' + impedanceSpeed + ') <= 0 km/h. Adjusting those to 50 km/h.')
