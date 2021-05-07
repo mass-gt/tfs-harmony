@@ -113,6 +113,7 @@ def actually_run_module(args):
         datapathP  = varDict['PARAMFOLDER']
         comMatPath = varDict['COMMODITYMATRIX']
         nutsLevel  = varDict['NUTSLEVEL_INPUT']
+        pathSegs   = varDict['SEGS']
         pathMRDHtoNUTS3 = varDict['MRDH_TO_NUTS3']
 
         start_time = time.time()
@@ -150,7 +151,7 @@ def actually_run_module(args):
         MRDHtoNUTS3.index = MRDHtoNUTS3['AREANR']
         
         print('\tMRDH SEGS...'), log_file.write('\tMRDH SEGS...' + '\n')
-        segs = pd.read_csv(datapathI + 'SEGS2016_verrijkt.csv', sep=',')
+        segs = pd.read_csv(pathSegs, sep=',')
         segs.index = segs['zone']
         
         # Checking for which MRDH-zones in the SEGS we know the NUTS3-zone
@@ -400,13 +401,18 @@ def actually_run_module(args):
         log_file.write("End simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
         log_file.close()    
 
-        root.update_statusbar("Spatial Interaction Freight: Done")
-        root.progressBar['value'] = 100
+        if root != '':
+            root.update_statusbar("Spatial Interaction Freight: Done")
+            root.progressBar['value'] = 100
         
-        # 0 means no errors in execution
-        root.returnInfo = [0, [0,0]]
+            # 0 means no errors in execution
+            root.returnInfo = [0, [0,0]]
+            
+            return root.returnInfo
         
-        return root.returnInfo
+        else:
+            # 0 means no errors in execution
+            return [0, [0,0]]
         
         
         
@@ -418,18 +424,22 @@ def actually_run_module(args):
         log_file.write("Execution failed!")
         log_file.close()
         
-        # Use this information to display as error message in GUI
-        root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
-        
-        if __name__ == '__main__':
-            root.update_statusbar("Spatial Interaction Freight: Execution failed!")
-            errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
-            root.error_screen(text=errorMessage, size=[900,350])                
+        if root != '':
+            # Use this information to display as error message in GUI
+            root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
+            
+            if __name__ == '__main__':
+                root.update_statusbar("Spatial Interaction Freight: Execution failed!")
+                errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
+                root.error_screen(text=errorMessage, size=[900,350])                
+            
+            else:
+                return root.returnInfo
         
         else:
-            return root.returnInfo
-
-
+            # Use this information to display as error message in GUI
+            return [1, [sys.exc_info()[0], traceback.format_exc()]]
+        
 
 
 #%% For if you want to run the module from this script itself (instead of calling it from the GUI module)

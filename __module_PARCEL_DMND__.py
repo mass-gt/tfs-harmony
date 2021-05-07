@@ -113,7 +113,8 @@ def actually_run_module(args):
         root    = args[0]
         varDict = args[1]
                 
-        root.progressBar['value'] = 0
+        if root != '':
+            root.progressBar['value'] = 0
                 
         # Define folders relative to current datapath
         datapathI = varDict['INPUTFOLDER']
@@ -123,6 +124,7 @@ def actually_run_module(args):
         skimTravTimePath = varDict['SKIMTIME']
         skimDistancePath = varDict['SKIMDISTANCE']
         parcelNodesPath  = varDict['PARCELNODES']
+        cepSharesPath    = varDict['CEP_SHARES']
         segsPath         = varDict['SEGS']    
         label            = varDict['LABEL']
         
@@ -170,7 +172,7 @@ def actually_run_module(args):
         parcelNodes         = parcelNodes.sort_index()    
         nParcelNodes        = len(parcelNodes)
            
-        cepShares = pd.read_csv(datapathI + 'CEPshares.csv', index_col=0)
+        cepShares = pd.read_csv(cepSharesPath, index_col=0)
         cepList   = np.unique(parcelNodes['CEP'])
         cepNodes = [np.where(parcelNodes['CEP']==str(cep))[0] for cep in cepList]
         cepNodeDict = {}
@@ -406,16 +408,19 @@ def actually_run_module(args):
         log_file.write("Total runtime: %s seconds\n" % (totaltime))  
         log_file.write("End simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
         log_file.close()    
-
-        root.update_statusbar("Parcel Demand: Done")
-        root.progressBar['value'] = 100
         
-        # 0 means no errors in execution
-        root.returnInfo = [0, [0,0]]
+        if root != '':
+            root.update_statusbar("Parcel Demand: Done")
+            root.progressBar['value'] = 100
+            
+            # 0 means no errors in execution
+            root.returnInfo = [0, [0,0]]
+            
+            return root.returnInfo
         
-        return root.returnInfo
-
-
+        else:
+            return [0, [0,0]]
+            
         
     except BaseException:
         import sys
@@ -425,17 +430,19 @@ def actually_run_module(args):
         log_file.write("Execution failed!")
         log_file.close()
         
-        # Use this information to display as error message in GUI
-        root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
-        
-        if __name__ == '__main__':
-            root.update_statusbar("Parcel Demand: Execution failed!")
-            errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
-            root.error_screen(text=errorMessage, size=[900,350])     
-        
+        if root != '':
+            # Use this information to display as error message in GUI
+            root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
+            
+            if __name__ == '__main__':
+                root.update_statusbar("Parcel Demand: Execution failed!")
+                errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
+                root.error_screen(text=errorMessage, size=[900,350])                
+            
+            else:
+                return root.returnInfo
         else:
-            return root.returnInfo
-
+            return [1, [sys.exc_info()[0], traceback.format_exc()]]
  
     
     

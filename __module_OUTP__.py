@@ -114,7 +114,8 @@ def actually_run_module(args):
         root    = args[0]
         varDict = args[1]
         
-        root.progressBar['value'] = 0
+        if root != '':
+            root.progressBar['value'] = 0
         
         # Define folders relative to current datapath
         datapathI = varDict['INPUTFOLDER']
@@ -174,6 +175,15 @@ def actually_run_module(args):
         tours       = trips[[trips['TRIP_ID'][i][-2:]=='_0' for i in trips.index]]
         parcelTours = parcelTrips[[parcelTrips['TRIP_ID'][i][-2:]=='_0' for i in parcelTrips.index]]
         
+        print('\tImporting van trips...'), log_file.write('\tImporting van trips...\n')
+        if os.path.isfile(datapathO + 'TripsVanService.mtx') and os.path.isfile(datapathO + 'TripsVanConstruction.mtx'):
+            vanTripsFound = True
+            vanTripsService      = read_mtx(datapathO + 'TripsVanService.mtx')
+            vanTripsConstruction = read_mtx(datapathO + 'TripsVanConstruction.mtx')            
+        else:
+            vanTripsFound = False
+            print('\tVan trips not found in outputfolder...'), log_file.write('\tVan trips not found in outputfolder...\n')
+            
         # Skim with travel times and distances
         print('\tImporting skims...'), log_file.write('\tImporting skims...\n')
         skimTravTime = read_mtx(skimTravTimePath)
@@ -214,7 +224,7 @@ def actually_run_module(args):
         linksLoaded['Gemeentena'] = linksLoaded['Gemeentena'].astype(str)
         linksLoadedRdam = linksLoaded.loc[linksLoaded['Gemeentena']=='Rotterdam',    :]
         linksLoadedDH   = linksLoaded.loc[linksLoaded['Gemeentena']=="'s-Gravenhage",:]
-        linksLoadedZH   = linksLoaded.loc[linksLoaded['Gemeentena']!="NULL",         :]
+        linksLoadedZH   = linksLoaded.loc[linksLoaded['Gemeentena']!="nan",          :]
         linksLoadedZEZ  = linksLoaded.loc[linksLoaded['ZEZ'       ]==1,              :]
 
         
@@ -318,66 +328,56 @@ def actually_run_module(args):
         outfile.write(sep + 'Entering study area'   + sep + str(nParcelTripsEntering) + '\n')
         outfile.write(sep + 'Total'                 + sep + str(nParcelTripsTotal)    + '\n')
         
-        # Number of trips by NSTR
-        nTripsNSTR = np.zeros((11,1))[:,0]
-        outfile.write('\nNumber of trips (freight; by NSTR goods type)' + sep + '\n')
-        outfile.write(sep + 'NSTR' + sep + 'Number of trips\n')
-        for nstr in range(11):
-            nTripsNSTR[nstr] = len(trips[trips['NSTR']==(nstr-1)])
-            outfile.write(sep + str(nstr-1) + sep + str(nTripsNSTR[nstr]) + '\n')
-            
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(11), nTripsNSTR)
-        plt.title("Number of trips by commodity type")
-        plt.xlabel('NSTR')
-        plt.ylabel('Number of trips')
-        plt.xticks(np.arange(11), ['Empty','0','1','2','3','4','5','6','7','8','9'], rotation=45)
-        fig.savefig(datapathOI + f"OUT_TripsByNSTR_{label}.png", bbox_inches='tight')
-        plt.close()
+        # Number of trips by logistic segment and NSTR
+        outfile.write('\nNumber of trips (freight/parcel; by logistic segment and NSTR)' + sep + '\n')
+        outfile.write(sep + 'LS' + sep)
+        for nstr in range(-1,nNSTR):
+            outfile.write(str(nstr) + sep)
+        outfile.write('\n')
+        for ls in range(nLS-1):
+            outfile.write(sep + lsNames[ls])
+            for nstr in range(-1,nNSTR):
+                value = np.sum((trips['LOG_SEG']==ls) & (trips['NSTR']==nstr))
+                outfile.write(sep + str(value))
+            outfile.write('\n')
         
-        # Number of trips by vehicle type
+        # Number of trips by vehicle type and combustion type
         nTripsVeh = [None for veh in range(nVT)]
-        outfile.write('\nNumber of trips (freight; by vehicle type)' + sep + '\n')
+        outfile.write('\nNumber of trips (freight; by vehicle type and combustion type)' + sep + '\n')
         outfile.write(sep + 'Vehicle type' + sep + 'Fuel' + sep + 'Electric' + sep + 'Hydrogen' + sep + 'Hybrid (electric)' + sep + 'Biofuel' + '\n')
         for veh in range(nVT):
             nTripsVeh[veh] = len(trips[trips['VEHTYPE']==veh])
             nTripsVehComb = [None for comb in range(5)]
             for comb in range(5):
-                nTripsVehComb[comb] = len(trips[(trips['VEHTYPE']==veh) & (trips['COMBTYPE']==comb)])
+                nTripsVehComb[comb] = np.sum((trips['VEHTYPE']==veh) & (trips['COMBTYPE']==comb))
             outfile.write(sep + vtNames[veh] + sep + str(nTripsVehComb[0]) + sep + str(nTripsVehComb[1]) + sep + str(nTripsVehComb[2]) \
                                              + sep + str(nTripsVehComb[3]) + sep + str(nTripsVehComb[4]) + '\n')
-            
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nVT), nTripsVeh)
-        plt.title("Number of trips by vehicle type (freight)")
-        plt.xlabel('Vehicle type')
-        plt.ylabel('Number of trips')
-        plt.xticks(np.arange(nVT)-0.5, vtNames, rotation=45)
-        plt.tick_params(length=0)
-        fig.savefig(datapathOI + f"OUT_TripsByVehType_{label}.png", bbox_inches='tight')
-        plt.close()
-
-        # Number of trips by logistic segment
-        nTripsLS = np.zeros((nLS))
-        outfile.write('\nNumber of trips (freight/parcel; by logistic segment)' + sep + '\n')
-        outfile.write(sep + 'LS' + sep + 'Number of trips\n')
+        
+        # Number of trips by logistic segment and vehicle type
+        outfile.write('\nNumber of trips (freight/parcel; by logistic segment and vehicle type)' + sep + '\n')
+        outfile.write(sep + 'LS' + sep)
+        for vt in range(nVT):
+            outfile.write(vtNames[vt] + sep)
+        outfile.write('\n')
         for ls in range(nLS-1):
-            nTripsLS[ls] = len(trips[trips['LOG_SEG']==ls])
-            outfile.write(sep + lsNames[ls] + sep + str(nTripsLS[ls]) + '\n')
-        nTripsLS[nLS-1] = parcelTrips.shape[0]
-        outfile.write(sep + lsNames[nLS-1] + sep + str(nTripsLS[nLS-1]) + '\n')
-            
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nLS), nTripsLS)
-        plt.title("Number of trips by logistic segment (freight & parcel)")
-        plt.xlabel('Logistic segment')
-        plt.ylabel('Number of trips')
-        plt.xticks(np.arange(nLS), lsNames, rotation=45)
-        fig.savefig(datapathOI + f"OUT_TripsByLS_{label}.png", bbox_inches='tight')
-        plt.close()
+            outfile.write(sep + lsNames[ls])
+            for vt in range(nVT):
+                value = np.sum((trips['LOG_SEG']==ls) & (trips['VEHTYPE']==vt))
+                outfile.write(sep + str(value))
+            outfile.write('\n')
+        nParcelTripsVan  = np.sum(parcelTrips['VehType']=='Van')
+        nParcelTripsLEVV = np.sum(parcelTrips['VehType']=='LEVV')
+        outfile.write(sep + lsNames[nLS-1] + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep)
+        outfile.write(str(nParcelTripsVan) + sep + str(nParcelTripsLEVV) + '\n')
+
+        # Number of trips by van traffic segment
+        outfile.write('\nNumber of trips (service vans; by logistic segment)' + sep + '\n')
+        if vanTripsFound:
+            outfile.write(sep + 'Segment' + sep + 'Number of trips\n')
+            outfile.write(sep + 'Service'      + sep + str(np.sum(vanTripsService)     ) + '\n')
+            outfile.write(sep + 'Construction' + sep + str(np.sum(vanTripsConstruction)) + '\n')
+        else:
+            outfile.write(sep + 'Van trips not found in outputfolder.' + '\n')
 
         
         #----------------------- Transported weight ---------------------------
@@ -643,6 +643,33 @@ def actually_run_module(args):
         
         print("\tVehicle Kilometers Travelled"), log_file.write("\tVehicle Kilometers Travelled\n")
       
+        # VKM by logistic segment and vehicle type
+        outfile.write('\nVehicle kilometers (Total; based on skim) (freight/parcel; by logistic segment and vehicle type)' + sep + '\n')
+        outfile.write(sep + 'LS' + sep)
+        for vt in range(nVT):
+            outfile.write(vtNames[vt] + sep)
+        outfile.write('\n')
+        for ls in range(nLS-1):
+            outfile.write(sep + lsNames[ls])
+            for vt in range(nVT):
+                value = np.sum(trips.loc[(trips['LOG_SEG']==ls) & (trips['VEHTYPE']==vt),'DIST'])
+                outfile.write(sep + str(value))
+            outfile.write('\n')
+        nParcelTripsVan  = np.sum(parcelTrips.loc[parcelTrips['VehType']=='Van', 'DIST'])
+        nParcelTripsLEVV = np.sum(parcelTrips.loc[parcelTrips['VehType']=='LEVV','DIST'])
+        outfile.write(sep + lsNames[nLS-1] + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep)
+        outfile.write(str(nParcelTripsVan) + sep + str(nParcelTripsLEVV) + '\n')
+
+        # VKMs by van traffic segment
+        outfile.write('\nVehicle kilometers (Total; based on skim) (service vans; by logistic segment)' + sep + '\n')
+        if vanTripsFound:
+            outfile.write(sep + 'Segment' + sep + 'Number of trips\n')
+            outfile.write(sep + 'Service'      + sep + str(np.sum(vanTripsService      * skimDistance / 1000)) + '\n')
+            outfile.write(sep + 'Construction' + sep + str(np.sum(vanTripsConstruction * skimDistance / 1000)) + '\n')
+        else:
+            outfile.write(sep + 'Van trips not found in outputfolder.' + '\n')
+            
+            
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (Total) (freight/parcel; by logistic segment)\n")
         outfile.write(f"{sep}LS{sep}VKT\n")
@@ -661,7 +688,12 @@ def actually_run_module(args):
             VKT_VEH[i] = np.round(np.sum(temp),2)
             outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")       
-
+        
+        outfile.write("\nVehicle Kilometers Travelled (NL) (service vans; by segment)\n")
+        outfile.write(f"{sep}Segment{sep}VKT\n")
+        outfile.write(sep + 'Service'      + sep + str(np.sum(linksLoaded['LENGTH'] * linksLoaded['N_VAN_S'])) + '\n')
+        outfile.write(sep + 'Construction' + sep + str(np.sum(linksLoaded['LENGTH'] * linksLoaded['N_VAN_C'])) + '\n')
+            
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (in Zuid-Holland) (freight/parcel; by logistic segment)\n")
         outfile.write(f"{sep}LS{sep}VKT\n")
@@ -691,6 +723,11 @@ def actually_run_module(args):
                 VKT_VEH[i] = np.round(np.sum(temp),2)
                 outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")    
+
+        outfile.write("\nVehicle Kilometers Travelled (in Zuid-Holland) (service vans; by segment)\n")
+        outfile.write(f"{sep}Segment{sep}VKT\n")
+        outfile.write(sep + 'Service'      + sep + str(np.sum(linksLoadedZH['LENGTH'] * linksLoadedZH['N_VAN_S'])) + '\n')
+        outfile.write(sep + 'Construction' + sep + str(np.sum(linksLoadedZH['LENGTH'] * linksLoadedZH['N_VAN_C'])) + '\n')
          
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (in Rotterdam) (freight/parcel; by logistic segment)\n")
@@ -721,6 +758,11 @@ def actually_run_module(args):
                 VKT_VEH[i] = np.round(np.sum(temp),2)
                 outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n") 
+
+        outfile.write("\nVehicle Kilometers Travelled (in Rotterdam) (service vans; by segment)\n")
+        outfile.write(f"{sep}Segment{sep}VKT\n")
+        outfile.write(sep + 'Service'      + sep + str(np.sum(linksLoadedRdam['LENGTH'] * linksLoadedRdam['N_VAN_S'])) + '\n')
+        outfile.write(sep + 'Construction' + sep + str(np.sum(linksLoadedRdam['LENGTH'] * linksLoadedRdam['N_VAN_C'])) + '\n')
         
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (in The Hague) (freight/parcel; by logistic segment)\n")
@@ -766,72 +808,92 @@ def actually_run_module(args):
         
         print('\tEmissions'), log_file.write("\tEmissions\n")
         
-        outfile.write('\nEmissions from network (freight/parcel; Total)\n')
+        outfile.write('\nEmissions from network (freight/parcel/vans; Total)\n')
         outfile.write('Type' + sep + 'kg\n')
         for emission in ['CO2','SO2','PM','NOX']:
             total = np.sum(linksLoaded[emission])
             outfile.write(emission + sep + str(total) + '\n')
 
-        outfile.write('\nEmissions from network (freight/parcel; in Zuid-Holland)\n')
+        outfile.write('\nEmissions from network (freight/parcel/vans; in Zuid-Holland)\n')
         outfile.write('Type' + sep + 'kg\n')
         for emission in ['CO2','SO2','PM','NOX']:
             total = np.sum(linksLoadedZH[emission])
             outfile.write(emission + sep + str(total) + '\n')
             
-        outfile.write('\nEmissions from network (freight/parcel; in Rotterdam)\n')
+        outfile.write('\nEmissions from network (freight/parcel/vans; in Rotterdam)\n')
         outfile.write('Type' + sep + 'kg\n')
         for emission in ['CO2','SO2','PM','NOX']:
             total = np.sum(linksLoadedRdam[emission])
             outfile.write(emission + sep + str(total) + '\n')
 
-        outfile.write('\nEmissions from network (freight/parcel; in The Hague)\n')
+        outfile.write('\nEmissions from network (freight/parcel/vans; in The Hague)\n')
         outfile.write('Type' + sep + 'kg\n')
         for emission in ['CO2','SO2','PM','NOX']:
             total = np.sum(linksLoadedDH[emission])
             outfile.write(emission + sep + str(total) + '\n')
             
-        outfile.write('\nEmissions from network (freight/parcel; in ZEZ)\n')
+        outfile.write('\nEmissions from network (freight/parcel/vans; in ZEZ)\n')
         outfile.write('Type' + sep + 'kg\n')
         for emission in ['CO2','SO2','PM','NOX']:
             total = np.sum(linksLoadedZEZ[emission])
             outfile.write(emission + sep + str(total) + '\n')
             
-        outfile.write('\nEmissions from network (Total) (freight/parcel; by logistic segment)\n')
+        outfile.write('\nEmissions from network (Total) (freight/parcel/vans; by logistic segment)\n')
         outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
         for ls in range(nLS):
             for emission in ['CO2','SO2','PM','NOX']:
                 total = np.sum(linksLoaded[emission + '_LS' + str(ls)])
                 outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')                     
-
-        outfile.write('\nEmissions from network (in Zuid-Holland) (freight/parcel; by logistic segment)\n')
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoaded[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')   
+                
+        outfile.write('\nEmissions from network (in Zuid-Holland) (freight/parcel/vans; by logistic segment)\n')
         outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
         for ls in range(nLS):
             for emission in ['CO2','SO2','PM','NOX']:
                 total = np.sum(linksLoadedZH[emission + '_LS' + str(ls)])
                 outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedZH[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
                 
-        outfile.write('\nEmissions from network (in Rotterdam) (freight/parcel; by logistic segment)\n')
+        outfile.write('\nEmissions from network (in Rotterdam) (freight/parcel/vans; by logistic segment)\n')
         outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
         for ls in range(nLS):
             for emission in ['CO2','SO2','PM','NOX']:
                 total = np.sum(linksLoadedRdam[emission + '_LS' + str(ls)])
                 outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
-
-        outfile.write('\nEmissions from network (in The Hague) (freight/parcel; by logistic segment)\n')
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedRdam[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
+                
+        outfile.write('\nEmissions from network (in The Hague) (freight/parcel/vans; by logistic segment)\n')
         outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
         for ls in range(nLS):
             for emission in ['CO2','SO2','PM','NOX']:
                 total = np.sum(linksLoadedDH[emission + '_LS' + str(ls)])
                 outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedDH[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
                 
-        outfile.write('\nEmissions from network (in ZEZ) (freight/parcel; by logistic segment)\n')
+        outfile.write('\nEmissions from network (in ZEZ) (freight/parcel/vans; by logistic segment)\n')
         outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
         for ls in range(nLS):
             for emission in ['CO2','SO2','PM','NOX']:
                 total = np.sum(linksLoadedZEZ[emission + '_LS' + str(ls)])
                 outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedZEZ[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
                 
-        outfile.write('\nEmissions from network (freight/parcel; by municipality)\n')
+        outfile.write('\nEmissions from network (freight/parcel/vans; by municipality)\n')
         outfile.write('Municipality' + sep + 'Type' + sep + 'kg (all)' + sep + 'kg (parcel)' + '\n')
         for gem in np.unique(linksLoaded['Gemeentena']):
             currentLinks = linksLoaded[linksLoaded['Gemeentena']==gem]
@@ -851,14 +913,18 @@ def actually_run_module(args):
         log_file.write("End simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
         log_file.close()    
 
-        root.update_statusbar("Output Indicators: Done")
-        root.progressBar['value'] = 100
+        if root != '':
+            root.update_statusbar("Output Indicators: Done")
+            root.progressBar['value'] = 100
+            
+            # 0 means no errors in execution
+            root.returnInfo = [0, [0,0]]
+            
+            return root.returnInfo
         
-        # 0 means no errors in execution
-        root.returnInfo = [0, [0,0]]
-        
-        return root.returnInfo
-        
+        else:
+            return [0, [0,0]]
+            
         
     except BaseException:
         import sys
@@ -868,17 +934,19 @@ def actually_run_module(args):
         log_file.write("Execution failed!")
         log_file.close()
         
-        # Use this information to display as error message in GUI
-        root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
-        
-        if __name__ == '__main__':
-            root.update_statusbar("Output Indicators: Execution failed!")
-            errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
-            root.error_screen(text=errorMessage, size=[900,350])     
+        if root != '':
+            # Use this information to display as error message in GUI
+            root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
             
+            if __name__ == '__main__':
+                root.update_statusbar("Output Indicators: Execution failed!")
+                errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
+                root.error_screen(text=errorMessage, size=[900,350])                
+            
+            else:
+                return root.returnInfo
         else:
-            return root.returnInfo
-
+            return [1, [sys.exc_info()[0], traceback.format_exc()]]
  
     
     

@@ -112,7 +112,8 @@ def actually_run_module(args):
         root    = args[0]
         varDict = args[1]
         
-        root.progressBar['value'] = 0
+        if root != '':
+            root.progressBar['value'] = 0
                 
         # Define folders relative to current datapath
         datapathI = varDict['INPUTFOLDER']
@@ -279,16 +280,16 @@ def actually_run_module(args):
             delivUCCVans.index = np.arange(len(delivUCCVans))
             delivUCCLEVV.index = np.arange(len(delivUCCLEVV))
             
-            # Initialize a list of arrays to be filled in the scheduling procedure           
+            # Initialize a list of arrays to be filled in the scheduling procedure
+            uccDepotIDs = [x + 1 + nParcelNodes for x in range(len(uccZones))]
             uccListVans = [[np.zeros((1,1),dtype=int)[0] \
-                              for ship in range(int(np.ceil(delivUCCVans.loc[delivUCCVans['Depot']==depotID,'Parcels'].sum()/maxVehicleLoad)))] \
-                              for depotID in depotIDs]
+                              for ship in range(int(np.ceil(delivUCCVans.loc[delivUCCVans['Depot']==uccDepotID,'Parcels'].sum()/maxVehicleLoad)))] \
+                              for uccDepotID in uccDepotIDs]
 
             uccListLEVV = [[np.zeros((1,1),dtype=int)[0] \
-                             for ship in range(int(np.ceil(delivUCCVans.loc[delivUCCVans['Depot']==depotID,'Parcels'].sum()/int(maxVehicleLoad/5))))] \
-                             for depotID in depotIDs]
-
-            uccDepotIDs = [x + nParcelNodes for x in depotIDs]
+                             for ship in range(int(np.ceil(delivUCCVans.loc[delivUCCVans['Depot']==uccDepotID,'Parcels'].sum()/int(maxVehicleLoad/5))))] \
+                             for uccDepotID in uccDepotIDs]
+            
             deliveries2  = parcelSched(delivUCCVans, parcelSkimUCC, uccZones, uccDepotIDs, uccZonesDict,     maxVehicleLoad,    dropOffTime, uccListVans, skimTravTime, skimDistance, parcelDepTime, parcelNodesCEP, 2, label)
             deliveries3  = parcelSched(delivUCCLEVV, parcelSkimUCC, uccZones, uccDepotIDs, uccZonesDict, int(maxVehicleLoad/5), dropOffTime, uccListLEVV, skimTravTime, skimDistance, parcelDepTime, parcelNodesCEP, 3, label)    
     
@@ -429,13 +430,17 @@ def actually_run_module(args):
         log_file.write("End simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
         log_file.close()    
 
-        root.update_statusbar("Parcel Scheduling: Done")
-        root.progressBar['value'] = 100
+        if root != '':
+            root.update_statusbar("Parcel Scheduling: Done")
+            root.progressBar['value'] = 100
+            
+            # 0 means no errors in execution
+            root.returnInfo = [0, [0,0]]
+            
+            return root.returnInfo
         
-        # 0 means no errors in execution
-        root.returnInfo = [0, [0,0]]
-        
-        return root.returnInfo
+        else:
+            return [0, [0,0]]
             
         
     except BaseException:
@@ -446,16 +451,19 @@ def actually_run_module(args):
         log_file.write("Execution failed!")
         log_file.close()
         
-        # Use this information to display as error message in GUI
-        root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
-        
-        if __name__ == '__main__':
-            root.update_statusbar("Parcel Scheduling: Execution failed!")
-            errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
-            root.error_screen(text=errorMessage, size=[900,350])     
+        if root != '':
+            # Use this information to display as error message in GUI
+            root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
             
+            if __name__ == '__main__':
+                root.update_statusbar("Parcel Scheduling: Execution failed!")
+                errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
+                root.error_screen(text=errorMessage, size=[900,350])                
+            
+            else:
+                return root.returnInfo
         else:
-            return root.returnInfo
+            return [1, [sys.exc_info()[0], traceback.format_exc()]]
 
 
 
@@ -636,54 +644,61 @@ def parcelSched(delivToSched, skim, originZones, depotIDs, depotDict, maxVehicle
         
 if __name__ == '__main__':
     
-    INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
-    PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
-    
-    SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE    = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		    = INPUTFOLDER + 'links_v5.shp'
-    NODES           = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES           = INPUTFOLDER + 'Zones_v4.shp'
-    SEGS            = INPUTFOLDER + 'SEGS2020.csv'
-    COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS2_2016.csv'
-    PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
-    
-    YEARFACTOR = 193
-    
-    NUTSLEVEL_INPUT = 2
-    
-    PARCELS_PER_HH	 = 0.195
-    PARCELS_PER_EMPL = 0.073
-    PARCELS_MAXLOAD	 = 180
-    PARCELS_DROPTIME = 120
-    PARCELS_SUCCESS_B2C   = 0.75
-    PARCELS_SUCCESS_B2B   = 0.95
-    PARCELS_GROWTHFREIGHT = 1.0
-    
-    SHIPMENTS_REF = ""
-    SELECTED_LINKS = ""
-    
+    INPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/'
+    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunUCC2030H/'
+    PARAMFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
+    SKIMTIME = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2030/skimTijd_REF.mtx'
+    SKIMDISTANCE = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2030/skimAfstand_REF.mtx'
+    LINKS = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/links_v5_2030H.shp'
+    NODES = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/nodes_v5.shp'
+    ZONES = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/Zones_v5.shp'
+    SEGS = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/SEGS2030H_verrijkt.csv'
+    DISTRIBUTIECENTRA = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/distributieCentra.csv'
+    COST_VEHTYPE = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/Cost_VehType_2030H.csv'
+    COST_SOURCING = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/Cost_Sourcing_2030H.csv'
+    COMMODITYMATRIX = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/CommodityMatrixNUTS3_2030H.csv'
+    PARCELNODES = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/parcelNodes_v2.shp'
+    CEP_SHARES = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2030/CEPshares.csv'
+    MRDH_TO_NUTS3 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/MRDHtoNUTS32013.csv'
+    NUTS3_TO_MRDH = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/NUTS32013toMRDH.csv'
+    PARCELS_PER_HH = 0.224
+    PARCELS_PER_EMPL = 0.082
+    PARCELS_MAXLOAD = 180.0
+    PARCELS_DROPTIME = 120.0
+    PARCELS_SUCCESS_B2C = 0.75
+    PARCELS_SUCCESS_B2B = 0.95
+    PARCELS_GROWTHFREIGHT = 2.0
+    YEARFACTOR = 209.0
+    NUTSLEVEL_INPUT = 3.0
     IMPEDANCE_SPEED = 'V_FR_OS'
-    
-    LABEL = 'REF'
+    N_CPU = ''
+    SHIPMENTS_REF = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunUCC2030H/Shipments_REF.csv'
+    SELECTED_LINKS = ''
+    LABEL = 'UCC'
     
     MODULES = ['SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
     
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, LINKS, NODES, ZONES, SEGS, \
-            COMMODITYMATRIX, PARCELNODES, PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
+    
+    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
+            LINKS, NODES, ZONES, SEGS, \
+            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING, CEP_SHARES, \
+            COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
+            PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
             YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED, \
+            IMPEDANCE_SPEED, N_CPU, \
             SHIPMENTS_REF, SELECTED_LINKS,\
             LABEL, \
             MODULES]
 
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES", "SEGS", \
-                  "COMMODITYMATRIX", "PARCELNODES", "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
+    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
+                  "LINKS", "NODES", "ZONES", "SEGS", \
+                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", "CEP_SHARES",\
+                  "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
+                  "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
                   "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED", \
+                  "IMPEDANCE_SPEED", "N_CPU", \
                   "SHIPMENTS_REF", "SELECTED_LINKS", \
                   "LABEL", \
                   "MODULES"]

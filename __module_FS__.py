@@ -116,12 +116,11 @@ def actually_run_module(args):
         datapathO  = varDict['OUTPUTFOLDER']        
         pathZones  = varDict['ZONES']
         pathSegs   = varDict['SEGS']
+        pathDC     = varDict['DISTRIBUTIECENTRA']
         
-        doValidationChecks = False
+        doValidationChecks = True
 
         maxZoneNumberZH    = 7400
-        
-        removeIndustryLognodes = True
         minEmplLevelOutput = 3
         
         start_time = time.time()
@@ -172,7 +171,52 @@ def actually_run_module(args):
         #Zonal / Socioeconomic data
         segs       = pd.read_csv(pathSegs)
         segs.index = segs['zone']
-        segsEmpl   = np.round(segs.iloc[:, -6:].copy())
+        emplCols = ['INDUSTRIE','DETAIL','LANDBOUW','DIENSTEN','OVERHEID','OVERIG']
+        segsEmpl   = segs[emplCols].copy().round()
+  
+        #Adjust zonal employment data for distribution centres and transshipment terminals
+        #in zones with DC, the jobs in DC are known and subtracted from industry jobs
+        dcs     = pd.read_csv(pathDC)   #read DC file
+        dcs_wp  = dcs.pivot_table(index='AREANR', values='WP', aggfunc='sum')  #aggregate jobs (WP) per zone
+                  
+        #add jobs in DC to segsEmpl df
+        segsEmpl['WP'] = np.zeros(len(segsEmpl))
+        for x in dcs_wp.index:
+            segsEmpl['WP'][x] = dcs_wp['WP'][x]     
+
+        #update number of industrie jobs and set to 0 in case it got smaller than 0
+        segsEmpl['INDUSTRIE_voorCorr'] = segsEmpl['INDUSTRIE'].copy() #make a copy to keep track of changes
+        segsEmpl['INDUSTRIE'] = segsEmpl['INDUSTRIE_voorCorr'] - segsEmpl['WP']
+        segsEmpl['INDUSTRIE'][segsEmpl['INDUSTRIE'] <0] = 0
+
+        jobs_init     = segsEmpl['INDUSTRIE_voorCorr'].sum()
+        jobs_zonderDC = segsEmpl['INDUSTRIE'].sum()
+        
+        #in zones with transshipment terminals (lognode=1), remaining industry jobs are set to zero
+        segsEmpl['LOGNODE'] = zones['LOGNODE'].copy()
+        segsEmpl['INDUSTRIE'][segsEmpl['LOGNODE']==1]=0
+       
+        jobs_final   = segsEmpl['INDUSTRIE'].sum()
+        
+        print('INDUSTRIE jobs in SEGs', jobs_init, '\nINDUSTRIE jobs w/o DC', jobs_zonderDC, 
+              '\nINDUSTRIE jobs in DC: ', dcs_wp['WP'].sum(), '\nINDUSTRIE jobs w/o DC and TT', jobs_final)
+
+        print('Adjusting zonal data for jobs in DCs and transshipment terminals to avoid double counting... \n',
+              '\t INDUSTRIE jobs before adjustment: ', int(jobs_init), '\n',
+              '\t INDUSTRIE jobs in DCs (input):    ', int(dcs_wp['WP'].sum()), '\n',
+              '\t INDUSTRIE jobs removed for DC:    ', int(jobs_init - jobs_zonderDC), '\n',
+              '\t INDUSTRIE jobs removed for TT:    ', int(jobs_zonderDC - jobs_final), '\n',
+              '\t INDUSTRIE jobs w/o DC and TT:     ', int(jobs_final), '\n')
+
+        log_file.write('\Adjusting zonal data for jobs in DCs and transshipment terminals to avoid double counting... \n' +
+                       '\tINDUSTRIE jobs before adjustment: ' + str(int(jobs_init)) + '\n' +
+                       '\tINDUSTRIE jobs in DCs (input):    ' + str(int(dcs_wp['WP'].sum())) + '\n' + 
+                       '\tINDUSTRIE jobs removed for DC:    ' + str(int(jobs_init - jobs_zonderDC))  +  '\n' + 
+                       '\tINDUSTRIE jobs removed for TT:    ' + str(int(jobs_zonderDC - jobs_final)) +  '\n' + 
+                       '\tINDUSTRIE jobs w/o DC and TT:     '   + str(int(jobs_final)) + '\n')
+        
+        #Remove columns that are not needed for synthesis
+        segsEmpl = segsEmpl.drop(['INDUSTRIE_voorCorr', 'WP', 'LOGNODE'], 1)
 
         if root != '':
             root.progressBar['value'] = 3
@@ -266,7 +310,7 @@ def actually_run_module(args):
         
         #check if size fits in zone                         
                     # if firm is not way too large, accept it and add it to list of firms
-                    if size <= 1.5* jobs_to_assign:
+                    if size <= 1.5 * jobs_to_assign:
                         # print(firm)
                         assigned_jobs += size
                         
@@ -280,7 +324,31 @@ def actually_run_module(args):
                         jobs_to_assign -= size
                         
                     else: 
-                        break
+                        #determine firm size based on remaining jobs to assign
+                        # size = np.random.randint(8,12)/10*jobs_to_assign
+                        size = jobs_to_assign
+                        assigned_jobs += int(size)
+
+                        if size >= 100:
+                            sizeClass = 'Groot'
+                        elif size >= 50: 
+                            sizeClass = 'Middelgroot'
+                        elif size >= 20: 
+                            sizeClass = 'Middel'
+                        elif size >= 10: 
+                            sizeClass = 'Middelklein'
+                        elif size >= 5: 
+                            sizeClass = 'Klein'
+                        else: 
+                            sizeClass = 'Micro'
+                        
+                        firmZones.append(zone)
+                        firmSectors.append(sectors_dict[str(firm[0][0])])
+                        firmSizes.append(sizeClass)
+                        firmEmpl.append(size)
+                        zoneEmpl.append(assigned_jobs)      
+                        
+                        jobs_to_assign -= size
 
             if (zone-1)%int((maxZoneNumberZH-1)/20) == 0:
                 print('\t' + str(int(round(((zone-1) / (maxZoneNumberZH-1))*100, 0))) + '%')
@@ -302,11 +370,10 @@ def actually_run_module(args):
         #put results in a dataframe
         firms_df = pd.DataFrame(allFirms, columns=('FIRM_ID','MRDH_ZONE','SECTOR','SIZE','EMPL')) 
 
-
         if root != '':
-            root.progressBar['value'] = 65    
-        
-        # --------------------------- Some quick analyses ------------------------------
+            root.progressBar['value'] = 65   
+            
+        # --------------------------- Optional validation checks ------------------------------
         
         if doValidationChecks:
             unique_emplSize, counts_emplSize = np.unique(allFirms[:,1],return_counts=True)
@@ -319,7 +386,7 @@ def actually_run_module(args):
             print(sector_counts)            
             
             #this one is used
-            zones_jobs     = firms_df.pivot_table(index='zone', columns='SECTOR', values='EMPL', aggfunc='sum')
+            zones_jobs = firms_df.pivot_table(index='MRDH_ZONE', columns='SECTOR', values='EMPL', aggfunc='sum')
             zones_jobs['TOTAAL'] = zones_jobs.sum(axis=1, skipna=True)
             zones_jobs = zones_jobs.fillna(0)
             
@@ -340,26 +407,16 @@ def actually_run_module(args):
             
             df_out = df_out.fillna(0)
             
-            label= 'v15'
-            df_out.to_csv(f'{datapathO}SynthFirms_{label}_zones.csv')    
+            synthFirmsLabel= 'run_14'            
+            df_out.to_csv(f'{datapathO}SynthJobsPerZone_{synthFirmsLabel}.csv')    
                     
             #make crosstab sector X firm size for comparison with input
-            sectorsXsize_out = firms_df.pivot_table(index='sector', columns='SIZE', values='MRDH_ZONE', aggfunc='count')
+            sectorsXsize_out = firms_df.pivot_table(index='SECTOR', columns='SIZE', values='MRDH_ZONE', aggfunc='count')
             sectorsXsize_out = sectorsXsize_out.fillna(0)
-            sectorsXsize_out.to_csv(f'{datapathO}SynthFirms_{label}_sectorsXsize.csv')   
+            sectorsXsize_out.to_csv(f'{datapathO}SynthFirms_{synthFirmsLabel}_sectorsXsize.csv')    
         
 
         # ------------------------- Draw coordinates  ------------------------------
-        # Remove industry firms in logistic node zones (this demand is covered by the shares of logistic flow types already)
-        toKeep = []
-        if removeIndustryLognodes:
-            for i in range(len(allFirms)):
-                if zones.at[firmZones[i],'LOGNODE'] == 0:
-                    toKeep.append(i)
-                else:
-                    if firmSectors[i] != 'INDUSTRIE':
-                        toKeep.append(i)
-        firms_df = firms_df.loc[toKeep,:]
 
         # Remove small firms
         firms_df = firms_df[firms_df['EMPL'] > minEmplLevelOutput]
@@ -440,6 +497,9 @@ def actually_run_module(args):
             
         firms_df.to_csv(datapathO + 'Firms.csv', index=False)   
         
+        if doValidationChecks:
+            firms_df.to_csv(datapathO + f'Firms_{synthFirmsLabel}.csv', index=False)   
+            
         
             
         # --------------------------- End of module ---------------------------------
@@ -496,20 +556,23 @@ if __name__ == '__main__':
     OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
     PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
     
-    SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE    = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		    = INPUTFOLDER + 'links_v5.shp'
-    NODES           = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES           = INPUTFOLDER + 'Zones_v5.shp'
-    SEGS            = INPUTFOLDER + 'SEGS2016_verrijkt.csv'
-    COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS2_2016.csv'
-    PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
-    MRDH_TO_NUTS3   = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
-    NUTS3_TO_MRDH   = PARAMFOLDER + 'NUTS32013toMRDH.csv'
+    SKIMTIME            = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    LINKS		        = INPUTFOLDER + 'links_v5.shp'
+    NODES               = INPUTFOLDER + 'nodes_v5.shp'
+    ZONES               = INPUTFOLDER + 'Zones_v4.shp'
+    SEGS                = INPUTFOLDER + 'SEGS2016_verrijkt.csv'
+    COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
+    PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
+    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
+    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
+    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
+    MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
+    NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
     
-    YEARFACTOR = 193
+    YEARFACTOR = 255
     
-    NUTSLEVEL_INPUT = 2
+    NUTSLEVEL_INPUT = 3
     
     PARCELS_PER_HH	 = 0.195
     PARCELS_PER_EMPL = 0.073
@@ -521,6 +584,7 @@ if __name__ == '__main__':
     
     SHIPMENTS_REF = ""
     SELECTED_LINKS = ""
+    N_CPU = ""
     
     IMPEDANCE_SPEED = 'V_FR_OS'
     
@@ -528,22 +592,26 @@ if __name__ == '__main__':
     
     MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
     
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, LINKS, NODES, ZONES, SEGS, \
+    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
+            LINKS, NODES, ZONES, SEGS, \
+            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING,
             COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
             PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
             YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED, \
+            IMPEDANCE_SPEED, N_CPU, \
             SHIPMENTS_REF, SELECTED_LINKS,\
             LABEL, \
             MODULES]
 
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES", "SEGS", \
+    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
+                  "LINKS", "NODES", "ZONES", "SEGS", \
+                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
                   "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
                   "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
                   "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED", \
+                  "IMPEDANCE_SPEED", "N_CPU", \
                   "SHIPMENTS_REF", "SELECTED_LINKS", \
                   "LABEL", \
                   "MODULES"]
@@ -553,7 +621,7 @@ if __name__ == '__main__':
         varDict[varStrings[i]] = args[i]
         
     # Run the module
-#    main(varDict)
+    main(varDict)
 
         
         

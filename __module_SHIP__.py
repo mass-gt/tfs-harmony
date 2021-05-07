@@ -115,12 +115,17 @@ def actually_run_module(args):
         datapathP = varDict['PARAMFOLDER']
         yearFac   = varDict['YEARFACTOR']
         zonesPath        = varDict['ZONES']
+        segsPath         = varDict['SEGS']
         skimTravTimePath = varDict['SKIMTIME']
         skimDistancePath = varDict['SKIMDISTANCE']
         shipmentsRef     = varDict['SHIPMENTS_REF']
         parcelDepotsPath = varDict['PARCELNODES']
-        parcelsGrowthFreight = varDict['PARCELS_GROWTHFREIGHT']
-        pathNUTS3toMRDH  = varDict['NUTS3_TO_MRDH']
+        parcelsGrowthFreight  = varDict['PARCELS_GROWTHFREIGHT']
+        pathNUTS3toMRDH       = varDict['NUTS3_TO_MRDH']
+        distributieCentraPath = varDict['DISTRIBUTIECENTRA']
+        costVehTypePath  = varDict['COST_VEHTYPE']
+        costSourcingPath = varDict['COST_SOURCING']
+        
         label            = varDict['LABEL']
 
         start_time = time.time()
@@ -215,9 +220,13 @@ def actually_run_module(args):
         if root != '':
             root.progressBar['value'] = 1
         
+        # Socio-economic data of zones
+        segs = pd.read_csv(segsPath)
+        segs.index  = segs['zone']
+        
         # Import internal zones data
         zonesShape = read_shape(zonesPath)
-        zonesShape.sort_values('AREANR')
+        zonesShape = zonesShape.sort_values('AREANR')
         zonesShape.index = zonesShape['AREANR']
         zoneID      = np.array(zonesShape['AREANR'])
         zoneX       = np.array(zonesShape['X'])
@@ -231,6 +240,33 @@ def actually_run_module(args):
         invZoneDict = dict((v, k) for k, v in zoneDict.items())
         zoneID      = np.arange(nInternalZones)
         
+        # Calculate urban density of zones
+        urbanDensityCat = {}
+        for i in range(nInternalZones):
+            urbanDensity = (segs.at[zoneDict[i],'1: woningen'] + segs.at[zoneDict[i],'9: arbeidspl_totaal']) / (zonesShape.at[zoneDict[i],'area'] / 100000)
+            if urbanDensity < 500:
+                urbanDensityCat[zoneDict[i]] = 1
+            elif urbanDensity < 1000:
+                urbanDensityCat[zoneDict[i]] = 2
+            elif urbanDensity < 1500:
+                urbanDensityCat[zoneDict[i]] = 3
+            elif urbanDensity < 2500:
+                urbanDensityCat[zoneDict[i]] = 4
+            else:
+                urbanDensityCat[zoneDict[i]] = 5
+        for i in range(nSuperZones):
+            urbanDensityCat[99999901+i] = 1
+        
+        # Is a zone a DC or Producer/Consumer zone
+        isDC = {}
+        isPC = {}
+        for i in zonesShape.index:
+            isDC[i] = int(zonesShape.at[i,'LOGNODE']==2)
+            isPC[i] = int(zonesShape.at[i,'LOGNODE']==0)
+        for i in range(nSuperZones):
+            isDC[99999901+i] = 0
+            isPC[99999901+i] = 0
+                
         if root != '':
             root.progressBar['value'] = 1.2
         
@@ -250,7 +286,7 @@ def actually_run_module(args):
             root.progressBar['value'] = 1.5
         
         # Import logistic nodes data
-        logNodes  = pd.read_csv(datapathI + 'distributieCentra.csv')
+        logNodes  = pd.read_csv(distributieCentraPath)
         logNodes  = logNodes[~pd.isna(logNodes['AREANR'])]
         logNodes['AREANR'] = [invZoneDict[x] for x in logNodes['AREANR']]
         logNodesX = np.array(logNodes['Xcoor'])
@@ -291,12 +327,12 @@ def actually_run_module(args):
             root.progressBar['value'] = 2.5
         
         # Cost parameters by vehicle type with size (small/medium/large)
-        costParams  = pd.read_csv(datapathP + "CostParameters.csv", index_col=0)
+        costParams  = pd.read_csv(costVehTypePath, index_col=0)
         costPerKm   = np.array(costParams['CostPerKm'])
         costPerHour = np.array(costParams['CostPerH'])
         
         # Cost parameters generic for sourcing (vehicle type is now known yet then)
-        costParamsSourcing   = pd.read_csv(datapathP + "CostParameters_Sourcing.txt",sep='\t')
+        costParamsSourcing   = pd.read_csv(costSourcingPath)
         costPerKmSourcing    = costParamsSourcing['CostPerKm'][0]
         costPerHourSourcing  = costParamsSourcing['CostPerHour'][0]     
         
@@ -964,7 +1000,114 @@ def actually_run_module(args):
                                             if count%300 == 0:
                                                 root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightImport / totalWeightImport)                                        
 
+            nShips = count
             
+            
+            # ------------------------ Delivery time choice ---------------------------
+            print('Delivery time choice...')
+            log_file.write('Delivery time choice...\n')
+            if root != '':
+                root.progressBar['value'] = 90
+                root.update_statusbar("Shipment Synthesizer: Delivery time choice")
+                
+            # Determine delivery time period for each shipment
+            deliveryTimePeriod = {}
+            
+            for i in range(nShips):
+                    
+                orig = zoneDict[origZone[i]]
+                dest = zoneDict[destZone[i]]
+                
+                if logisticSegment[i] == 0:
+                    tPeriods = {0:[0,4], 1:[4,8], 2:[8,12], 3:[12,16], 4:[16,19], 5:[19,24]}
+                    
+                    ASC = {}
+                    beta_ToDC = {}
+                    beta_ToPC = {}
+                    beta_FromDC = {}
+                    beta_SmallTruck = {}
+                    beta_MediumTruck = {}
+                    beta_TruckTrailer = {}
+                    beta_TractorTrailer = {}
+                    
+                    ASC[0] = -0.5902
+                    ASC[1] = -2.4131
+                    ASC[2] = -1.2011
+                    ASC[3] = -0.9723
+                    ASC[4] = 0
+                    ASC[5] = 0
+                    beta_durTimePeriod = 1
+                    beta_ToDC[0]   = 0.1379
+                    beta_ToDC[1]   = 1.4431
+                    beta_ToDC[2]   = 0.0000
+                    beta_ToDC[3]   = 0.0000
+                    beta_ToDC[4]   = 0.0000
+                    beta_ToDC[5]   = 0.0000
+                    beta_ToPC[0]   = 1.6532
+                    beta_ToPC[1]   = 2.2624
+                    beta_ToPC[2]   = 1.2507
+                    beta_ToPC[3]   = 1.2349
+                    beta_ToPC[4]   = 0.0000
+                    beta_ToPC[5]   = 0.0000
+                    beta_FromDC[0] = -0.7145
+                    beta_FromDC[1] = -0.6938
+                    beta_FromDC[2] =  0.7519
+                    beta_FromDC[3] =  1.0655
+                    beta_FromDC[4] =  0.0000
+                    beta_FromDC[5] =  0.0000
+                    beta_SmallTruck[0]  =  1.4553
+                    beta_SmallTruck[1]  =  4.5401
+                    beta_SmallTruck[2]  =  1.0117
+                    beta_SmallTruck[3]  = -2.9132
+                    beta_SmallTruck[4]  =  0.0000
+                    beta_SmallTruck[5]  =  0.0000
+                    beta_MediumTruck[0] = -2.5035
+                    beta_MediumTruck[1] = -1.8783
+                    beta_MediumTruck[2] = -2.8225
+                    beta_MediumTruck[3] = -2.5774
+                    beta_MediumTruck[4] =  0.0000
+                    beta_MediumTruck[5] =  0.0000
+                    beta_TruckTrailer[0]   = -2.5121
+                    beta_TruckTrailer[1]   = -1.1107
+                    beta_TruckTrailer[2]   = -0.3647
+                    beta_TruckTrailer[3]   =  0.6568       
+                    beta_TruckTrailer[4]   =  0.0000
+                    beta_TruckTrailer[5]   =  0.0000 
+                    beta_TractorTrailer[0] =  0.3760
+                    beta_TractorTrailer[1] = -0.1040
+                    beta_TractorTrailer[2] = -0.4233
+                    beta_TractorTrailer[3] = -0.2613
+                    beta_TractorTrailer[4] =  0.0000
+                    beta_TractorTrailer[5] =  0.0000
+                    
+                    utilities = {}
+                    for alt in range(6):
+                        utilities[alt] =    ASC[alt] + \
+                                            beta_durTimePeriod       * np.log(2 * (tPeriods[alt][1]-tPeriods[alt][0])) + \
+                                            beta_ToDC[alt]           * isDC[dest] * urbanDensityCat[dest] + \
+                                            beta_ToPC[alt]           * isPC[dest] * urbanDensityCat[dest] + \
+                                            beta_FromDC[alt]         * isDC[orig] * urbanDensityCat[orig] + \
+                                            beta_SmallTruck[alt]     * (vehicleType[i] == 0) + \
+                                            beta_MediumTruck[alt]    * (vehicleType[i] == 1) + \
+                                            beta_TruckTrailer[alt]   * (vehicleType[i] in (3,4)) + \
+                                            beta_TractorTrailer[alt] * (vehicleType[i] == 5)
+                    
+                    utilities = np.array(list(utilities.values()))
+                    probs     = np.exp(utilities)
+                    probs    /= np.sum(probs)
+                    cumProbs  = np.cumsum(probs)
+                    cumProbs /= cumProbs[-1]
+                    
+                    deliveryTimePeriod[i] = np.where(cumProbs >= np.random.rand())[0][0]
+                                
+                else:
+                    deliveryTimePeriod[i] = -99999
+                    
+                if i%1000 == 0:
+                    print(i)            
+            
+            # ----------------------- Creating shipments CSV --------------------------
+
             # Shipment attributes in a list instead of a dictionary        
             fromFirm        = list(fromFirm.values())
             toFirm          = list(toFirm.values())
@@ -976,12 +1119,6 @@ def actually_run_module(args):
             vehicleType     = list(vehicleType.values())
             origZone        = list(origZone.values())
             destZone        = list(destZone.values())
-            
-            nShips = len(fromFirm)
-            
-            
-            
-            # ----------------------- Creating shipments CSV --------------------------
             
             shipCols  = ["SHIP_ID",   "ORIG",         "DEST",     "NSTR",      \
                          "WEIGHT",    "WEIGHT_CAT",   "FLOWTYPE", "LOGSEG",  "VEHTYPE",   \
@@ -1023,7 +1160,7 @@ def actually_run_module(args):
         
         else:
             # Import the reference shipments
-            shipments = pd.read_csv(shipmentsRef, index_col=0)
+            shipments = pd.read_csv(shipmentsRef)
         
         # Get the datatypes right
         intCols  =  ["SHIP_ID",    "ORIG",         "DEST",    "NSTR",       \
@@ -1035,13 +1172,14 @@ def actually_run_module(args):
         
         # Redirect shipments via UCCs and change vehicle type
         if label == 'UCC':
-            print('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv")
-            log_file.write('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv\n")
-            if root != '':
-                root.progressBar['value'] = 90
-                root.update_statusbar("Shipment Synthesizer: Exporting REF shipments to CSV")
-            
             if shipmentsRef == "":
+                print('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv")
+                log_file.write('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv\n")
+                
+                if root != '':
+                    root.progressBar['value'] = 90
+                    root.update_statusbar("Shipment Synthesizer: Exporting REF shipments to CSV")
+                                
                 shipments.to_csv(datapathO + 'Shipments_REF.csv')
 
             print("Redirecting shipments via UCC...")
@@ -1351,19 +1489,22 @@ def actually_run_module(args):
 if __name__ == '__main__':
     
     INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016temp/'
+    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
     PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
     
-    SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE    = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		    = INPUTFOLDER + 'links_v5.shp'
-    NODES           = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES           = INPUTFOLDER + 'Zones_v4.shp'
-    SEGS            = INPUTFOLDER + 'SEGS2016.csv'
-    COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
-    PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
-    MRDH_TO_NUTS3   = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
-    NUTS3_TO_MRDH   = PARAMFOLDER + 'NUTS32013toMRDH.csv'
+    SKIMTIME            = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    LINKS		        = INPUTFOLDER + 'links_v5.shp'
+    NODES               = INPUTFOLDER + 'nodes_v5.shp'
+    ZONES               = INPUTFOLDER + 'Zones_v4.shp'
+    SEGS                = INPUTFOLDER + 'SEGS2016.csv'
+    COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
+    PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
+    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
+    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
+    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
+    MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
+    NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
     
     YEARFACTOR = 255
     
@@ -1389,6 +1530,7 @@ if __name__ == '__main__':
     
     args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
             LINKS, NODES, ZONES, SEGS, \
+            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING,\
             COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
             PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
@@ -1400,6 +1542,7 @@ if __name__ == '__main__':
 
     varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
                   "LINKS", "NODES", "ZONES", "SEGS", \
+                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
                   "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
                   "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \

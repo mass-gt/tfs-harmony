@@ -12,6 +12,7 @@ import __module_SHIP__
 import __module_TOUR__
 import __module_PARCEL_DMND__
 import __module_PARCEL_SCHD__
+import __module_SERVICE__
 import __module_TRAF__
 import __module_OUTP__
 
@@ -43,7 +44,7 @@ class Root:
         self.datapath = os.path.dirname(os.path.realpath(argv[0]))
         self.datapath = self.datapath.replace(os.sep, '/') + '/'
 
-        self.moduleNames = ['FS', 'SIF', 'SHIP','TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
+        self.moduleNames = ['FS', 'SIF', 'SHIP','TOUR','PARCEL_DMND','PARCEL_SCHD','SERVICE','TRAF','OUTP']
         
         # Set graphics parameters
         self.width  = 950
@@ -128,8 +129,9 @@ class Root:
         '''
         # De mogelijke sleutels in de control file
         self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                           "LINKS", "NODES","ZONES","SEGS", \
-                           "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
+                           "LINKS", "NODES","ZONES","SEGS", "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING",\
+                           "COMMODITYMATRIX", "PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
+                           "SERVICE_DISTANCEDECAY", \
                            "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                            "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT", \
                            "YEARFACTOR", "NUTSLEVEL_INPUT", \
@@ -154,7 +156,10 @@ class Root:
         dirVars     = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
         moduleVars  = ["MODULES"]
         fileVars    = ["SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES","SEGS", \
-                       "COMMODITYMATRIX","PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH"]
+                       "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
+                       "COMMODITYMATRIX","PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",\
+                       "SERVICE_DISTANCEDECAY", \
+                       "SHIPMENTS_REF"]
         optionalVars = ["SHIPMENTS_REF", "SELECTED_LINKS", "N_CPU"]
         
         run = True          # Wel of niet runnen, wordt op False gezet als bijv. bestanden niet gevonden kunnen worden
@@ -278,7 +283,7 @@ class Root:
             with open(self.logFileName, "w") as f:            
                 f.write('########################################################################################\n')
                 f.write('### Tactical Freight Simulator HARMONY                                               ###\n')
-                f.write('### Prototype version, March 2021                                                    ###\n')
+                f.write('### Prototype version, April 2021                                                    ###\n')
                 f.write('########################################################################################\n')
                 f.write('\n')
     
@@ -482,6 +487,28 @@ class Root:
                 else:
                     f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
 
+            if run and 'SERVICE' in varDict['MODULES']:
+                print('---------------------------------------------------------------------------------')
+                print('-------------------- Vans service/construction ----------------------------------')
+                print('---------------------------------------------------------------------------------')
+                f.write("Vans service/construction" + '\n')
+                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
+                    
+                self.statusBar.configure(text='Running Vans service/construction...')
+                
+                result = __module_SERVICE__.actually_run_module(args)
+                
+                if result[0] == 1:   
+                    errorMessage = []
+                    errorMessage.append('\nError in service vans module!\n\n' )
+                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
+                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    run = False
+                    f.write(errorMessage[0] + errorMessage[2])    
+                else:
+                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
+                    
             if run and 'TRAF' in varDict['MODULES']:
                 print('---------------------------------------------------------------------------------')
                 print('----------------------- Traffic Assignment --------------------------------------')

@@ -15,11 +15,11 @@ def read_mtx(mtxfile):
     '''
     Read a binary mtx-file (skimTijd and skimAfstand)
     '''
-    mtxData = array.array('i')  # i for integer
+    mtxData = array.array('f')  # i for integer
     mtxData.fromfile(open(mtxfile, 'rb'), os.path.getsize(mtxfile) // mtxData.itemsize)
     
     # The number of zones is in the first byte
-    mtxData = np.array(mtxData, dtype=int)[1:]
+    mtxData = np.array(mtxData, dtype=float)[1:]
     
     return mtxData
 
@@ -29,7 +29,7 @@ def write_mtx(filename, mat, aantalZones):
     Write an array into a binary file
     '''
     mat     = np.append(aantalZones,mat)
-    matBin  = array.array('i')
+    matBin  = array.array('f')
     matBin.fromlist(list(mat))
     matBin.tofile(open(filename, 'wb'))
 

@@ -119,7 +119,8 @@ def actually_run_module(args):
         root    = args[0]
         varDict = args[1]
         
-        root.progressBar['value'] = 0
+        if root != '':
+            root.progressBar['value'] = 0
         
         datapathI = varDict['INPUTFOLDER']
         datapathO = varDict['OUTPUTFOLDER']
@@ -130,6 +131,7 @@ def actually_run_module(args):
         skimTravTimePath = varDict['SKIMTIME']
         skimDistancePath = varDict['SKIMDISTANCE']
         segsPath         = varDict['SEGS']
+        distributieCentraPath = varDict['DISTRIBUTIECENTRA']
         
         log_file=open(f"{datapathO}Logfile_TourFormation.log", "w")
         log_file.write("Start simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
@@ -217,7 +219,7 @@ def actually_run_module(args):
             zones[nIntZones+i][4] = False                             # No urbanized zone
 
         # Import logistic nodes data
-        logNodes = pd.read_csv(datapathI + 'distributieCentra.csv')
+        logNodes = pd.read_csv(distributieCentraPath)
         logNodes = logNodes[~pd.isna(logNodes['AREANR'])]
         logNodes['AREANR'] = [invZoneDict[x] for x in logNodes['AREANR']]
         nDC = len(logNodes)
@@ -385,7 +387,7 @@ def actually_run_module(args):
             skimAfstand[orig * nZones + whereZero]  = 0.5 * np.min(skimAfstand[orig * nZones + whereNonZero])  
             
         # Concatenate time and distance arrays as a 2-column matrix
-        skim = np.c_[skimTravTime,skimAfstand]
+        skim = np.array(np.c_[skimTravTime,skimAfstand], dtype=int)
 
         
         
@@ -765,15 +767,18 @@ def actually_run_module(args):
         log_file.write("End simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
         log_file.close()    
 
-        root.update_statusbar("Tour Formation: Done")
-        root.progressBar['value'] = 100
+        if root != '':
+            root.update_statusbar("Tour Formation: Done")
+            root.progressBar['value'] = 100
+            
+            # 0 means no errors in execution
+            root.returnInfo = [0, [0,0]]
+            
+            return root.returnInfo
         
-        # 0 means no errors in execution
-        root.returnInfo = [0, [0,0]]
-        
-        return root.returnInfo
-    
-    
+        else:
+            return [0, [0,0]]
+            
         
     except BaseException:
         import sys
@@ -783,16 +788,19 @@ def actually_run_module(args):
         log_file.write("Execution failed!")
         log_file.close()
         
-        # Use this information to display as error message in GUI
-        root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
-        
-        if __name__ == '__main__':
-            root.update_statusbar("Tour Formation: Execution failed!")
-            errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
-            root.error_screen(text=errorMessage, size=[900,350])
+        if root != '':
+            # Use this information to display as error message in GUI
+            root.returnInfo = [1, [sys.exc_info()[0], traceback.format_exc()]]
             
+            if __name__ == '__main__':
+                root.update_statusbar("Tour Formation: Execution failed!")
+                errorMessage = 'Execution failed!\n\n' + str(root.returnInfo[1][0]) + '\n\n' + str(root.returnInfo[1][1])
+                root.error_screen(text=errorMessage, size=[900,350])                
+            
+            else:
+                return root.returnInfo
         else:
-            return root.returnInfo
+            return [1, [sys.exc_info()[0], traceback.format_exc()]]
 
 
 
@@ -1313,6 +1321,9 @@ if __name__ == '__main__':
     SEGS            = INPUTFOLDER + 'SEGS2016_verrijkt.csv'
     COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS2_2016.csv'
     PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
+    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
+    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
+    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
     
     YEARFACTOR = 193
     
@@ -1338,6 +1349,7 @@ if __name__ == '__main__':
     MODULES = ['SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
     
     args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, LINKS, NODES, ZONES, SEGS, \
+            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING, \
             COMMODITYMATRIX, PARCELNODES, PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
             YEARFACTOR, NUTSLEVEL_INPUT, \
@@ -1347,6 +1359,7 @@ if __name__ == '__main__':
             MODULES]
 
     varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES", "SEGS", \
+                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
                   "COMMODITYMATRIX", "PARCELNODES", "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
                   "YEARFACTOR", "NUTSLEVEL_INPUT", \
