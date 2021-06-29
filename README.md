@@ -93,6 +93,7 @@ IMPEDANCE_SPEED_FREIGHT = V_FR_OS
 IMPEDANCE_SPEED_VAN     = V_PA_OS
 
 # ------------------- Optional settings ------------------------------------------
+CORRECTIONS_TONNES = <<INPUTFOLDER>>CorrectionsTonnes2016.csv
 #SELECTED_LINKS = 
 #SHIPMENTS_REF =
 #N_CPU = 
