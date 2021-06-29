@@ -172,6 +172,10 @@ def actually_run_module(args):
             
         nLogSeg = 8 # Number of logistic segments          
         nVT = 10    # Number of vehicle types
+
+        if root != '':
+            root.progressBar['value'] = 0.1
+            
             
         # ---------------- IMPORT ZONE DATA ----------------------------
 
@@ -195,7 +199,10 @@ def actually_run_module(args):
         zones = zones[['AREANR','X','Y','LOGNODE','STED','ZEZ']]
         zones.loc[pd.isna(zones['LOGNODE']), 'LOGNODE'] = 0
         zones = np.array(zones)
-        
+
+        if root != '':
+            root.progressBar['value'] = 0.5
+            
         # Get coordinates of the external zones
         coropCoordinates        = pd.read_csv(f'{datapathI}SupCoordinatesID.csv')
         coropCoordinates.index  = np.arange(len(coropCoordinates))
@@ -229,6 +236,9 @@ def actually_run_module(args):
         # Import shipments data        
         shipments = pd.read_csv(f'{datapathO}Shipments_{label}.csv')
 
+        if root != '':
+            root.progressBar['value'] = 1.0
+            
         # Import ZEZ scenario input
         if label == 'UCC':
             # Vehicle/combustion shares (for UCC scenario)
@@ -320,6 +330,9 @@ def actually_run_module(args):
         shipments.loc[whereBothDC,   'CARRIER'] = [[shipments['SEND_DC'][i],shipments['RECEIVE_DC'][i]][np.random.randint(0,2)] for i in shipments.loc[whereBothDC,:].index]
         shipments.loc[whereNoDC,     'CARRIER'] = nDC + np.random.randint(0, nCarNonDC, np.sum(whereNoDC))
 
+        if root != '':
+            root.progressBar['value'] = 2.0
+            
         # Extra carrierIDs for shipments transported from Urban Consolidation Centers
         if label == 'UCC':
             whereToUCC   = np.where(shipments['TO_UCC'  ]==1)[0]
@@ -368,7 +381,9 @@ def actually_run_module(args):
         shipmentDict    = dict(np.transpose(np.vstack((np.arange(len(shipments)), shipments[:,0].copy()))))
         shipments[:,0]  = np.arange(len(shipments))             # Give the shipments a new shipmentID after ordering the array by carrierID
         
-        
+        if root != '':
+            root.progressBar['value'] = 2.5
+            
 
         # --------------------- IMPORT SKIMS ----------------------------------
         
@@ -389,7 +404,9 @@ def actually_run_module(args):
         # Concatenate time and distance arrays as a 2-column matrix
         skim = np.array(np.c_[skimTravTime,skimAfstand], dtype=int)
 
-        
+        if root != '':
+            root.progressBar['value'] = 4.0
+            
         
         # -------------------- IMPORT LOGIT PARAMETERS ------------------------
         
@@ -433,12 +450,12 @@ def actually_run_module(args):
         tourSequences   = [[np.zeros((1,nshipcar[car]),dtype=int) for ship in range(nshipcar[car])] for car in range(ncar)]               
         tourLocations   = [[np.zeros((nshipcar[car],2),dtype=int) for ship in range(nshipcar[car])] for car in range(ncar)]              
         nTours          = np.zeros((1,ncar))
-                
+
+        if root != '':
+            root.progressBar['value'] = 5.0
         
         # Bepaal het aantal CPUs dat we gebruiken en welke CPU welke carriers doet
         chunks = [np.arange(ncar)[i::nCPU] for i in range(nCPU)]
-#        ncar=25
-#        chunks = [np.arange(25)[i::nCPU] for i in range(nCPU)]
     
         print(f'Start tour formation (parallelized over {nCPU} cores)'), log_file.write(f'Start tour formation (parallelized over {nCPU} cores)\n')
         
@@ -447,7 +464,10 @@ def actually_run_module(args):
         
         # Voer de tourformatie uit
         tourformationResult = p.map(functools.partial(tourformation, carmarkers, shipments, skim, nZones, timeFac, maxNumShips, carryingCapacity, dcZones, nshipcar, ncar, logitParams_ETfirst, logitParams_ETlater), chunks)
-     
+        
+        if root != '':
+            root.progressBar['value'] = 80.0
+            
         # Pak de tourformatieresultaten uit
         for cpu in range(nCPU):
             for car in chunks[cpu]:
@@ -462,7 +482,10 @@ def actually_run_module(args):
         
         nTours = nTours.astype(int)
         print('\tTour formation completed for all carriers'), log_file.write('\tTour formation completed for all carriers\n')
-        
+
+        if root != '':
+            root.progressBar['value'] = 81.0
+            
         
         # --------------------- PROCEDURES AFTER TOUR FORMATION ----------------------
         
@@ -479,6 +502,9 @@ def actually_run_module(args):
                     emptytripadded[car][tour] = False
             # Note, the structure of the variable changes a little in this operation. 
             # What would be toursequence[car][tour][0][0] before in the script is now toursequence[car][tour][0].
+
+        if root != '':
+            root.progressBar['value'] = 82.0
             
         print('Obtaining number of shipments and trip weights...'), log_file.write('Obtaining number of shipments and trip weights...\n') 
         # Number of shipments and trips of each tour
@@ -523,7 +549,9 @@ def actually_run_module(args):
         
                     tripWeights[car][tour][trip] = tempTripWeight
 
-
+        if root != '':
+            root.progressBar['value'] = 84.0
+            
         print('Drawing departure times of tours ...'), log_file.write('Drawing departure times of tours...\n') 
         
         # Import probability distribution of departure time (per logistic segment)
@@ -537,6 +565,9 @@ def actually_run_module(args):
                 logSeg = shipments[tours[car][tour][0], 10]
                 depTimeTour[car][tour] = np.where(cumProbDepTime[:,logSeg] > np.random.rand())[0][0]
 
+        if root != '':
+            root.progressBar['value'] = 85.0
+            
         print('Determining combustion type of tours...'), log_file.write('Determining combustion type of tours...\n')                
         combTypeTour   = [ [None for tour in range(nTours[0,car])] for car in range(ncar) ] 
             
@@ -573,7 +604,8 @@ def actually_run_module(args):
                 for tour in range(nTours[0,car]):
                     combTypeTour[car][tour] = 0
             
-                    
+        if root != '':
+            root.progressBar['value'] = 86.0                    
                         
                     
         # ---------------------------- Create Tours CSV ----------------------------------------
@@ -627,7 +659,10 @@ def actually_run_module(args):
                     outputTours[tripcount-1][10] = -1
         
         nTrips = tripcount
-        
+
+        if root != '':
+            root.progressBar['value'] = 87.0  
+            
         # Create DataFrame object for easy formatting and exporting to csv
         columns = ["CARRIER_ID",   "TOUR_ID",      "TRIP_ID",      "ORIG",        "DEST",\
                    "X_ORIG",       "X_DEST",       "Y_ORIG",       "Y_DEST",      "VEHTYPE",\
@@ -643,7 +678,9 @@ def actually_run_module(args):
         outputTours.to_csv(f'{datapathO}Tours_{label}.csv',index=None, header=True)
         print(f'Tour data written to {datapathO}Tours_{label}.csv'), log_file.write(f'Tour data written to {datapathO}Tours_{label}.csv\n')
 
-
+        if root != '':
+            root.progressBar['value'] = 89.0
+            
 
         # -------------------------- Enrich Shipments CSV --------------------------------------
         
@@ -672,7 +709,9 @@ def actually_run_module(args):
         shipments = shipments.sort_values('SHIP_ID')
         shipments.to_csv(datapathO + "Shipments_AfterScheduling_" + label + '.csv', index=False)
         
-        
+        if root != '':
+            root.progressBar['value'] = 90.0
+            
     
         # -------------------------------- Write GeoJSON -------------------------------------
         
@@ -693,9 +732,13 @@ def actually_run_module(args):
                 outputStr = outputStr + Ax[i] + ', ' + Ay[i] + ' ], [ '
                 outputStr = outputStr + Bx[i] + ', ' + By[i] + ' ] ] } },\n'
                 geoFile.write(outputStr)
+                
                 if i%int(nTrips/20) == 0:
                     print('\t' + str(int(round((i / nTrips)*100, 0))) + '%', end='\r')
                     
+                    if root != '':
+                        root.progressBar['value'] = 90.0 + (96.0 - 90.0) * i / nTrips
+                        
             # Bij de laatste feature moet er geen komma aan het einde
             i += 1
             outputStr = ""
@@ -736,6 +779,9 @@ def actually_run_module(args):
         pivotTable.to_csv(f"{datapathO}tripmatrix_{label}.txt", index=False, sep='\t')
         print(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt'), log_file.write(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt\n')
 
+        if root != '':
+            root.progressBar['value'] = 92.0
+                        
         tours = pd.read_csv(f"{datapathO}Tours_{label}.csv")
         tours.loc[tours['TRIP_DEPTIME']>24,'TRIP_DEPTIME'] -= 24
         tours.loc[tours['TRIP_DEPTIME']>24,'TRIP_DEPTIME'] -= 24
@@ -758,7 +804,9 @@ def actually_run_module(args):
             pivotTable = pivotTable[cols]
             
             pivotTable.to_csv(f"{datapathO}tripmatrix_{label}_TOD{tod}.txt", index=False, sep='\t')
-        
+            
+            if root != '':
+                root.progressBar['value'] = 92.0 + (100.0 - 92.0) * (tod + 1) / 24       
         
         # --------------------------- End of module -------------------------------
             

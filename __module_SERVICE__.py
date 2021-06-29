@@ -176,11 +176,17 @@ def actually_run_module(args):
             
         # Parcel nodes
         parcelNodes = read_shape(pathParcelNodes)    
+
+        if root != '':
+            root.progressBar['value'] = 0.5
             
         # Skim with travel times and distances
         skimTravTime = read_mtx(pathSkimTravTime)
         skimDistance = read_mtx(pathSkimDistance)
 
+        if root != '':
+            root.progressBar['value'] = 2.0
+            
             
         # ---------------------- Productions and attractions -------------------------
  
@@ -206,7 +212,7 @@ def actually_run_module(args):
             
             for i in range(nCOROP):
                 jobs[sector][nInternalZones+i] = np.sum(segs.loc[MRDHwithinCOROP[i+1], sector])
-                
+        population = np.array(segs.loc[zones['AREANR'].values, '2: inwoners'])        
                 
         # Determine produced trips per zone for service and construction
         prodService = np.zeros(nZones, dtype=int)
@@ -220,7 +226,8 @@ def actually_run_module(args):
                              regrCoeffs.at['Service','INDUSTRIE' ] * jobs['INDUSTRIE'][i]  + \
                              regrCoeffs.at['Service','DETAIL'    ] * jobs['DETAIL'   ][i]  + \
                              regrCoeffs.at['Service','DIENSTEN'  ] * jobs['DIENSTEN' ][i]  + \
-                             regrCoeffs.at['Service','OVERIG'    ] * jobs['OVERIG'   ][i]
+                             regrCoeffs.at['Service','OVERIG'    ] * jobs['OVERIG'   ][i]  + \
+                             regrCoeffs.at['Service','INWONERS'  ] * population[i]
 
             prodBouw[i]    = regrCoeffs.at['Construction','DC_OPP'    ] * surfaceDC[i]          + \
                              regrCoeffs.at['Construction','PARCEL_OPP'] * surfaceParcelDepot[i] + \
@@ -228,24 +235,33 @@ def actually_run_module(args):
                              regrCoeffs.at['Construction','INDUSTRIE' ] * jobs['INDUSTRIE'][i]  + \
                              regrCoeffs.at['Construction','DETAIL'    ] * jobs['DETAIL'   ][i]  + \
                              regrCoeffs.at['Construction','DIENSTEN'  ] * jobs['DIENSTEN' ][i]  + \
-                             regrCoeffs.at['Construction','OVERIG'    ] * jobs['OVERIG'   ][i]
+                             regrCoeffs.at['Construction','OVERIG'    ] * jobs['OVERIG'   ][i]  + \
+                             regrCoeffs.at['Construction','INWONERS'  ] * population[i]
+
+        if root != '':
+            root.progressBar['value'] = 3.0
             
         # For the external zones                 
         for i in range(nCOROP):
             prodService[nInternalZones+i] = regrCoeffs.at['Service','PARCEL_OPP'] * surfaceParcelDepot[nInternalZones+i]        + \
-                                            regrCoeffs.at['Service','LANDBOUW'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'LANDBOUW' ]) + \
-                                            regrCoeffs.at['Service','INDUSTRIE' ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'INDUSTRIE']) + \
-                                            regrCoeffs.at['Service','DETAIL'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DETAIL'   ]) + \
-                                            regrCoeffs.at['Service','DIENSTEN'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DIENSTEN' ]) + \
-                                            regrCoeffs.at['Service','OVERIG'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'OVERIG'   ])
+                                            regrCoeffs.at['Service','LANDBOUW'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'LANDBOUW'   ]) + \
+                                            regrCoeffs.at['Service','INDUSTRIE' ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'INDUSTRIE'  ]) + \
+                                            regrCoeffs.at['Service','DETAIL'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DETAIL'     ]) + \
+                                            regrCoeffs.at['Service','DIENSTEN'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DIENSTEN'   ]) + \
+                                            regrCoeffs.at['Service','OVERIG'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'OVERIG'     ]) + \
+                                            regrCoeffs.at['Service','INWONERS'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'2: inwoners'])
 
             prodBouw[nInternalZones+i] =    regrCoeffs.at['Construction','PARCEL_OPP'] * surfaceParcelDepot[nInternalZones+i]        + \
-                                            regrCoeffs.at['Construction','LANDBOUW'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'LANDBOUW' ]) + \
-                                            regrCoeffs.at['Construction','INDUSTRIE' ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'INDUSTRIE']) + \
-                                            regrCoeffs.at['Construction','DETAIL'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DETAIL'   ]) + \
-                                            regrCoeffs.at['Construction','DIENSTEN'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DIENSTEN' ]) + \
-                                            regrCoeffs.at['Construction','OVERIG'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'OVERIG'   ])        
-        
+                                            regrCoeffs.at['Construction','LANDBOUW'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'LANDBOUW'   ]) + \
+                                            regrCoeffs.at['Construction','INDUSTRIE' ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'INDUSTRIE'  ]) + \
+                                            regrCoeffs.at['Construction','DETAIL'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DETAIL'     ]) + \
+                                            regrCoeffs.at['Construction','DIENSTEN'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'DIENSTEN'   ]) + \
+                                            regrCoeffs.at['Construction','OVERIG'    ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'OVERIG'     ]) + \
+                                            regrCoeffs.at['Construction','INWONERS'  ] * np.sum(segs.loc[MRDHwithinCOROP[i+1],'2: inwoners'])
+
+        if root != '':
+            root.progressBar['value'] = 4.0
+            
         
         # ------------------------- Trip distribution -------------------------------
 
@@ -274,7 +290,9 @@ def actually_run_module(args):
         matrixService *= np.tile(prodService, (len(prodService), 1)).transpose()
         matrixBouw    *= np.tile(prodBouw,    (len(prodBouw   ), 1)).transpose()
                 
-        
+        if root != '':
+            root.progressBar['value'] = 6.0
+            
         print('\tDistributing service trips...'), log_file.write('\tDistributing service trips...\n')
         itern = 0
         conv  = tolerance + 100
@@ -313,9 +331,12 @@ def actually_run_module(args):
             conv = max(abs(maxColScaleFac-1),abs(maxRowScaleFac-1))            
             print('\t\tConvergence ' + str(round(conv,4))), log_file.write('\t\tConvergence ' + str(round(conv,4)) + '\n')
             
+            if root != '':
+                root.progressBar['value'] = 6.0 + (46.0 - 6.0) * itern / maxIter
+                
         if conv > tolerance:
-            print('Waarschuwing! Convergentie is lager dan het tolerantiecriterium, mogelijk zijn meer iteraties nodig.')
-            log_file.write('Waarschuwing! Convergentie is lager dan het tolerantiecriterium, mogelijk zijn meer iteraties nodig.' + '\n')
+            print('Warning! Convergence is lower than the tolerance criteroin, more iterations might be needed.')
+            log_file.write('Warning! Convergence is lower than the tolerance criteroin, more iterations might be needed.' + '\n')
 
 
         print('\tDistributing construction trips...'), log_file.write('\tDistributing construction trips...\n')
@@ -355,10 +376,13 @@ def actually_run_module(args):
         
             conv = max(abs(maxColScaleFac-1),abs(maxRowScaleFac-1))            
             print('\t\tConvergence ' + str(round(conv,4))), log_file.write('\t\tConvergence ' + str(round(conv,4)) + '\n')
-            
+
+            if root != '':
+                root.progressBar['value'] = 46.0 + (86.0 - 46.0) * itern / maxIter
+                
         if conv > tolerance:
-            print('Waarschuwing! Convergentie is lager dan het tolerantiecriterium, mogelijk zijn meer iteraties nodig.')
-            log_file.write('Waarschuwing! Convergentie is lager dan het tolerantiecriterium, mogelijk zijn meer iteraties nodig.' + '\n')
+            print('Warning! Convergence is lower than the tolerance criteroin, more iterations might be needed.')
+            log_file.write('Warning! Convergence is lower than the tolerance criteroin, more iterations might be needed.' + '\n')
         
         # Trips van extern naar extern eruithalen (voor consistentie met vracht)
         for i in range(nExternalZones):
@@ -377,8 +401,15 @@ def actually_run_module(args):
             root.update_statusbar('Writing trip matrices...')
                     
         write_mtx(datapathO + 'TripsVanService.mtx',      matrixService, nZones)
-        write_mtx(datapathO + 'TripsVanConstruction.mtx', matrixBouw   , nZones)        
         
+        if root != '':
+            root.progressBar['value'] = 93.0
+                
+        write_mtx(datapathO + 'TripsVanConstruction.mtx', matrixBouw   , nZones)  
+        
+        if root != '':
+            root.progressBar['value'] = 100.0
+            
             
         # --------------------------- End of module ---------------------------------
             

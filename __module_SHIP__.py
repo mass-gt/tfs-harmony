@@ -123,10 +123,11 @@ def actually_run_module(args):
         parcelsGrowthFreight  = varDict['PARCELS_GROWTHFREIGHT']
         pathNUTS3toMRDH       = varDict['NUTS3_TO_MRDH']
         distributieCentraPath = varDict['DISTRIBUTIECENTRA']
-        costVehTypePath  = varDict['COST_VEHTYPE']
-        costSourcingPath = varDict['COST_SOURCING']
+        costVehTypePath     = varDict['COST_VEHTYPE']
+        costSourcingPath    = varDict['COST_SOURCING']
+        correctionsTonnesPath = varDict['CORRECTIONS_TONNES']
         
-        label            = varDict['LABEL']
+        label = varDict['LABEL']
 
         start_time = time.time()
         
@@ -144,6 +145,7 @@ def actually_run_module(args):
         
         nNSTR    = 10
         nLogSeg  = 8
+        nTimeIntervals = 6
         
         # Distance decay parameters
         alpha = -6.172
@@ -298,6 +300,11 @@ def actually_run_module(args):
         
         # Flowtype distribution (10 NSTRs and 12 flowtypes)
         ftShares = np.array(pd.read_csv(datapathP + 'LogFlowtype_Shares.csv', index_col=0)) 
+        
+        # Corrections
+        if correctionsTonnesPath != '':
+            corrections = pd.read_csv(correctionsTonnesPath, sep=',')
+            nCorrections = len(corrections)
             
         if root != '':
             root.progressBar['value'] = 1.5
@@ -337,7 +344,24 @@ def actually_run_module(args):
         costPerHourSourcing  = costParamsSourcing['CostPerHour'][0]     
         
         # Estimated parameters MNL for combined shipment size and vehicle type
-        logitParams = pd.read_csv(datapathP + "Params_ShipSize_VehType.csv", index_col=0)
+        paramsShipSizeVehType = pd.read_csv(datapathP + "Params_ShipSize_VehType.csv", index_col=0)
+        
+        # Estimated parameters MNL for delivery time
+        paramsTimeOfDay = pd.read_csv(datapathP + 'Params_TOD.csv', index_col=0)
+        timeIntervals    = []
+        timeIntervalsDur = []
+        nTimeIntervalsLS = [0 for ls in range(nLogSeg)]
+        for ls in range(nLogSeg):
+            temp  = [str(paramsTimeOfDay.at[f'Interval_{t+1}', str(ls+1)]).split('_') for t in range(nTimeIntervals)]
+            timeIntervalsDur.append([])
+            for t in range(nTimeIntervals):
+                if len(temp[t]) > 1:
+                    temp[t] = [int(temp[t][i]) for i in range(len(temp[t]))]
+                    timeIntervalsDur[ls].append(int(temp[t][1] - temp[t][0]))
+                    nTimeIntervalsLS[ls] += 1
+            timeIntervals.append(temp)
+        paramsTimeOfDay = paramsTimeOfDay.iloc[nTimeIntervals:, :]
+        paramsTimeOfDay = paramsTimeOfDay.astype(float)
         
         # Which NSTR belongs to which goods type used in estimation of MNL
         dictNSTR = {0:'climate controlled', 1:'climate controlled', \
@@ -424,7 +448,7 @@ def actually_run_module(args):
                 
         # Per goods type, determine probability based on firm size and make/use share
         for nstr in range(nNSTR):
-            probReceive[:,nstr]     = firmSize * [useDistribution[nstr,sector-1]  for sector in firmSector]            
+            probReceive[:,nstr]     = firmSize * [useDistribution[nstr,sector-1]  for sector in firmSector]
             probSend[:,nstr]        = firmSize * [makeDistribution[nstr,sector-1] for sector in firmSector]
             cumProbReceive[:,nstr]  = np.cumsum(probReceive[:,nstr])
             cumProbReceive[:,nstr] /= cumProbReceive[-1,nstr]
@@ -436,7 +460,7 @@ def actually_run_module(args):
         cumProbDC  = np.cumsum(probDC)
         cumProbDC  = cumProbDC / cumProbDC[-1]
 
-        probTT     = zoneSurface[ttZones]        
+        probTT     = zoneSurface[ttZones]
         cumProbTT  = np.cumsum(probTT)
         cumProbTT  = cumProbTT / cumProbTT[-1]
 
@@ -522,15 +546,15 @@ def actually_run_module(args):
                             root.update_statusbar("Shipment Synthesizer: Synthesizing shipments within study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
                             
                         # Selecting the logit parameters for this NSTR group
-                        logitParamsNSTR             = logitParams[dictNSTR[nstr]]
-                        B_TransportCosts            = logitParamsNSTR['B_TransportCosts']
-                        B_InventoryCosts            = logitParamsNSTR['B_InventoryCosts']
-                        B_FromDC                    = logitParamsNSTR['B_FromDC']
-                        B_ToDC                      = logitParamsNSTR['B_ToDC']
-                        B_LongHaul_TruckTrailer     = logitParamsNSTR['B_LongHaul_TruckTrailer']
-                        B_LongHaul_TractorTrailer   = logitParamsNSTR['B_LongHaul_TractorTrailer']
-                        #ASC_SS                      = [logitParamsNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
-                        ASC_VT                      = [logitParamsNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]
+                        paramsShipSizeVehTypeNSTR   = paramsShipSizeVehType[dictNSTR[nstr]]
+                        B_TransportCosts            = paramsShipSizeVehTypeNSTR['B_TransportCosts']
+                        B_InventoryCosts            = paramsShipSizeVehTypeNSTR['B_InventoryCosts']
+                        B_FromDC                    = paramsShipSizeVehTypeNSTR['B_FromDC']
+                        B_ToDC                      = paramsShipSizeVehTypeNSTR['B_ToDC']
+                        B_LongHaul_TruckTrailer     = paramsShipSizeVehTypeNSTR['B_LongHaul_TruckTrailer']
+                        B_LongHaul_TractorTrailer   = paramsShipSizeVehTypeNSTR['B_LongHaul_TractorTrailer']
+                        #ASC_SS                      = [paramsShipSizeVehTypeNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
+                        ASC_VT                      = [paramsShipSizeVehTypeNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]
                     
                         for ft in range(nFlowTypesInternal):
                             
@@ -719,15 +743,15 @@ def actually_run_module(args):
                                 root.update_statusbar("Shipment Synthesizer: Synthesizing shipments leaving study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
                                    
                             # Selecting the logit parameter for this NSTR group
-                            logitParamsNSTR             = logitParams[dictNSTR[nstr]]
-                            B_TransportCosts            = logitParamsNSTR['B_TransportCosts']
-                            B_InventoryCosts            = logitParamsNSTR['B_InventoryCosts']
-                            B_FromDC                    = logitParamsNSTR['B_FromDC']
-                            B_ToDC                      = logitParamsNSTR['B_ToDC']
-                            B_LongHaul_TruckTrailer     = logitParamsNSTR['B_LongHaul_TruckTrailer']
-                            B_LongHaul_TractorTrailer   = logitParamsNSTR['B_LongHaul_TractorTrailer']
-                            #ASC_SS                      = [logitParamsNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
-                            ASC_VT                      = [logitParamsNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]            
+                            paramsShipSizeVehTypeNSTR   = paramsShipSizeVehType[dictNSTR[nstr]]
+                            B_TransportCosts            = paramsShipSizeVehTypeNSTR['B_TransportCosts']
+                            B_InventoryCosts            = paramsShipSizeVehTypeNSTR['B_InventoryCosts']
+                            B_FromDC                    = paramsShipSizeVehTypeNSTR['B_FromDC']
+                            B_ToDC                      = paramsShipSizeVehTypeNSTR['B_ToDC']
+                            B_LongHaul_TruckTrailer     = paramsShipSizeVehTypeNSTR['B_LongHaul_TruckTrailer']
+                            B_LongHaul_TractorTrailer   = paramsShipSizeVehTypeNSTR['B_LongHaul_TractorTrailer']
+                            #ASC_SS                      = [paramsShipSizeVehTypeNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
+                            ASC_VT                      = [paramsShipSizeVehTypeNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]            
                             
                             for ft in range(nFlowTypesExternal):
                                 
@@ -815,10 +839,11 @@ def actually_run_module(args):
                                                 index            = ss * nVehTypes + vt                                
                                                 transportCosts   = costPerHour[vt]*travTime + costPerKm[vt]*distance  
                                                 transportCosts  *= np.ceil(absoluteShipmentSizes[ss] / truckCapacities[vt])
-                                                utilities[index] =  B_TransportCosts * transportCosts + B_InventoryCosts * inventoryCosts[ss] + \
+                                                utilities[index] =  B_TransportCosts * transportCosts + \
+                                                                    B_InventoryCosts * inventoryCosts[ss] + \
                                                                     B_FromDC * fromDC * (vt==0) + \
-                                                                    B_ToDC * toDC * (vt in [3,4,5]) + \
-                                                                    B_LongHaul_TruckTrailer * longHaul * (vt in [3,4]) + \
+                                                                    B_ToDC   * toDC   * (vt in [3,4,5]) + \
+                                                                    B_LongHaul_TruckTrailer   * longHaul * (vt in [3,4]) + \
                                                                     B_LongHaul_TractorTrailer * longHaul * (vt==5) + \
                                                                     ASC_VT[vt]
                                         
@@ -872,15 +897,15 @@ def actually_run_module(args):
                                 root.update_statusbar("Shipment Synthesizer: Synthesizing shipments entering study area (LS " + str(logSeg) + " and NSTR " + str(nstr) + ")")
                                 
                             # Selecting the logit parameter for this NSTR group
-                            logitParamsNSTR             = logitParams[dictNSTR[nstr]]
-                            B_TransportCosts            = logitParamsNSTR['B_TransportCosts']
-                            B_InventoryCosts            = logitParamsNSTR['B_InventoryCosts']
-                            B_FromDC                    = logitParamsNSTR['B_FromDC']
-                            B_ToDC                      = logitParamsNSTR['B_ToDC']
-                            B_LongHaul_TruckTrailer     = logitParamsNSTR['B_LongHaul_TruckTrailer']
-                            B_LongHaul_TractorTrailer   = logitParamsNSTR['B_LongHaul_TractorTrailer']
-                            #ASC_SS                      = [logitParamsNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
-                            ASC_VT                      = [logitParamsNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]
+                            paramsShipSizeVehTypeNSTR   = paramsShipSizeVehType[dictNSTR[nstr]]
+                            B_TransportCosts            = paramsShipSizeVehTypeNSTR['B_TransportCosts']
+                            B_InventoryCosts            = paramsShipSizeVehTypeNSTR['B_InventoryCosts']
+                            B_FromDC                    = paramsShipSizeVehTypeNSTR['B_FromDC']
+                            B_ToDC                      = paramsShipSizeVehTypeNSTR['B_ToDC']
+                            B_LongHaul_TruckTrailer     = paramsShipSizeVehTypeNSTR['B_LongHaul_TruckTrailer']
+                            B_LongHaul_TractorTrailer   = paramsShipSizeVehTypeNSTR['B_LongHaul_TractorTrailer']
+                            #ASC_SS                      = [paramsShipSizeVehTypeNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
+                            ASC_VT                      = [paramsShipSizeVehTypeNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]
                             
                             for ft in range(nFlowTypesExternal):
                                 
@@ -998,113 +1023,211 @@ def actually_run_module(args):
                                         
                                         if root != '':
                                             if count%300 == 0:
-                                                root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightImport / totalWeightImport)                                        
+                                                root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightImport / totalWeightImport)            
+ 
+            
+            if correctionsTonnesPath != '':
+                print("Synthesizing additional shipments (corrections)...")
+                log_file.write("Synthesizing additional shipments (corrections)...\n")
+                percStart = 90
+                percEnd   = 92
+                if root != '':
+                    root.progressBar['value'] = percStart
+                    root.update_statusbar("Shipment Synthesizer: Synthesizing additional shipments (corrections)")
+                        
+                for cor in range(nCorrections):
+                    orig = corrections.at[cor,'ORIG']
+                    dest = corrections.at[cor,'DEST']
 
+                    print(f"\tAdditional shipments (correction {cor+1})")
+                    log_file.write(f"\tAdditional shipments (correction {cor+1})\n")
+                    if root != '':
+                        root.update_statusbar("Shipment Synthesizer: Synthesizing additional shipments (corrections)")
+                    
+                    for logSeg in range(nLogSeg-1):
+                        
+                        if corrections.at[cor,f'LS{logSeg}'] > 0:
+                            
+                            for nstr in range(nNSTR):
+                                
+                                if logSegToNstr[nstr,logSeg] > 0:
+                                                                            
+                                    # Selecting the logit parameters for this NSTR group
+                                    paramsShipSizeVehTypeNSTR   = paramsShipSizeVehType[dictNSTR[nstr]]
+                                    B_TransportCosts            = paramsShipSizeVehTypeNSTR['B_TransportCosts']
+                                    B_InventoryCosts            = paramsShipSizeVehTypeNSTR['B_InventoryCosts']
+                                    B_FromDC                    = paramsShipSizeVehTypeNSTR['B_FromDC']
+                                    B_ToDC                      = paramsShipSizeVehTypeNSTR['B_ToDC']
+                                    B_LongHaul_TruckTrailer     = paramsShipSizeVehTypeNSTR['B_LongHaul_TruckTrailer']
+                                    B_LongHaul_TractorTrailer   = paramsShipSizeVehTypeNSTR['B_LongHaul_TractorTrailer']
+                                    #ASC_SS                      = [paramsShipSizeVehTypeNSTR[f'ASC_SS_{i+1}'] for i in range(nShipSizes)]
+                                    ASC_VT                      = [paramsShipSizeVehTypeNSTR[f'ASC_VT_{i+1}'] for i in range(nVehTypes)]
+                                
+                                    totalWeight = corrections.at[cor, f'LS{logSeg}'] * logSegToNstr[nstr,logSeg]
+                                    allocatedWeight = 0
+                                    
+                                    # While the weight of all synthesized shipments for this segment so far does not exceed the total weight for this segment
+                                    while allocatedWeight < totalWeight:
+                                        flowType[count]        = 1
+                                        goodsType[count]       = nstr
+                                        logisticSegment[count] = logSeg
+                                        
+                                        rand = np.random.rand()                
+                
+                                        # Determine receiving firm
+                                        if dest == -1:
+                                            toFirm[count] = np.where(cumProbReceive[:,nstr] > rand)[0][0]
+                                            destZone[count] = firmZone[toFirm[count]]
+                                            destX[count]    = firmX[toFirm[count]]
+                                            destY[count]    = firmY[toFirm[count]]
+                                        else:
+                                            toFirm[count]   = -99999
+                                            destZone[count] = invZoneDict[dest]
+                                            destX[count]    = zoneX[destZone[count]]
+                                            destY[count]    = zoneY[destZone[count]]
+                                            
+                                        toDC            = 0
+                
+                                        distanceDecay  = (costPerHourSourcing * skimTravTime[destZone[count]::nZones] / 3600) + \
+                                                         (costPerKmSourcing   * skimDistance[destZone[count]::nZones] / 1000)
+                                        distanceDecay  = 1 / (1 + np.exp(alpha + beta * np.log(distanceDecay)))
+                                        distanceDecay = distanceDecay[firmZone]
+                                        distanceDecay /= np.sum(distanceDecay)
+                        
+                                        rand = np.random.rand()
+                
+                                        # Determine sending firm
+                                        if orig == -1:
+                                            prob = probSend[:,nstr].copy()
+                                            prob *= distanceDecay
+                                            prob  = np.cumsum(prob)
+                                            prob /= prob[-1]
+                                            fromFirm[count] = np.where(prob > rand)[0][0]
+                                            origZone[count] = firmZone[fromFirm[count]]
+                                            origX[count]    = firmX[fromFirm[count]]
+                                            origY[count]    = firmY[fromFirm[count]]
+                                        else:
+                                            fromFirm[count] = -99999
+                                            origZone[count] = invZoneDict[orig]
+                                            origX[count]    = zoneX[origZone[count]]
+                                            origY[count]    = zoneY[origZone[count]]
+
+                                        fromDC          = 0
+                
+                                        rand = np.random.rand()
+                                        
+                                        # Determine values for attributes in the utility function of the shipment size/vehicle type MNL
+                                        travTime        = skimTravTime[(origZone[count])*nZones + (destZone[count])] / 3600
+                                        distance        = skimDistance[(origZone[count])*nZones + (destZone[count])] / 1000      
+                                        inventoryCosts  = absoluteShipmentSizes
+                                        longHaul        = (distance > 100)
+                                        
+                                        # Determine the utility and probability for each alternative
+                                        utilities = np.zeros((1,nVehTypes*nShipSizes))[0,:]
+                                        
+                                        for ss in range(nShipSizes):
+                                            for vt in range(nVehTypes):
+                                                index           = ss * nVehTypes + vt                        
+                                                transportCosts  =  costPerHour[vt]*travTime + costPerKm[vt]*distance
+                                                
+                                                # Multiply transport costs by number of required vehicles
+                                                transportCosts *= np.ceil(absoluteShipmentSizes[ss] / truckCapacities[vt])
+                                                
+                                                # Utility function
+                                                utilities[index] =  B_TransportCosts * transportCosts + B_InventoryCosts * inventoryCosts[ss] + \
+                                                                    B_FromDC * fromDC * (vt==0) + \
+                                                                    B_ToDC * toDC * (vt in [3,4,5]) + \
+                                                                    B_LongHaul_TruckTrailer * longHaul * (vt in [3,4]) + \
+                                                                    B_LongHaul_TractorTrailer * longHaul * (vt==5) + \
+                                                                    ASC_VT[vt]                                          
+                                                                    
+                                        probabilities       = [np.exp(u)/np.sum(np.exp(utilities)) for u in utilities]
+                                        cumProbabilities    = np.cumsum(probabilities)
+                                                    
+                                        # Sample one choice based on the cumulative probability distribution
+                                        rand = np.random.rand()
+                                        
+                                        ssvt = np.where([cumProbabilities[i] > rand and utilities[i]!=-99999 for i in range(nVehTypes*nShipSizes)])[0][0]
+                            
+                                        # The chosen shipment size category                  
+                                        ssChosen = int(np.floor(ssvt/nVehTypes))
+                                        shipmentSizeCat[count] = ssChosen
+                                        shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
+                                        
+                                        # The chosen vehicle type
+                                        vehicleType[count] = ssvt - ssChosen*nVehTypes
+                                        
+                                        # Update weight and counter
+                                        allocatedWeight += shipmentSize[count]
+                                        count += 1
+    
+                    if root != '':
+                        root.progressBar['value'] = percStart + (percEnd - percStart) * (cor / nCorrections)
+                        
             nShips = count
-            
-            
+                        
             # ------------------------ Delivery time choice ---------------------------
             print('Delivery time choice...')
             log_file.write('Delivery time choice...\n')
             if root != '':
-                root.progressBar['value'] = 90
+                root.progressBar['value'] = 92
                 root.update_statusbar("Shipment Synthesizer: Delivery time choice")
                 
             # Determine delivery time period for each shipment
             deliveryTimePeriod = {}
+            lowerTOD = {}
+            upperTOD = {}
             
             for i in range(nShips):
                     
                 orig = zoneDict[origZone[i]]
                 dest = zoneDict[destZone[i]]
+                ls   = logisticSegment[i]
+                                    
+                ASC = {}
+                beta_ToDC   = {}
+                beta_ToPC   = {}
+                beta_FromDC = {}
+                beta_SmallTruck     = {}
+                beta_MediumTruck    = {}
+                beta_TruckTrailer   = {}
+                beta_TractorTrailer = {}
                 
-                if logisticSegment[i] == 0:
-                    tPeriods = {0:[0,4], 1:[4,8], 2:[8,12], 3:[12,16], 4:[16,19], 5:[19,24]}
+                beta_durTimePeriod = paramsTimeOfDay.at['DurTimePeriod', str(ls+1)]
+                
+                for t in range(nTimeIntervalsLS[ls]):
+                    ASC[t]              = paramsTimeOfDay.at[f'ASC_{t+1}',    str(ls+1)]
+                    beta_ToDC[t]        = paramsTimeOfDay.at[f'ToDC_{t+1}',   str(ls+1)]
+                    beta_ToPC[t]        = paramsTimeOfDay.at[f'ToPC_{t+1}',   str(ls+1)]
+                    beta_FromDC[t]      = paramsTimeOfDay.at[f'FromDC_{t+1}', str(ls+1)]
+                    beta_SmallTruck[t]      = paramsTimeOfDay.at[f'VT_SmallTruck_{t+1}',     str(ls+1)]
+                    beta_MediumTruck[t]     = paramsTimeOfDay.at[f'VT_MediumTruck_{t+1}',    str(ls+1)]
+                    beta_TruckTrailer[t]    = paramsTimeOfDay.at[f'VT_TruckTrailer_{t+1}',   str(ls+1)]
+                    beta_TractorTrailer[t]  = paramsTimeOfDay.at[f'VT_TractorTrailer_{t+1}', str(ls+1)]
+                
+                utilities = {}
+                for t in range(nTimeIntervalsLS[ls]):
+                    utilities[t] =      ASC[t] + \
+                                        beta_durTimePeriod     * np.log(2 * timeIntervalsDur[ls][t]) + \
+                                        beta_ToDC[t]           * isDC[dest] * urbanDensityCat[dest] + \
+                                        beta_ToPC[t]           * isPC[dest] * urbanDensityCat[dest] + \
+                                        beta_FromDC[t]         * isDC[orig] * urbanDensityCat[orig] + \
+                                        beta_SmallTruck[t]     * (vehicleType[i] == 0) + \
+                                        beta_MediumTruck[t]    * (vehicleType[i] == 1) + \
+                                        beta_TruckTrailer[t]   * (vehicleType[i] in (3,4)) + \
+                                        beta_TractorTrailer[t] * (vehicleType[i] == 5)
+                
+                utilities = np.array(list(utilities.values()))
+                probs     = np.exp(utilities)
+                probs    /= np.sum(probs)
+                cumProbs  = np.cumsum(probs)
+                cumProbs /= cumProbs[-1]
+                
+                deliveryTimePeriod[i] = np.where(cumProbs >= np.random.rand())[0][0]
+                lowerTOD[i] = timeIntervals[ls][deliveryTimePeriod[i]][0]
+                upperTOD[i] = timeIntervals[ls][deliveryTimePeriod[i]][1]
                     
-                    ASC = {}
-                    beta_ToDC = {}
-                    beta_ToPC = {}
-                    beta_FromDC = {}
-                    beta_SmallTruck = {}
-                    beta_MediumTruck = {}
-                    beta_TruckTrailer = {}
-                    beta_TractorTrailer = {}
-                    
-                    ASC[0] = -0.5902
-                    ASC[1] = -2.4131
-                    ASC[2] = -1.2011
-                    ASC[3] = -0.9723
-                    ASC[4] = 0
-                    ASC[5] = 0
-                    beta_durTimePeriod = 1
-                    beta_ToDC[0]   = 0.1379
-                    beta_ToDC[1]   = 1.4431
-                    beta_ToDC[2]   = 0.0000
-                    beta_ToDC[3]   = 0.0000
-                    beta_ToDC[4]   = 0.0000
-                    beta_ToDC[5]   = 0.0000
-                    beta_ToPC[0]   = 1.6532
-                    beta_ToPC[1]   = 2.2624
-                    beta_ToPC[2]   = 1.2507
-                    beta_ToPC[3]   = 1.2349
-                    beta_ToPC[4]   = 0.0000
-                    beta_ToPC[5]   = 0.0000
-                    beta_FromDC[0] = -0.7145
-                    beta_FromDC[1] = -0.6938
-                    beta_FromDC[2] =  0.7519
-                    beta_FromDC[3] =  1.0655
-                    beta_FromDC[4] =  0.0000
-                    beta_FromDC[5] =  0.0000
-                    beta_SmallTruck[0]  =  1.4553
-                    beta_SmallTruck[1]  =  4.5401
-                    beta_SmallTruck[2]  =  1.0117
-                    beta_SmallTruck[3]  = -2.9132
-                    beta_SmallTruck[4]  =  0.0000
-                    beta_SmallTruck[5]  =  0.0000
-                    beta_MediumTruck[0] = -2.5035
-                    beta_MediumTruck[1] = -1.8783
-                    beta_MediumTruck[2] = -2.8225
-                    beta_MediumTruck[3] = -2.5774
-                    beta_MediumTruck[4] =  0.0000
-                    beta_MediumTruck[5] =  0.0000
-                    beta_TruckTrailer[0]   = -2.5121
-                    beta_TruckTrailer[1]   = -1.1107
-                    beta_TruckTrailer[2]   = -0.3647
-                    beta_TruckTrailer[3]   =  0.6568       
-                    beta_TruckTrailer[4]   =  0.0000
-                    beta_TruckTrailer[5]   =  0.0000 
-                    beta_TractorTrailer[0] =  0.3760
-                    beta_TractorTrailer[1] = -0.1040
-                    beta_TractorTrailer[2] = -0.4233
-                    beta_TractorTrailer[3] = -0.2613
-                    beta_TractorTrailer[4] =  0.0000
-                    beta_TractorTrailer[5] =  0.0000
-                    
-                    utilities = {}
-                    for alt in range(6):
-                        utilities[alt] =    ASC[alt] + \
-                                            beta_durTimePeriod       * np.log(2 * (tPeriods[alt][1]-tPeriods[alt][0])) + \
-                                            beta_ToDC[alt]           * isDC[dest] * urbanDensityCat[dest] + \
-                                            beta_ToPC[alt]           * isPC[dest] * urbanDensityCat[dest] + \
-                                            beta_FromDC[alt]         * isDC[orig] * urbanDensityCat[orig] + \
-                                            beta_SmallTruck[alt]     * (vehicleType[i] == 0) + \
-                                            beta_MediumTruck[alt]    * (vehicleType[i] == 1) + \
-                                            beta_TruckTrailer[alt]   * (vehicleType[i] in (3,4)) + \
-                                            beta_TractorTrailer[alt] * (vehicleType[i] == 5)
-                    
-                    utilities = np.array(list(utilities.values()))
-                    probs     = np.exp(utilities)
-                    probs    /= np.sum(probs)
-                    cumProbs  = np.cumsum(probs)
-                    cumProbs /= cumProbs[-1]
-                    
-                    deliveryTimePeriod[i] = np.where(cumProbs >= np.random.rand())[0][0]
-                                
-                else:
-                    deliveryTimePeriod[i] = -99999
-                    
-                if i%1000 == 0:
-                    print(i)            
+          
             
             # ----------------------- Creating shipments CSV --------------------------
 
@@ -1119,10 +1242,14 @@ def actually_run_module(args):
             vehicleType     = list(vehicleType.values())
             origZone        = list(origZone.values())
             destZone        = list(destZone.values())
+            lowerTOD        = list(lowerTOD.values())
+            upperTOD        = list(upperTOD.values())
+            periodTOD       = list(deliveryTimePeriod.values())
             
             shipCols  = ["SHIP_ID",   "ORIG",         "DEST",     "NSTR",      \
                          "WEIGHT",    "WEIGHT_CAT",   "FLOWTYPE", "LOGSEG",  "VEHTYPE",   \
-                         "SEND_FIRM", "RECEIVE_FIRM", "SEND_DC",  "RECEIVE_DC"]
+                         "SEND_FIRM", "RECEIVE_FIRM", "SEND_DC",  "RECEIVE_DC", \
+                         "TOD_PERIOD", "TOD_LOWER", "TOD_UPPER"]
             shipments = pd.DataFrame(np.zeros((nShips,len(shipCols))))
             shipments.columns = shipCols
     
@@ -1135,10 +1262,13 @@ def actually_run_module(args):
             shipments['FLOWTYPE'    ] = flowType
             shipments['LOGSEG'      ] = logisticSegment
             shipments['VEHTYPE'     ] = vehicleType
-            shipments['SEND_FIRM'   ] = firmID[fromFirm]
-            shipments['RECEIVE_FIRM'] = firmID[toFirm]
+            shipments['SEND_FIRM'   ] = [firmID[x] if x!=-99999 else -99999 for x in fromFirm]
+            shipments['RECEIVE_FIRM'] = [firmID[x] if x!=-99999 else -99999 for x in   toFirm]
             shipments['SEND_DC'     ] = -99999
             shipments['RECEIVE_DC'  ] = -99999
+            shipments['TOD_PERIOD'  ] = periodTOD
+            shipments['TOD_LOWER'   ] = lowerTOD
+            shipments['TOD_UPPER'   ] = upperTOD
             
             # For the external zones and logistical nodes there is no firm, hence firm ID -99999
             shipments.loc[(shipments['ORIG'] > 99999900), 'SEND_FIRM'   ] = -99999
@@ -1165,7 +1295,8 @@ def actually_run_module(args):
         # Get the datatypes right
         intCols  =  ["SHIP_ID",    "ORIG",         "DEST",    "NSTR",       \
                      "WEIGHT_CAT", "FLOWTYPE",     "LOGSEG",  "VEHTYPE",    \
-                     "SEND_FIRM",  "RECEIVE_FIRM", "SEND_DC", "RECEIVE_DC"]
+                     "SEND_FIRM",  "RECEIVE_FIRM", "SEND_DC", "RECEIVE_DC", \
+                     "TOD_PERIOD", "TOD_LOWER", "TOD_UPPER"]
         floatCols = ['WEIGHT']
         shipments[intCols  ] = shipments[intCols].astype(int)
         shipments[floatCols] = shipments[floatCols].astype(float)
@@ -1177,7 +1308,7 @@ def actually_run_module(args):
                 log_file.write('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv\n")
                 
                 if root != '':
-                    root.progressBar['value'] = 90
+                    root.progressBar['value'] = 93
                     root.update_statusbar("Shipment Synthesizer: Exporting REF shipments to CSV")
                                 
                 shipments.to_csv(datapathO + 'Shipments_REF.csv')
@@ -1185,7 +1316,7 @@ def actually_run_module(args):
             print("Redirecting shipments via UCC...")
             log_file.write("Redirecting shipments via UCC...\n")
             if root != '':
-                root.progressBar['value'] = 91
+                root.progressBar['value'] = 94
                 root.update_statusbar("Shipment Synthesizer: Redirecting shipments via UCC")
             
             shipments['FROM_UCC'] = 0
@@ -1341,7 +1472,7 @@ def actually_run_module(args):
         print('Exporting ' + str(label) + ' shipments to ' + datapathO + f"Shipments_{label}.csv")
         log_file.write('Exporting ' + str(label) + ' shipments to ' + datapathO + f"Shipments_{label}.csv\n")
         if root != '':
-            root.progressBar['value'] = 92               
+            root.progressBar['value'] = 95             
             root.update_statusbar("Shipment Synthesizer: Exporting shipments to CSV")
             
         dtypes = {'SHIP_ID':int,  'ORIG':int,       'DEST':int,         'NSTR':int, \
@@ -1359,7 +1490,7 @@ def actually_run_module(args):
             print("Writing zonal productions/attractions...\n")
             log_file.write("Writing zonal productions/attractions...\n")
             if root != '':
-                root.progressBar['value'] = 93
+                root.progressBar['value'] = 97
                 root.update_statusbar("Shipment Synthesizer: Writing zonal productions/attractions")
                 
             prodWeight = pd.pivot_table(shipments, values=['WEIGHT'], index=['ORIG','LOGSEG'], aggfunc=np.sum)
@@ -1399,7 +1530,7 @@ def actually_run_module(args):
             # Write into a geopandas dataframe and export as shapefile
             print("Writing GeoJSON...")
             log_file.write("Writing GeoJSON...\n")
-            percStart = 94
+            percStart = 98
             percEnd   = 100
             if root != '':
                 root.progressBar['value'] = percStart
@@ -1496,7 +1627,7 @@ if __name__ == '__main__':
     SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
     LINKS		        = INPUTFOLDER + 'links_v5.shp'
     NODES               = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES               = INPUTFOLDER + 'Zones_v4.shp'
+    ZONES               = INPUTFOLDER + 'Zones_v5.shp'
     SEGS                = INPUTFOLDER + 'SEGS2016.csv'
     COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
     PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
@@ -1505,13 +1636,14 @@ if __name__ == '__main__':
     COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
     MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
     NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
+    CORRECTIONS_TONNES  = INPUTFOLDER + 'CorrectionsTonnes2016.csv'
     
-    YEARFACTOR = 255
+    YEARFACTOR = 209
     
     NUTSLEVEL_INPUT = 3
     
-    PARCELS_PER_HH	 = 0.195
-    PARCELS_PER_EMPL = 0.073
+    PARCELS_PER_HH	 = 0.112
+    PARCELS_PER_EMPL = 0.041
     PARCELS_MAXLOAD	 = 180
     PARCELS_DROPTIME = 120
     PARCELS_SUCCESS_B2C   = 0.75
@@ -1536,7 +1668,7 @@ if __name__ == '__main__':
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
             YEARFACTOR, NUTSLEVEL_INPUT, \
             IMPEDANCE_SPEED, N_CPU, \
-            SHIPMENTS_REF, SELECTED_LINKS,\
+            SHIPMENTS_REF, SELECTED_LINKS,CORRECTIONS_TONNES,\
             LABEL, \
             MODULES]
 
@@ -1548,7 +1680,7 @@ if __name__ == '__main__':
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
                   "YEARFACTOR", "NUTSLEVEL_INPUT", \
                   "IMPEDANCE_SPEED", "N_CPU", \
-                  "SHIPMENTS_REF", "SELECTED_LINKS", \
+                  "SHIPMENTS_REF", "SELECTED_LINKS", "CORRECTIONS_TONNES", \
                   "LABEL", \
                   "MODULES"]
      

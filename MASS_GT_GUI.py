@@ -128,16 +128,17 @@ class Root:
         Run the actual emission calculation
         '''
         # De mogelijke sleutels in de control file
-        self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                           "LINKS", "NODES","ZONES","SEGS", "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING",\
-                           "COMMODITYMATRIX", "PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
-                           "SERVICE_DISTANCEDECAY", \
-                           "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                           "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT", \
-                           "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                           "IMPEDANCE_SPEED","N_CPU",\
-                           "SHIPMENTS_REF", "SELECTED_LINKS",\
-                           "LABEL", \
+        self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE",
+                           "LINKS", "NODES","ZONES","SEGS", "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING",
+                           "COMMODITYMATRIX", "PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
+                           "SERVICE_DISTANCEDECAY",
+                           "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
+                           "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT",
+                           "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+                           "YEARFACTOR", "NUTSLEVEL_INPUT",
+                           "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", "N_CPU", "N_MULTIROUTE",
+                           "SHIPMENTS_REF", "SELECTED_LINKS", "CORRECTIONS_TONNES",
+                           "LABEL", 
                            "MODULES"]
         nVars = len(self.varStrings)
         
@@ -150,17 +151,19 @@ class Root:
         varValues = ["" for i in range(nVars)]
 
         # Welke waardes zijn numeriek of stellen een directory/filenaam voor
-        numericVars = ["PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                       "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT", \
-                       "YEARFACTOR", "NUTSLEVEL_INPUT"]
+        numericVars = ["PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
+                       "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT",
+                       "YEARFACTOR", "NUTSLEVEL_INPUT", "CRW_PARCELSHARE", "N_MULTIROUTE"]
         dirVars     = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
         moduleVars  = ["MODULES"]
-        fileVars    = ["SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES","SEGS", \
-                       "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
-                       "COMMODITYMATRIX","PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",\
-                       "SERVICE_DISTANCEDECAY", \
-                       "SHIPMENTS_REF"]
-        optionalVars = ["SHIPMENTS_REF", "SELECTED_LINKS", "N_CPU"]
+        fileVars    = ["SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES","SEGS",
+                       "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING",
+                       "COMMODITYMATRIX","PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
+                       "SERVICE_DISTANCEDECAY",
+                       "SHIPMENTS_REF", "CORRECTIONS_TONNES",
+                       "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE"]
+        optionalVars = ["SHIPMENTS_REF", "CORRECTIONS_TONNES", "SELECTED_LINKS", "N_CPU", "N_MULTIROUTE",
+                        "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE"]
         
         run = True          # Wel of niet runnen, wordt op False gezet als bijv. bestanden niet gevonden kunnen worden
         writeLog = True     # Wel of geen logfile schrijven, wordt op False gezet als de outputfolder niet bestaat
@@ -201,11 +204,12 @@ class Root:
                                     
                                     # For numeric arguments, check if they can be converted from string to float
                                     if self.varStrings[i] in numericVars:
+                                        value = value.replace("'", "").replace('"', "").replace('\n',"")
                                         try:
-                                            varValues[i] = float(value.replace("'", "").replace('"', "").replace('\n',""))
+                                            varValues[i] = float(value)
                                         except:
-                                            if value.replace("'", "").replace('"', "").replace('\n',"") != "":
-                                                varValues[i] = value.replace("'", "").replace('"', "").replace('\n',"")
+                                            if value != "":
+                                                varValues[i] = value
                                                 errorMessage = errorMessage + 'Fill in a numeric value for ' + self.varStrings[i] + ', could not convert following value to a number: ' + value.replace("'", "").replace('"', "").replace('\n',"") + "\n"
                                                 run = False                                                
                                     
@@ -283,7 +287,7 @@ class Root:
             with open(self.logFileName, "w") as f:            
                 f.write('########################################################################################\n')
                 f.write('### Tactical Freight Simulator HARMONY                                               ###\n')
-                f.write('### Prototype version, April 2021                                                    ###\n')
+                f.write('### Prototype version, June 2021                                                     ###\n')
                 f.write('########################################################################################\n')
                 f.write('\n')
     

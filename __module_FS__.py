@@ -310,7 +310,7 @@ def actually_run_module(args):
         
         #check if size fits in zone                         
                     # if firm is not way too large, accept it and add it to list of firms
-                    if size <= 1.5 * jobs_to_assign:
+                    if size <= 1.3 * jobs_to_assign:
                         # print(firm)
                         assigned_jobs += size
                         

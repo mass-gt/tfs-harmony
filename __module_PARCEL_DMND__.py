@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue Jun  2 14:20:50 2020
-
 @author: modelpc
 """
 
@@ -508,5 +507,3 @@ if __name__ == '__main__':
         
     # Run the module
     main(varDict)
-
-    

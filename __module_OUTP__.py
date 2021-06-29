@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import time
 import datetime
-import matplotlib.pyplot as plt
 import os.path
 from __functions__ import read_mtx, read_shape
 
@@ -104,8 +103,6 @@ def actually_run_module(args):
     
     try:
         
-        global trips, tours, shipments, parcels, parcelTrips, linksLoaded, zonesShape
-        
         #------------------- Open output files --------------------------------
         
         print("Importing data...")
@@ -151,20 +148,31 @@ def actually_run_module(args):
         nLS = len(lsNames)
         nNSTR = 10
         
+        if root != '':
+            root.progressBar['value'] = 0.1
+            
         # Read data
         print('\tImporting shipments...'), log_file.write('\tImporting shipments...\n')
         shipments   = pd.read_csv(f"{datapathO}Shipments_{label}.csv", index_col=None)
 
+        if root != '':
+            root.progressBar['value'] = 5.0
+            
         print('\tImporting tours...'), log_file.write('\tImporting tours...\n')
         trips       = pd.read_csv(f'{datapathO}Tours_{label}.csv')
 
+        if root != '':
+            root.progressBar['value'] = 10.0
+            
         print('\tImporting parcels...'), log_file.write('\tImporting parcels...\n')
         parcels     = pd.read_csv(f"{datapathO}ParcelDemand_{label}.csv")
-        parcelTrips = pd.read_csv(f"{datapathO}ParcelSchedule_{label}.csv")
-        
+        parcelTrips = pd.read_csv(f"{datapathO}ParcelSchedule_{label}.csv")        
         parcels     = parcels.rename(columns={'O_zone':'ORIG', 'D_zone':'DEST'})
         parcelTrips = parcelTrips.rename(columns={'O_zone':'ORIG', 'D_zone':'DEST','Trip_ID':'TRIP_ID', 'Tour_ID':'TOUR_ID'})  
 
+        if root != '':
+            root.progressBar['value'] = 13.0
+            
         print('\tPreparing tours/parcels...'), log_file.write('\tPreparing tours/parcels...\n')
         temp = pd.pivot_table(parcelTrips, values='TRIP_ID', index='TOUR_ID', aggfunc=len)
         nTripsParcelTour = {}
@@ -174,7 +182,10 @@ def actually_run_module(args):
         
         tours       = trips[[trips['TRIP_ID'][i][-2:]=='_0' for i in trips.index]]
         parcelTours = parcelTrips[[parcelTrips['TRIP_ID'][i][-2:]=='_0' for i in parcelTrips.index]]
-        
+
+        if root != '':
+            root.progressBar['value'] = 20.0
+            
         print('\tImporting van trips...'), log_file.write('\tImporting van trips...\n')
         if os.path.isfile(datapathO + 'TripsVanService.mtx') and os.path.isfile(datapathO + 'TripsVanConstruction.mtx'):
             vanTripsFound = True
@@ -183,13 +194,19 @@ def actually_run_module(args):
         else:
             vanTripsFound = False
             print('\tVan trips not found in outputfolder...'), log_file.write('\tVan trips not found in outputfolder...\n')
+
+        if root != '':
+            root.progressBar['value'] = 30.0
             
         # Skim with travel times and distances
         print('\tImporting skims...'), log_file.write('\tImporting skims...\n')
         skimTravTime = read_mtx(skimTravTimePath)
         skimDistance = read_mtx(skimDistancePath)
         nZones       = int(len(skimTravTime)**0.5)
-        
+
+        if root != '':
+            root.progressBar['value'] = 40.0
+            
         # Import external zones demand and coordinates
         superCoordinates = pd.read_csv(f'{datapathI}SupCoordinatesID.csv')
         nSuperZones      = len(superCoordinates)          
@@ -207,12 +224,18 @@ def actually_run_module(args):
         invZoneDict     = dict((v, k) for k, v in zoneDict.items())
         zoneID          = np.arange(nInternalZones)      
 
+        if root != '':
+            root.progressBar['value'] = 42.0
+            
         # The distance of each shipment and trip in kilometers
         print('\tCalculating distance of each trip...'), log_file.write('\tCalculating distance of each trip...\n')
         trips['DIST']       = skimDistance[np.array([invZoneDict[trips['ORIG'][i]]       * nZones + invZoneDict[trips['DEST'][i]]       for i in       trips.index], dtype=int)] / 1000
         parcelTrips['DIST'] = skimDistance[np.array([invZoneDict[parcelTrips['ORIG'][i]] * nZones + invZoneDict[parcelTrips['DEST'][i]] for i in parcelTrips.index], dtype=int)] / 1000
         shipments['DIST']   = skimDistance[np.array([invZoneDict[shipments['ORIG'][i]]   * nZones + invZoneDict[shipments['DEST'][i]]   for i in   shipments.index], dtype=int)] / 1000
-        
+
+        if root != '':
+            root.progressBar['value'] = 50.0
+            
         # Import the loaded network
         print('\tImporting loaded network...'), log_file.write('\tImporting loaded network...\n')        
         linksLoaded = pd.read_csv(datapathO + 'links_loaded_' + str(label) + '_intensities.csv')
@@ -227,6 +250,9 @@ def actually_run_module(args):
         linksLoadedZH   = linksLoaded.loc[linksLoaded['Gemeentena']!="nan",          :]
         linksLoadedZEZ  = linksLoaded.loc[linksLoaded['ZEZ'       ]==1,              :]
 
+        if root != '':
+            root.progressBar['value'] = 60.0
+            
         
         #---------------------- Shipment sizes --------------------------------
         
@@ -241,30 +267,20 @@ def actually_run_module(args):
         shipments.loc[(shipments['WEIGHT']>=6 ) & (shipments['WEIGHT']<10),'WEIGHT_LEVELS'] = 2        
         shipments.loc[(shipments['WEIGHT']>=10) & (shipments['WEIGHT']<20),'WEIGHT_LEVELS'] = 3 
         shipments.loc[(shipments['WEIGHT']>=20) & (shipments['WEIGHT']<30),'WEIGHT_LEVELS'] = 4
-        shipments.loc[(shipments['WEIGHT']>=30)                           ,'WEIGHT_LEVELS'] = 5
-        fig = plt.figure()
-        ax = fig.add_axes([0,0,2,2])
+        shipments.loc[(shipments['WEIGHT']>=30)                           ,'WEIGHT_LEVELS'] = 5        
         shipmentSizeHist = np.unique(shipments['WEIGHT_LEVELS'], return_counts=True)
-        ax.bar(np.arange(6), shipmentSizeHist[1])
-        xticklabels = ['','<3','3--6','6--10','10--20','20--30','>30']
-        ax.set_xticklabels(xticklabels)
-        ax.set_title('Shipment Size freight')
-        ax.set_xlabel('Shipment size (freight; tonnes)')
-        ax.set_ylabel('Number of shipments')
-        fig.savefig(datapathOI + f"OUT_ShipmentSizes_{label}.png", bbox_inches='tight')
-        plt.close()
-        
+        shipmentSizeLabels = ['','<3','3--6','6--10','10--20','20--30','>30']       
         outfile.write('Shipment size; actual weight (freight)' + sep + '\n')
         outfile.write(sep + 'Weight (tonnes)' + sep + 'Number of shipments\n')
         for i in range(6):
-            outfile.write(sep + xticklabels[i+1] + sep + str(shipmentSizeHist[1][i]) + '\n')        
+            outfile.write(sep + shipmentSizeLabels[i+1] + sep + str(shipmentSizeHist[1][i]) + '\n')        
 
         # Chosen shipment size category
         shipmentSizeHist = np.unique(shipments['WEIGHT_CAT'], return_counts=True)        
         outfile.write('\nShipment size; chosen weight class (freight)' + sep + '\n')
         outfile.write(sep + 'Weight (tonnes)' + sep + 'Number of shipments\n')
         for i in range(6):
-            outfile.write(sep + xticklabels[i+1] + sep + str(shipmentSizeHist[1][i]) + '\n')       
+            outfile.write(sep + shipmentSizeLabels[i+1] + sep + str(shipmentSizeHist[1][i]) + '\n')       
 
         # Chosen vehicle type per shipment
         nShipsVeh = np.zeros((nVT,1))[:,0]
@@ -296,9 +312,11 @@ def actually_run_module(args):
             outfile.write(sep + lsNames[ls] + sep + str(nShipsLS[ls]) + '\n')
         outfile.write(sep + lsNames[nLS-1] + sep + str(len(ZEZparcels)) + '\n')
         
-            
-            
-        # -------------------------- Number of trips --------------------------
+        if root != '':
+            root.progressBar['value'] = 65.0            
+
+           
+        # -------------------------------- Number of trips -------------------------------
                 
         print("\tTrips"), log_file.write("\tTrips\n")
         
@@ -341,6 +359,25 @@ def actually_run_module(args):
                 outfile.write(sep + str(value))
             outfile.write('\n')
         
+        # Number of trips by logistic segment and NSTR (in/out/inside ZEZ Rotterdam)
+        tripOrigs = np.array(trips['ORIG'])
+        tripDests = np.array(trips['DEST'])
+        zezZones = np.array(zonesShape.loc[(zonesShape['ZEZ']==1) & (zonesShape['Gemeentena']=='Rotterdam'), 'AREANR'])
+        tripsZEZ = trips.iloc[[i for i in range(len(trips)) if tripOrigs[i] in zezZones or tripDests[i] in zezZones], :]
+
+        outfile.write('\nNumber of trips (freight/parcel; by logistic segment and NSTR)' + sep + '\n')
+        outfile.write('Only trips entering/leaving/inside ZEZ Rotterdam' + '\n')
+        outfile.write(sep + 'LS' + sep)
+        for nstr in range(-1,nNSTR):
+            outfile.write(str(nstr) + sep)
+        outfile.write('\n')
+        for ls in range(nLS-1):
+            outfile.write(sep + lsNames[ls])
+            for nstr in range(-1,nNSTR):
+                value = np.sum((tripsZEZ['LOG_SEG']==ls) & (tripsZEZ['NSTR']==nstr))
+                outfile.write(sep + str(value))
+            outfile.write('\n')
+            
         # Number of trips by vehicle type and combustion type
         nTripsVeh = [None for veh in range(nVT)]
         outfile.write('\nNumber of trips (freight; by vehicle type and combustion type)' + sep + '\n')
@@ -351,7 +388,7 @@ def actually_run_module(args):
             for comb in range(5):
                 nTripsVehComb[comb] = np.sum((trips['VEHTYPE']==veh) & (trips['COMBTYPE']==comb))
             outfile.write(sep + vtNames[veh] + sep + str(nTripsVehComb[0]) + sep + str(nTripsVehComb[1]) + sep + str(nTripsVehComb[2]) \
-                                             + sep + str(nTripsVehComb[3]) + sep + str(nTripsVehComb[4]) + '\n')
+                                             + sep + str(nTripsVehComb[3]) + sep + str(nTripsVehComb[4]) + '\n')        
         
         # Number of trips by logistic segment and vehicle type
         outfile.write('\nNumber of trips (freight/parcel; by logistic segment and vehicle type)' + sep + '\n')
@@ -378,9 +415,13 @@ def actually_run_module(args):
             outfile.write(sep + 'Construction' + sep + str(np.sum(vanTripsConstruction)) + '\n')
         else:
             outfile.write(sep + 'Van trips not found in outputfolder.' + '\n')
+            outfile.write('\n\n')
 
-        
-        #----------------------- Transported weight ---------------------------
+        if root != '':
+            root.progressBar['value'] = 75.0
+            
+
+        #------------------------- Transported weight ------------------------------
         
         print("\tTransported weight"), log_file.write("\tTransported weight\n")
         
@@ -404,16 +445,6 @@ def actually_run_module(args):
         for nstr in range(nNSTR):
             weightNSTR[nstr] = round(sum(tours[tours['NSTR']==nstr]['TOUR_WEIGHT']),2)
             outfile.write(sep + str(nstr) + sep + str(weightNSTR[nstr]) + '\n')
-         
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(10), weightNSTR)
-        plt.title("Transported weight by commodity type (freight)")
-        plt.xlabel('NSTR')
-        plt.ylabel('Transported weight (tonnes)')
-        plt.xticks(np.arange(10))
-        fig.savefig(datapathOI + f"OUT_WeightByNSTR_{label}.png", bbox_inches='tight')
-        plt.close()
         
         # Transported weight by Vehicle type
         weightVeh = [None for veh in range(nVT)]
@@ -426,18 +457,6 @@ def actually_run_module(args):
                 weightVehComb[comb] = np.round(np.sum(tours[(tours['VEHTYPE']==veh) & (tours['COMBTYPE']==comb)]['TOUR_WEIGHT']),2)
             outfile.write(sep + vtNames[veh] + sep + str(weightVehComb[0]) + sep + str(weightVehComb[1]) + sep + str(weightVehComb[2]) \
                                              + sep + str(weightVehComb[3]) + sep + str(weightVehComb[4]) + '\n')
-        
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nVT), weightVeh)
-        plt.title("Transported weight by vehicle type (freight)")
-        plt.xlabel('Vehicle type')
-        plt.ylabel('Transported weight (tonnes)')
-        plt.xticks(np.arange(nVT)-0.5, vtNames, rotation=45)
-        plt.tick_params(length=0)
-        fig.savefig(datapathOI + f"OUT_WeightByVehType_{label}.png", bbox_inches='tight')
-        plt.close()
-
         # Transported weight by logistic segment
         weightLS = np.zeros((nLS,1))[:,0]
         outfile.write('\nTransported tonnes (freight; by logistic segment)' + sep + '\n')
@@ -446,17 +465,13 @@ def actually_run_module(args):
             weightLS[ls] = round(sum(tours[tours['LOG_SEG']==ls]['TOUR_WEIGHT']),2)
             outfile.write(sep + lsNames[ls] + sep + str(weightLS[ls]) + '\n')
         outfile.write(sep + lsNames[nLS-1] + sep + 'n.a.' + '\n')
-         
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nLS), weightLS)
-        plt.title("Transported weight by logistic segment (freight)")
-        plt.xlabel('Logistic segment')
-        plt.ylabel('Transported weight (tonnes)')
-        plt.xticks(np.arange(nLS), lsNames, rotation=45)
-        fig.savefig(datapathOI + f"OUT_WeightByLS_{label}.png", bbox_inches='tight')
-        plt.close()
-                    
+                 
+        if root != '':
+            root.progressBar['value'] = 78.0        
+        
+        
+        #-------------------------- Loading rate --------------------------------
+        
         print("\tAverage trip loads"), log_file.write("\tAverage trip loads\n")
         
         # Average trip load by direction
@@ -482,16 +497,6 @@ def actually_run_module(args):
             avgLoadNSTR[nstr] = round(loadedTrips[loadedTrips['NSTR']==nstr]['TRIP_WEIGHT'].mean(),2)
             outfile.write(f"{sep}{nstr}{sep}{avgLoadNSTR[nstr]}\n")
         outfile.write(f"{sep}*Excluding empty trips{sep}\n")
-           
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nNSTR), avgLoadNSTR)
-        plt.title("Average load carried in trip (freight; excl. empty trips)")
-        plt.xlabel('NSTR')
-        plt.ylabel('Average load carried in trip (tonnes)')
-        plt.xticks(np.arange(nNSTR))
-        fig.savefig(f"{datapathOI}OUT_AvgLoadByNSTR_{label}.png", bbox_inches='tight')
-        plt.close()
         
         # Average load per vehicle type
         avgLoadVeh = np.zeros(nVT)
@@ -502,17 +507,6 @@ def actually_run_module(args):
             avgLoadVeh[i] = round(loadedTrips[loadedTrips['VEHTYPE']==i]['TRIP_WEIGHT'].mean(),2)
             outfile.write(f"{sep}{vtNames[i]}{sep}{avgLoadVeh[i]}\n")
         outfile.write(f"{sep}*Excluding empty trips{sep}\n")
-        
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nVT), avgLoadVeh)
-        plt.title("Average load carried in trip (freight; excl. empty trips)")
-        plt.xlabel('Vehicle type')
-        plt.ylabel('Average load carried in trip (tonnes)')
-        plt.xticks(np.arange(nVT)-0.5, vtNames, rotation=45)
-        plt.tick_params(length=0)
-        fig.savefig(f"{datapathOI}OUT_AvgLoadByVehType_{label}.png", bbox_inches='tight')
-        plt.close()
 
         # Average load per logistic segment
         avgLoadLS = np.zeros((nLS))
@@ -523,18 +517,11 @@ def actually_run_module(args):
             outfile.write(sep + lsNames[ls] + sep + str(avgLoadLS[ls]) + '\n')
         outfile.write(sep + lsNames[nLS-1] + sep + 'n.a.' + '\n')
         outfile.write(f"{sep}*Excluding empty trips{sep}\n")
-           
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(np.arange(nLS), avgLoadLS)
-        plt.title("Average load carried in trip (freight; excl. empty trips)")
-        plt.xlabel('Logistic segment')
-        plt.ylabel('Average load carried in trip (tonnes)')
-        plt.xticks(np.arange(nLS), lsNames, rotation=45)
-        fig.savefig(f"{datapathOI}OUT_AvgLoadByLS_{label}.png", bbox_inches='tight')
-        plt.close()
         
-        
+        if root != '':
+            root.progressBar['value'] = 80.0 
+            
+            
         #---------------- Number of shipments per tour ------------------------
         
         print("\tNumber of shipments"), log_file.write("\tNumber of shipments\n")
@@ -559,27 +546,7 @@ def actually_run_module(args):
         outfile.write(f"{sep}Number of shipments{sep}{str(list(nShipsNSTRInternal.columns))[1:-1]}{sep}Total\n")
         for ships in nShipsNSTR.index:
             totalShips = sum(nShipsNSTRInternal.loc[ships,:])
-            outfile.write(f"{sep}{ships}{sep}{str(list(nShipsNSTRInternal.loc[ships,:]))[1:-1]}{sep}{totalShips}\n")            
-            
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(nShipsTotal.index, nShipsTotal)
-        plt.title("Number of shipments per tour (freight)")
-        plt.xlabel('Number of shipments in tour')
-        plt.ylabel('# tours')
-        plt.xticks(nShipsTotal.index)
-        fig.savefig(f"{datapathOI}OUT_NumberOfShipments_{label}.png", bbox_inches='tight')
-        plt.close()        
-        
-        fig = plt.figure()
-        plt.subplot(111)
-        plt.bar(nShipsTotalInternal.index, nShipsTotalInternal)
-        plt.title("Number of shipments per tour (freight; only within study area)")
-        plt.xlabel('Number of shipments in tour')
-        plt.ylabel('# tours')
-        plt.xticks(nShipsTotalInternal.index)
-        fig.savefig(f"{datapathOI}OUT_NumberOfShipmentsInternal_{label}.png", bbox_inches='tight')
-        plt.close()               
+            outfile.write(f"{sep}{ships}{sep}{str(list(nShipsNSTRInternal.loc[ships,:]))[1:-1]}{sep}{totalShips}\n")
 
         outfile.write("\nNumber of shipments per tour (freight; by logistic segment)\n")
         outfile.write(f"{sep}{sep}Logistic segment\n")
@@ -606,6 +573,9 @@ def actually_run_module(args):
         outfile.write(lsNames[nLS-1] + sep + str(np.mean(parcelTours['N_trips_tour'])) + '\n')
         outfile.write('Total (freight)' + sep + str(len(trips)/len(np.unique(trips['TOUR_ID']))) + '\n')
         
+        if root != '':
+            root.progressBar['value'] = 82.0
+            
 
         #-------------------- Tonkilometers -----------------------------------
 
@@ -622,8 +592,7 @@ def actually_run_module(args):
         outfile.write(sep + 'Leaving study area'    + sep + str(tonKilometersLeaving)  + '\n')
         outfile.write(sep + 'Entering study area'   + sep + str(tonKilometersEntering) + '\n')
         outfile.write(sep + 'Total'                 + sep + str(tonKilometersTotal)    + '\n')
-
-        
+       
         # Shipments tonkilometers
         shipments['TONKM'] = shipments['DIST'] * shipments['WEIGHT']
         tonKilometersTotal     = round(sum(shipments['TONKM']),2)
@@ -638,12 +607,15 @@ def actually_run_module(args):
         outfile.write(sep + 'Entering study area'   + sep + str(tonKilometersEntering) + '\n')
         outfile.write(sep + 'Total'                 + sep + str(tonKilometersTotal)    + '\n')
         
+        if root != '':
+            root.progressBar['value'] = 85.0 
+            
         
-        #---------------- Vehicle Kilometers Travelled ------------------------
+        #---------------- Vehicle Kilometers Travelled (Total) ------------------------
         
         print("\tVehicle Kilometers Travelled"), log_file.write("\tVehicle Kilometers Travelled\n")
       
-        # VKM by logistic segment and vehicle type
+        # VKM (Total, skim-based) by logistic segment and vehicle type
         outfile.write('\nVehicle kilometers (Total; based on skim) (freight/parcel; by logistic segment and vehicle type)' + sep + '\n')
         outfile.write(sep + 'LS' + sep)
         for vt in range(nVT):
@@ -660,7 +632,7 @@ def actually_run_module(args):
         outfile.write(sep + lsNames[nLS-1] + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep + '0' + sep)
         outfile.write(str(nParcelTripsVan) + sep + str(nParcelTripsLEVV) + '\n')
 
-        # VKMs by van traffic segment
+        # VKMs van (Total, skim-based) by van traffic segment
         outfile.write('\nVehicle kilometers (Total; based on skim) (service vans; by logistic segment)' + sep + '\n')
         if vanTripsFound:
             outfile.write(sep + 'Segment' + sep + 'Number of trips\n')
@@ -669,7 +641,7 @@ def actually_run_module(args):
         else:
             outfile.write(sep + 'Van trips not found in outputfolder.' + '\n')
             
-            
+        # VKMs (Total) by logistic segment
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (Total) (freight/parcel; by logistic segment)\n")
         outfile.write(f"{sep}LS{sep}VKT\n")
@@ -679,6 +651,7 @@ def actually_run_module(args):
             outfile.write(f"{sep}{lsNames[ls]}{sep}{VKT_LS[ls]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_LS)}\n")
         
+        # VKMs (Total) by vehicle type
         VKT_VEH = np.zeros((nVT))
         outfile.write("\nVehicle Kilometers Travelled (Total) (freight/parcel; by vehicle Type)\n")
         outfile.write(f"{sep}Vehicle type{sep}VKT\n")
@@ -689,11 +662,19 @@ def actually_run_module(args):
             outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")       
         
+        # VKMs van (Total=NL) by van traffic segment
         outfile.write("\nVehicle Kilometers Travelled (NL) (service vans; by segment)\n")
         outfile.write(f"{sep}Segment{sep}VKT\n")
         outfile.write(sep + 'Service'      + sep + str(np.sum(linksLoaded['LENGTH'] * linksLoaded['N_VAN_S'])) + '\n')
         outfile.write(sep + 'Construction' + sep + str(np.sum(linksLoaded['LENGTH'] * linksLoaded['N_VAN_C'])) + '\n')
             
+        if root != '':
+            root.progressBar['value'] = 90.0 
+            
+        
+        #---------------- Vehicle Kilometers Travelled (Zuid-Holland) ------------------------
+        
+        # VKMs (ZH) by logistic segment
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (in Zuid-Holland) (freight/parcel; by logistic segment)\n")
         outfile.write(f"{sep}LS{sep}VKT\n")
@@ -703,6 +684,7 @@ def actually_run_module(args):
             outfile.write(f"{sep}{lsNames[ls]}{sep}{VKT_LS[ls]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_LS)}\n")
         
+        # VKMs (ZH) by vehicle type
         VKT_VEH = np.zeros((nVT))
         outfile.write("\nVehicle Kilometers Travelled (in Zuid-Holland) (freight/parcel; by vehicle Type)\n")
         outfile.write(f"{sep}Vehicle type{sep}VKT\n")
@@ -713,6 +695,7 @@ def actually_run_module(args):
             outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")    
 
+        # VKMs parcel (ZH) by vehicle type
         VKT_VEH = np.zeros((nVT))
         outfile.write("\nVehicle Kilometers Travelled (in Zuid-Holland) (parcel; by vehicle Type)\n")
         outfile.write(f"{sep}Vehicle type{sep}VKT\n")
@@ -724,11 +707,19 @@ def actually_run_module(args):
                 outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")    
 
+        # VKMs van (ZH) by van traffic segment
         outfile.write("\nVehicle Kilometers Travelled (in Zuid-Holland) (service vans; by segment)\n")
         outfile.write(f"{sep}Segment{sep}VKT\n")
         outfile.write(sep + 'Service'      + sep + str(np.sum(linksLoadedZH['LENGTH'] * linksLoadedZH['N_VAN_S'])) + '\n')
         outfile.write(sep + 'Construction' + sep + str(np.sum(linksLoadedZH['LENGTH'] * linksLoadedZH['N_VAN_C'])) + '\n')
          
+        if root != '':
+            root.progressBar['value'] = 93.0
+            
+        
+        #---------------- Vehicle Kilometers Travelled (Rotterdam) ------------------------
+        
+        # VKMs (Rdam) by logistic segment
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (in Rotterdam) (freight/parcel; by logistic segment)\n")
         outfile.write(f"{sep}LS{sep}VKT\n")
@@ -738,6 +729,7 @@ def actually_run_module(args):
             outfile.write(f"{sep}{lsNames[ls]}{sep}{VKT_LS[ls]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_LS)}\n")
         
+        # VKMs (Rdam) by vehicle type
         VKT_VEH = np.zeros((nVT))
         outfile.write("\nVehicle Kilometers Travelled (in Rotterdam) (freight/parcel; by vehicle Type)\n")
         outfile.write(f"{sep}Vehicle type{sep}VKT\n")
@@ -748,6 +740,7 @@ def actually_run_module(args):
             outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")               
 
+        # VKMs parcel (Rdam) by vehicle type
         VKT_VEH = np.zeros((nVT))
         outfile.write("\nVehicle Kilometers Travelled (in Rotterdam) (parcel; by vehicle Type)\n")
         outfile.write(f"{sep}Vehicle type{sep}VKT\n")
@@ -759,30 +752,19 @@ def actually_run_module(args):
                 outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n") 
 
+        # VKMs van (Rdam) by van traffic segment
         outfile.write("\nVehicle Kilometers Travelled (in Rotterdam) (service vans; by segment)\n")
         outfile.write(f"{sep}Segment{sep}VKT\n")
         outfile.write(sep + 'Service'      + sep + str(np.sum(linksLoadedRdam['LENGTH'] * linksLoadedRdam['N_VAN_S'])) + '\n')
         outfile.write(sep + 'Construction' + sep + str(np.sum(linksLoadedRdam['LENGTH'] * linksLoadedRdam['N_VAN_C'])) + '\n')
+             
+        if root != '':
+            root.progressBar['value'] = 95.0
+            
         
-        VKT_LS = np.zeros((nLS))
-        outfile.write("\nVehicle Kilometers Travelled (in The Hague) (freight/parcel; by logistic segment)\n")
-        outfile.write(f"{sep}LS{sep}VKT\n")
-        for ls in range(nLS):
-            temp = linksLoadedDH['LENGTH'] * linksLoadedDH[f'N_LS{ls}']
-            VKT_LS[ls] = np.round(np.sum(temp),2)
-            outfile.write(f"{sep}{lsNames[ls]}{sep}{VKT_LS[ls]}\n")
-        outfile.write(f"{sep}Total{sep}{sum(VKT_LS)}\n")
+        #---------------- Vehicle Kilometers Travelled (ZEZ) ------------------------
         
-        VKT_VEH = np.zeros((nVT))
-        outfile.write("\nVehicle Kilometers Travelled (in The Hague) (freight/parcel; by vehicle Type)\n")
-        outfile.write(f"{sep}Vehicle type{sep}VKT\n")
-        for veh in vtNums:
-            i = veh
-            temp = linksLoadedDH['LENGTH'] * linksLoadedDH[f'N_VEH{i}']
-            VKT_VEH[i] = np.round(np.sum(temp),2)
-            outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
-        outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")     
-        
+        # VKMs (ZEZ) by logistic segment
         VKT_LS = np.zeros((nLS))
         outfile.write("\nVehicle Kilometers Travelled (in ZEZ) (freight/parcel; by logistic segment)\n")
         outfile.write(f"{sep}LS{sep}VKT\n")
@@ -792,6 +774,7 @@ def actually_run_module(args):
             outfile.write(f"{sep}{lsNames[ls]}{sep}{VKT_LS[ls]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_LS)}\n")
         
+        # VKMs (ZEZ) by vehicle type
         VKT_VEH = np.zeros((nVT))
         outfile.write("\nVehicle Kilometers Travelled (in ZEZ) (freight/parcel; by vehicle Type)\n")
         outfile.write(f"{sep}Vehicle type{sep}VKT\n")
@@ -802,7 +785,9 @@ def actually_run_module(args):
             outfile.write(f"{sep}{vtNames[i]}{sep}{VKT_VEH[i]}\n")
         outfile.write(f"{sep}Total{sep}{sum(VKT_VEH)}\n")            
         
-        
+        if root != '':
+            root.progressBar['value'] = 97.0
+            
         
         #------------------------ Emissions -----------------------------------
         
@@ -848,6 +833,9 @@ def actually_run_module(args):
             for emission in ['CO2','SO2','PM','NOX']:
                 total = np.sum(linksLoaded[emission + '_' + str(ls)])
                 outfile.write(ls + sep + emission + sep + str(total) + '\n')   
+
+        if root != '':
+            root.progressBar['value'] = 98.0
                 
         outfile.write('\nEmissions from network (in Zuid-Holland) (freight/parcel/vans; by logistic segment)\n')
         outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
@@ -903,8 +891,10 @@ def actually_run_module(args):
                 outfile.write(gem + sep + emission + sep + str(total) + sep + str(totalParcel) + '\n')                   
                 
         print(f"Tables written to {datapathOI}Output_Outputindicator_{label}.csv"), log_file.write(f"Tables written to {datapathOI}Output_Outputindicator_{label}.csv\n")
-        print(f"Figures written to {datapathOI}OUT_<figname>_{label}.png"), log_file.write(f"Figures written to {datapathOI}OUT_<figname>_{label}.png\n")
         
+        if root != '':
+            root.progressBar['value'] = 100.0
+            
         
         #------------------------ End of script -------------------------------
         
@@ -958,21 +948,26 @@ if __name__ == '__main__':
     OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
     PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
     
-    SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE    = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		    = INPUTFOLDER + 'links_v5.shp'
-    NODES           = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES           = INPUTFOLDER + 'Zones_v5.shp'
-    SEGS            = INPUTFOLDER + 'SEGS2016.csv'
-    COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS2_2016.csv'
-    PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
+    SKIMTIME            = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    LINKS		        = INPUTFOLDER + 'links_v5.shp'
+    NODES               = INPUTFOLDER + 'nodes_v5.shp'
+    ZONES               = INPUTFOLDER + 'Zones_v4.shp'
+    SEGS                = INPUTFOLDER + 'SEGS2016.csv'
+    COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
+    PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
+    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
+    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
+    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
+    MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
+    NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
     
-    YEARFACTOR = 193
+    YEARFACTOR = 209
     
-    NUTSLEVEL_INPUT = 2
+    NUTSLEVEL_INPUT = 3
     
-    PARCELS_PER_HH	 = 0.195
-    PARCELS_PER_EMPL = 0.073
+    PARCELS_PER_HH	 = 0.112
+    PARCELS_PER_EMPL = 0.041
     PARCELS_MAXLOAD	 = 180
     PARCELS_DROPTIME = 120
     PARCELS_SUCCESS_B2C   = 0.75
@@ -981,27 +976,34 @@ if __name__ == '__main__':
     
     SHIPMENTS_REF = ""
     SELECTED_LINKS = ""
+    N_CPU = ""
     
     IMPEDANCE_SPEED = 'V_FR_OS'
     
     LABEL = 'REF'
     
-    MODULES = ['SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
+    MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
     
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, LINKS, NODES, ZONES, SEGS, \
-            COMMODITYMATRIX, PARCELNODES, PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
+    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
+            LINKS, NODES, ZONES, SEGS, \
+            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING,\
+            COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
+            PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
             PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
             YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED, \
+            IMPEDANCE_SPEED, N_CPU, \
             SHIPMENTS_REF, SELECTED_LINKS,\
             LABEL, \
             MODULES]
 
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES", "SEGS", \
-                  "COMMODITYMATRIX", "PARCELNODES", "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
+    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
+                  "LINKS", "NODES", "ZONES", "SEGS", \
+                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
+                  "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
+                  "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
                   "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
                   "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED", \
+                  "IMPEDANCE_SPEED", "N_CPU", \
                   "SHIPMENTS_REF", "SELECTED_LINKS", \
                   "LABEL", \
                   "MODULES"]
