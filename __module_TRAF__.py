@@ -143,8 +143,11 @@ def actually_run_module(args):
         
         exportShp  = True
         addZezToLinks = False
+        
         if nMultiRoute == '':
             nMultiRoute = 1
+        else:
+            nMultiRoute = int(nMultiRoute)
         
         log_file = open(datapathO + "Logfile_TrafficAssignment.log", 'w')
         log_file.write("Start simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
@@ -1110,8 +1113,9 @@ def actually_run_module(args):
         # ----------------------- Enriching tours and shipments -------------------        
         try:
             print("Writing emissions into Tours and ParcelSchedule..."), log_file.write("Writing emissions into Tours and ParcelSchedule...\n")
-            tours        = pd.read_csv(datapathO + 'Tours_' + label + '.csv')
-            tours['CO2'] = [tripsCO2[i] for i in tours.index]
+            tours            = pd.read_csv(datapathO + 'Tours_' + label + '.csv')
+            tours['TOUR_ID'] = [str(tours.at[i,'CARRIER_ID']) + '_' + str(tours.at[i,'TOUR_ID']) for i in tours.index]
+            tours['CO2'    ] = [tripsCO2[i] for i in tours.index]
             tours.to_csv(datapathO + 'Tours_' + label + '.csv', index=False)
         
             parcelTours        = pd.read_csv(datapathO + 'ParcelSchedule_' + label + '.csv')
@@ -1148,7 +1152,7 @@ def actually_run_module(args):
             shipDist = skimDistance[(shipments['ORIG'] - 1) * nZones + (shipments['DEST'] - 1)]            
             
             # Divide CO2 of each tour over its shipments based on distance
-            shipCO2  = np.zeros((1,len(shipments)))[0,:]            
+            shipCO2  = np.zeros(len(shipments))
             for tourID in np.unique(tourIDs):
                 currentDists = shipDist[shipIDs[tourID]]
                 currentCO2   = toursCO2[tourID]
@@ -1200,36 +1204,36 @@ def actually_run_module(args):
             
             # Initialize shapefile fields
             w = shp.Writer(datapathO + f'links_loaded_{label}.shp')
-            w.field('LINKNR',     'N')
-            w.field('A',          'N')
-            w.field('B',          'N')
-            w.field('LENGTH'         )
-            w.field('LANES',      'N')
-            w.field('CAPACITY',   'N')
+            w.field('LINKNR',     'N', size=8, decimal=0)
+            w.field('A',          'N', size=9, decimal=0)
+            w.field('B',          'N', size=9, decimal=0)
+            w.field('LENGTH'      'N', size=7, decimal=3)
+            w.field('LANES',      'N', size=6, decimal=0)
+            w.field('CAPACITY',   'N', size=6, decimal=0)
             w.field('WEGTYPE',    'C')
-            w.field('COUNT_FR',   'N')
-            w.field('V0_PA_OS',   'N')
-            w.field('V0_PA_RD',   'N')
-            w.field('V0_PA_AS',   'N')
-            w.field('V0_FR_OS',   'N')
-            w.field('V0_FR_RD',   'N')
-            w.field('V0_FR_AS',   'N')
-            w.field('V_PA_OS',    'N')
-            w.field('V_PA_RD',    'N')
-            w.field('V_PA_AS',    'N')
-            w.field('V_FR_OS',    'N')
-            w.field('V_FR_RD',    'N')
-            w.field('V_FR_AS',    'N')            
-            w.field('ZEZ',        'N')    
+            w.field('COUNT_FR',   'N', size=6, decimal=0)
+            w.field('V0_PA_OS',   'N', size=6, decimal=0)
+            w.field('V0_PA_RD',   'N', size=6, decimal=0)
+            w.field('V0_PA_AS',   'N', size=6, decimal=0)
+            w.field('V0_FR_OS',   'N', size=6, decimal=0)
+            w.field('V0_FR_RD',   'N', size=6, decimal=0)
+            w.field('V0_FR_AS',   'N', size=6, decimal=0)
+            w.field('V_PA_OS',    'N', size=6, decimal=0)
+            w.field('V_PA_RD',    'N', size=6, decimal=0)
+            w.field('V_PA_AS',    'N', size=6, decimal=0)
+            w.field('V_FR_OS',    'N', size=6, decimal=0)
+            w.field('V_FR_RD',    'N', size=6, decimal=0)
+            w.field('V_FR_AS',    'N', size=6, decimal=0)            
+            w.field('ZEZ',        'N', size=1, decimal=0)    
             w.field('Gemeentena', 'C')
-            w.field('T0_FREIGHT',    )
-            w.field('T0_VAN',        )
-            w.field('COST_FREIGHT',  )
-            w.field('COST_VAN',      )
+            w.field('T0_FREIGHT',  'N', size=8, decimal=5)
+            w.field('T0_VAN',      'N', size=8, decimal=5)
+            w.field('COST_FREIGHT','N', size=8, decimal=5)
+            w.field('COST_VAN',    'N', size=8, decimal=5)
             for field in intensityFieldsGeojson[:4]:
-                w.field(field)
+                w.field(field, 'N', size=9, decimal=5)
             for field in intensityFieldsGeojson[4:]:
-                w.field(field, 'F')
+                w.field(field, 'N', size=6, decimal=1)
 
             dbfData = np.array(MRDHlinks, dtype=object)
             for i in range(nLinks):
@@ -1425,7 +1429,7 @@ if __name__ == '__main__':
         varDict[varStrings[i]] = args[i]
         
     # Run the module
-#    main(varDict)
+    main(varDict)
 
 
 

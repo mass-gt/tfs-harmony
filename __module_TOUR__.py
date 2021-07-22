@@ -11,6 +11,7 @@ import pandas as pd
 import time
 import datetime
 import multiprocessing as mp
+import shapefile as shp
 import functools
 from __functions__ import read_mtx, read_shape
 
@@ -447,9 +448,8 @@ def actually_run_module(args):
             # tourlocations:    here we store all (un)loading locations that need to be visited in each tour
             # ntours:           number of tours constructed for each carrier
         tours           = [[np.zeros((1,1),dtype=int)[0]          for ship in range(nshipcar[car])] for car in range(ncar)]                       
-        tourSequences   = [[np.zeros((1,nshipcar[car]),dtype=int) for ship in range(nshipcar[car])] for car in range(ncar)]               
-        tourLocations   = [[np.zeros((nshipcar[car],2),dtype=int) for ship in range(nshipcar[car])] for car in range(ncar)]              
-        nTours          = np.zeros((1,ncar))
+        tourSequences   = [[np.zeros((1,nshipcar[car]),dtype=int) for ship in range(nshipcar[car])] for car in range(ncar)]                          
+        nTours          = np.zeros(ncar)
 
         if root != '':
             root.progressBar['value'] = 5.0
@@ -473,8 +473,7 @@ def actually_run_module(args):
             for car in chunks[cpu]:
                 tours[car]          = tourformationResult[cpu][0][car]
                 tourSequences[car]  = tourformationResult[cpu][1][car]
-                tourLocations[car]  = tourformationResult[cpu][2][car]
-                nTours[0,car]       = tourformationResult[cpu][3][0,car]
+                nTours[car]         = tourformationResult[cpu][2][car]
         
         # Wait for completion of parallellization processes
         p.close()
@@ -491,9 +490,9 @@ def actually_run_module(args):
         
         print('Adding empty trips...'), log_file.write('Adding empty trips...\n') 
         # Add empty trips
-        emptytripadded = [[None for tour in range(nTours[0,car])] for car in range(ncar)]
+        emptytripadded = [[None for tour in range(nTours[car])] for car in range(ncar)]
         for car in range(ncar):
-            for tour in range(int(nTours[0][car])):
+            for tour in range(nTours[car]):
                 tourSequences[car][tour] = [x for x in tourSequences[car][tour][0] if x!=0]
                 if tourSequences[car][tour][0] != tourSequences[car][tour][-1]:       # If tour does not end at start location
                     tourSequences[car][tour].append(tourSequences[car][tour][0])
@@ -508,18 +507,18 @@ def actually_run_module(args):
             
         print('Obtaining number of shipments and trip weights...'), log_file.write('Obtaining number of shipments and trip weights...\n') 
         # Number of shipments and trips of each tour
-        nshiptour   = [ [None for tour in range(nTours[0,car])] for car in range(ncar) ]
-        ntripstour  = [ [None for tour in range(nTours[0,car])] for car in range(ncar) ]
+        nshiptour   = [ [None for tour in range(nTours[car])] for car in range(ncar) ]
+        ntripstour  = [ [None for tour in range(nTours[car])] for car in range(ncar) ]
         for car in range(ncar):
-            for tour in range(nTours[0,car]):
+            for tour in range(nTours[car]):
                 nshiptour[car][tour]    = len(tours[car][tour])
                 ntripstour[car][tour]   = len(tourSequences[car][tour])-1
         ntrips = np.sum(np.sum(ntripstour))
         
         # Weight per trip
-        tripWeights = [[np.zeros((ntripstour[car][tour],1),dtype=int)[:,0] for tour in range(nTours[0,car])] for car in range(ncar)]
+        tripWeights = [[np.zeros((ntripstour[car][tour],1),dtype=int)[:,0] for tour in range(nTours[car])] for car in range(ncar)]
         for car in range(ncar):
-            for tour in range(nTours[0,car]):
+            for tour in range(nTours[car]):
                 
                 origs            = [tourSequences[car][tour][trip] for trip in range(ntripstour[car][tour])]
                 shipmentLoaded   = [False]*len(tours[car][tour])
@@ -558,10 +557,10 @@ def actually_run_module(args):
         probDepTime     = pd.read_csv(f"{datapathI}departuretimePDF.csv")            
         cumProbDepTime  = np.array(np.cumsum(probDepTime))
           
-        depTimeTour   = [ [None for tour in range(nTours[0,car])] for car in range(ncar) ]        
+        depTimeTour   = [ [None for tour in range(nTours[car])] for car in range(ncar) ]        
 
         for car in range(ncar):
-            for tour in range(nTours[0,car]):
+            for tour in range(nTours[car]):
                 logSeg = shipments[tours[car][tour][0], 10]
                 depTimeTour[car][tour] = np.where(cumProbDepTime[:,logSeg] > np.random.rand())[0][0]
 
@@ -569,13 +568,13 @@ def actually_run_module(args):
             root.progressBar['value'] = 85.0
             
         print('Determining combustion type of tours...'), log_file.write('Determining combustion type of tours...\n')                
-        combTypeTour   = [ [None for tour in range(nTours[0,car])] for car in range(ncar) ] 
+        combTypeTour   = [ [None for tour in range(nTours[car])] for car in range(ncar) ] 
             
         if label == 'UCC':            
             ZEZzones = set(zones[zones[:,5]==1,0])
             
             for car in range(ncar):
-                for tour in range(nTours[0,car]):
+                for tour in range(nTours[car]):
                     
                     # Combustion type for tours from/to UCCs
                     if car >= nDC + nCarNonDC:
@@ -584,7 +583,7 @@ def actually_run_module(args):
                         combTypeTour[car][tour] = np.where(cumProbCombustion[vt][ls,:] > np.random.rand())[0][0]
                     
                     else:
-                        inZEZ = [zoneDict[x] in ZEZzones for x in np.unique(tourLocations[car][tour]) if x!=0]
+                        inZEZ = [zoneDict[x] in ZEZzones for x in np.unique(tourSequences[car][tour]) if x!=0]
                         
                         # Combustion type for tours within ZEZ (but not from/to UCCs)
                         if np.all(inZEZ):
@@ -601,7 +600,7 @@ def actually_run_module(args):
         # In the not-UCC scenario everything is assumed to be fuel
         else:
             for car in range(ncar):
-                for tour in range(nTours[0,car]):
+                for tour in range(nTours[car]):
                     combTypeTour[car][tour] = 0
             
         if root != '':
@@ -615,11 +614,11 @@ def actually_run_module(args):
         tripcount = 0
         
         for car in range(ncar):
-            for tour in range(nTours[0,car]):
+            for tour in range(nTours[car]):
                 for trip in range(ntripstour[car][tour]):
                     outputTours[tripcount][0]  = car                                              # carrierID
-                    outputTours[tripcount][1]  = f'{car}_{tour}'                                  # tourID
-                    outputTours[tripcount][2]  = f'{car}_{tour}_{trip}'                           # tripID
+                    outputTours[tripcount][1]  = tour                                             # tourID
+                    outputTours[tripcount][2]  = trip                                             # tripID
                     outputTours[tripcount][3]  = zoneDict[tourSequences[car][tour][trip]]         # origin zone
                     outputTours[tripcount][4]  = zoneDict[tourSequences[car][tour][trip+1]]       # destination zone
                     outputTours[tripcount][5]  = zones[tourSequences[car][tour][trip]-1][1]       # X coordinate origin
@@ -687,7 +686,7 @@ def actually_run_module(args):
         print('Enriching Shipments CSV...'), log_file.write('Enriching Shipments CSV...\n')
         shipmentTourID = {}
         for car in range(ncar):
-            for tour in range(nTours[0,car]):
+            for tour in range(nTours[car]):
                 for ship in range(len(tours[car][tour])):    
                     shipmentTourID[shipmentDict[tours[car][tour][ship]]] =  f'{car}_{tour}'
         
@@ -715,41 +714,52 @@ def actually_run_module(args):
     
         # -------------------------------- Write GeoJSON -------------------------------------
         
-        print('Writing GeoJSON...'), log_file.write('Writing GeoJSON...\n')  
-
-        Ax = np.array(outputTours['X_ORIG'], dtype=str)
-        Ay = np.array(outputTours['Y_ORIG'], dtype=str)
-        Bx = np.array(outputTours['X_DEST'], dtype=str)
-        By = np.array(outputTours['Y_DEST'], dtype=str)
+        print('Writing Shapefile...'), log_file.write('Writing Shapefile...\n')  
         
-        with open(datapathO + f"Tours_{label}.geojson", 'w') as geoFile:
-            geoFile.write('{\n' + '"type": "FeatureCollection",\n' + '"features": [\n')
-            for i in range(nTrips-1):
-                outputStr = ""
-                outputStr = outputStr + '{ "type": "Feature", "properties": '
-                outputStr = outputStr + str(outputTours.loc[i,:].to_dict()).replace("'",'"')
-                outputStr = outputStr + ', "geometry": { "type": "LineString", "coordinates": [ [ '
-                outputStr = outputStr + Ax[i] + ', ' + Ay[i] + ' ], [ '
-                outputStr = outputStr + Bx[i] + ', ' + By[i] + ' ] ] } },\n'
-                geoFile.write(outputStr)
-                
-                if i%int(nTrips/20) == 0:
-                    print('\t' + str(int(round((i / nTrips)*100, 0))) + '%', end='\r')
+        percStart = 90.0
+        percEnd   = 97.0
+            
+        Ax = list(outputTours['X_ORIG'])
+        Ay = list(outputTours['Y_ORIG'])
+        Bx = list(outputTours['X_DEST'])
+        By = list(outputTours['Y_DEST'])
+        
+        # Initialize shapefile fields
+        w = shp.Writer(datapathO + f'Tours_{label}.shp')
+        w.field('CARRIER_ID',   'N', size=5, decimal=0)
+        w.field('TOUR_ID',      'N', size=5, decimal=0)
+        w.field('TRIP_ID',      'N', size=3, decimal=0)
+        w.field('ORIG',         'N', size=8, decimal=0)
+        w.field('DEST',         'N', size=8, decimal=0)
+        w.field('VEHTYPE',      'N', size=2, decimal=0)
+        w.field('NSTR',         'N', size=2, decimal=0)
+        w.field('N_SHIP',       'N', size=3, decimal=0)
+        w.field('DC_ID',        'N', size=8, decimal=0)
+        w.field('TOUR_WEIGHT',  'N', size=5, decimal=2)
+        w.field('TRIP_WEIGHT',  'N', size=5, decimal=2)
+        w.field('TOUR_DEPTIME', 'N', size=4, decimal=2)
+        w.field('TRIP_DEPTIME', 'N', size=5, decimal=2)
+        w.field('TRIP_ARRTIME', 'N', size=5, decimal=2)
+        w.field('LOGSEG',       'N', size=2, decimal=0)
+        w.field('COMBTYPE',     'N', size=2, decimal=0)
+        
+        dbfData = np.array(outputTours.drop(columns=['X_ORIG', 'Y_ORIG', 'X_DEST', 'Y_DEST']), dtype=object)
+        
+        for i in range(nTrips):
+            # Add geometry
+            w.line([[[Ax[i],Ay[i]],[Bx[i],By[i]]]])
+            
+            # Add data fields
+            w.record(*dbfData[i,:])
+                            
+            if i%500 == 0:
+                print('\t' + str(int(round((i / nTrips)*100, 0))) + '%', end='\r')    
+
+                if root != '':
+                    root.progressBar['value'] = percStart + (percEnd - percStart) * i / nTrips
                     
-                    if root != '':
-                        root.progressBar['value'] = 90.0 + (96.0 - 90.0) * i / nTrips
-                        
-            # Bij de laatste feature moet er geen komma aan het einde
-            i += 1
-            outputStr = ""
-            outputStr = outputStr + '{ "type": "Feature", "properties": '
-            outputStr = outputStr + str(outputTours.loc[i,:].to_dict()).replace("'",'"')
-            outputStr = outputStr + ', "geometry": { "type": "LineString", "coordinates": [ [ '
-            outputStr = outputStr + Ax[i] + ', ' + Ay[i] + ' ], [ '
-            outputStr = outputStr + Bx[i] + ', ' + By[i] + ' ] ] } }\n'
-            geoFile.write(outputStr)
-            geoFile.write(']\n')
-            geoFile.write('}')
+        w.close()
+
         
         print(f'Tours written to {datapathO}Tours_{label}.geojson'), log_file.write(f'Tours written to {datapathO}Tours_{label}.geojson\n')        
 
@@ -780,7 +790,7 @@ def actually_run_module(args):
         print(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt'), log_file.write(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt\n')
 
         if root != '':
-            root.progressBar['value'] = 92.0
+            root.progressBar['value'] = 98.0
                         
         tours = pd.read_csv(f"{datapathO}Tours_{label}.csv")
         tours.loc[tours['TRIP_DEPTIME']>24,'TRIP_DEPTIME'] -= 24
@@ -806,7 +816,7 @@ def actually_run_module(args):
             pivotTable.to_csv(f"{datapathO}tripmatrix_{label}_TOD{tod}.txt", index=False, sep='\t')
             
             if root != '':
-                root.progressBar['value'] = 92.0 + (100.0 - 92.0) * (tod + 1) / 24       
+                root.progressBar['value'] = 98.0 + (100.0 - 98.0) * (tod + 1) / 24       
         
         # --------------------------- End of module -------------------------------
             
@@ -1028,7 +1038,7 @@ def proximity(tourlocs,universal,skim,nZones):
         tourlocs = [x for x in np.unique(tourlocs) if x!=0 and x!=tourlocs[0,0]]
   
     # Loading and unloading locations of the remaining shipments
-    otherShipments  = universal[:,1:3]                          
+    otherShipments  = universal[:,1:3].astype(int)
     nOtherShipments = len(otherShipments)
     
     # Initialization
@@ -1206,43 +1216,45 @@ def selectshipment(tour, tourlocs, toursequence, universal, dc, skim, nZones, ti
     '''
     Returns the chosen shipment based on Select Shipment MNL
     '''
-
-    # For each shipment in the universal choice set, the shipmentsIDs of the tour if this shipment is added to it
-    tourWithShipment = [np.append(np.array([tour]),universal[j][0]) for j in range(len(universal))]
-
-    # Check on constraints
-    concrete = np.zeros((1,len(universal)))[0,:]
-    capUt    = np.array([cap_utilization(shipments[tourWithShipment[j][0],4], shipments[tourWithShipment[j],6], carryingCapacity) for j in range(len(universal))])
-    prox     = proximity(tourlocs,universal,skim,nZones)
-    
-    # The logistic segment of this tour
+    # Some tour characteristics as input for the constraint checks
     if type(tour) == int:
-        logSeg = shipments[tour][10]
-        vt     = shipments[tour][4]
+        logSeg     = shipments[tour][10]
+        vt         = shipments[tour][4]
     else:
-        logSeg = shipments[tour[0]][10]
-        vt     = shipments[tour[0]][4]
-        
+        logSeg     = shipments[tour[0]][10]
+        vt         = shipments[tour[0]][4]
+
+    # Check capacity utilization
+    tourWeight = np.sum(shipments[tour, 6])
+    capUt      = (tourWeight + universal[:, 6]) / carryingCapacity[vt]
+    
+    # Check proximity of other shipments to the tour
+    prox = proximity(tourlocs, universal, skim, nZones)
+            
     # Which shipments belong to the same logistic segment and have the same vehicle type as the tour
-    sameLogSeg  = np.array([shipments[tourWithShipment[j][0], 10] == logSeg for j in range(len(universal))])
-    sameVT      = np.array([shipments[tourWithShipment[j][0],  4] == vt     for j in range(len(universal))])
+    sameLogSeg = np.array(universal[:,10] == logSeg)
+    sameVT     = np.array(universal[:, 4] == vt)
     
-    # Initialize feasible choice set, those shipments that comply with constraints  
-    selectShipConstraints = (capUt < 1.1) & (concrete == 0) & (sameLogSeg==True)
-    feasibleChoiceSet     = universal[selectShipConstraints]
-    sameVT                = sameVT[selectShipConstraints]
-    prox                  = prox[selectShipConstraints]
+    # Initialize feasible choice set, those shipments that comply with constraints
+    selectShipConstraints = ((capUt < 1.1) & 
+                             (sameLogSeg==True))
+    feasibleChoiceSet = universal[selectShipConstraints]
     
-    # Make shipments of same vehicle type more likely to be chosen (through lower proximity value)
-    prox[sameVT] /= 2
-        
+    # If there are no feasible shipments, the return -2 statement is used to end the tour
     if len(feasibleChoiceSet) == 0:
-        # If there are no feasible shipments, the return -2 statement is used to end the tour
-        return -2
+        return -2        
+
     else:
+        sameVT = sameVT[selectShipConstraints]
+        prox   = prox[selectShipConstraints]
+        
+        # Make shipments of same vehicle type more likely to be chosen (through lower proximity value)
+        prox[sameVT] /= 2
+    
         # Select the shipment with minimum distance to the tour (proximity)
         ssChoice       = np.argmin(prox)
         chosenShipment = feasibleChoiceSet[ssChoice]
+        
         return chosenShipment
     
 
@@ -1254,8 +1266,7 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
        
     tours           = [ [np.zeros((1,1),dtype=int)[0]                             for ship in range(nShipCar[car])] for car in range(ncar)]
     tourSequences   = [ [np.zeros((1,min(nShipCar[car],maxNumShips)*2),dtype=int) for ship in range(nShipCar[car])] for car in range(ncar)]   
-    tourLocations   = [ [np.zeros((min(nShipCar[car],maxNumShips)*2,2),dtype=int) for ship in range(nShipCar[car])] for car in range(ncar)]  
-    nTours          = np.zeros((1,ncar))
+    nTours          = np.zeros(ncar)
 
     for car in cars:
         print(f'\tForming tours for carrier {car+1} of {ncar}...', end='\r')
@@ -1277,23 +1288,26 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
         
         while len(universalChoiceSet) != 0:    
             shipmentCount = 0
+            
+            tourLocations = np.zeros((min(nShipCar[car],maxNumShips)*2,2), dtype=int)
+            tourLocations[shipmentCount,0]   = universalChoiceSet[0,1].copy()       # Loading location of this shipment
+            tourLocations[shipmentCount,1]   = universalChoiceSet[0,2].copy()       # Unloading location of this shipment
+            
             tours[car][tourCount][shipmentCount]             = universalChoiceSet[0,0].copy()       # First shipment in the tour is the first listed one in universal choice set
-            tourLocations[car][tourCount][shipmentCount,0]   = universalChoiceSet[0,1].copy()       # Loading location of this shipment
-            tourLocations[car][tourCount][shipmentCount,1]   = universalChoiceSet[0,2].copy()       # Unloading location of this shipment
             tourSequences[car][tourCount][0,shipmentCount]   = universalChoiceSet[0,1].copy()       # Tour with only 1 shipment: 
             tourSequences[car][tourCount][0,shipmentCount+1] = universalChoiceSet[0,2].copy()       # Sequence = go from loading to unloading
             universalChoiceSet                               = np.delete(universalChoiceSet,0,0)    # Remove shipment from universal choice set
             
             if len(universalChoiceSet) == 0:    # If no shipments left for carrier, break out of while loop, go to next carrier 
                 tourCount += 1
-                nTours[0,car] = tourCount
+                nTours[car] = tourCount
                 break
             
             else:           
                 # Input for ET constraints and choice check
-                tour            = tours[car][tourCount]                                 # Current tour
-                tourlocs        = tourLocations[car][tourCount][0:shipmentCount+1]      # Current tourlocations
-                toursequence    = tourSequences[car][tourCount][0]                      # Current toursequence
+                tour            = tours[car][tourCount]                 # Current tour
+                tourlocs        = tourLocations[0:shipmentCount+1]      # Current tourlocations
+                toursequence    = tourSequences[car][tourCount][0]      # Current toursequence
                 tourDuration    = tourdur(toursequence,skim,nZones,timeFac)
                 prox            = proximity(tourlocs,universalChoiceSet,skim,nZones)
                 capUt           = cap_utilization(shipments[tour[0],4],shipments[tour,6],carryingCapacity)  
@@ -1302,9 +1316,9 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
                     etChoice = endtour_first(tourDuration,capUt,tour,logitParams_ETfirst,shipments) # End Tour? --> Yes or No
 
                     while (not etChoice) and len(universalChoiceSet) != 0: 
-                        tour            = tours[car][tourCount]                                 # Current tour
-                        tourlocs        = tourLocations[car][tourCount][0:shipmentCount+1]      # Current tourlocations
-                        toursequence    = tourSequences[car][tourCount][0]                      # Current toursequence 
+                        tour            = tours[car][tourCount]                 # Current tour
+                        tourlocs        = tourLocations[0:shipmentCount+1]      # Current tourlocations
+                        toursequence    = tourSequences[car][tourCount][0]      # Current toursequence 
                         tourDuration    = tourdur(toursequence,skim,nZones,timeFac)
                         prox            = proximity(tourlocs,universalChoiceSet,skim,nZones)
                         capUt           = cap_utilization(shipments[tour[0],4],shipments[tour,6],carryingCapacity)                         
@@ -1320,23 +1334,23 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
                             else:
                                 shipmentCount += 1
                                 
-                                tours[car][tourCount]                           = np.append(tours[car][tourCount],int(chosenShipment[0]))
-                                tourLocations[car][tourCount][shipmentCount,0]  = int(chosenShipment[1])
-                                tourLocations[car][tourCount][shipmentCount,1]  = int(chosenShipment[2])
-                                tourSequences[car][tourCount]                   = nearest_neighbor(tourLocations[car][tourCount][0:shipmentCount+1], dc, skim, nZones, timeFac)  
+                                tours[car][tourCount]           = np.append(tours[car][tourCount],int(chosenShipment[0]))
+                                tourLocations[shipmentCount,0]  = int(chosenShipment[1])
+                                tourLocations[shipmentCount,1]  = int(chosenShipment[2])
+                                tourSequences[car][tourCount]   = nearest_neighbor(tourLocations[0:shipmentCount+1], dc, skim, nZones, timeFac)  
                                 
                                 shipmentToDelete    = np.where(universalChoiceSet[:,0]==chosenShipment[0])[0][0]
                                 universalChoiceSet  = np.delete(universalChoiceSet,shipmentToDelete,0)
                             
                                 if len(universalChoiceSet) != 0:
-                                    tour            = tours[car][tourCount]                             # Current tour
-                                    tourlocs        = tourLocations[car][tourCount][0:shipmentCount+1]  # Current tourlocations
-                                    toursequence    = tourSequences[car][tourCount][0]                  # Current toursequence
+                                    tour            = tours[car][tourCount]             # Current tour
+                                    tourlocs        = tourLocations[0:shipmentCount+1]  # Current tourlocations
+                                    toursequence    = tourSequences[car][tourCount][0]  # Current toursequence
                                     etChoice        = endtour_later(tour, tourlocs, toursequence, universalChoiceSet,skim,nZones,timeFac,carryingCapacity,logitParams_ETlater,shipments)
             
                                 else:
                                     tourCount += 1
-                                    nTours[0,car] = tourCount
+                                    nTours[car] = tourCount
                                     break
                             
                         else:
@@ -1349,7 +1363,7 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
                 else:
                     tourCount +=1  
 
-    return [tours, tourSequences, tourLocations, nTours]
+    return [tours, tourSequences, nTours]
 
 
 
@@ -1358,7 +1372,7 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
 if __name__ == '__main__':
     
     INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016temp/'
+    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
     PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
     
     SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'

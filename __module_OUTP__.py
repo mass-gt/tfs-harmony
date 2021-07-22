@@ -180,7 +180,7 @@ def actually_run_module(args):
             nTripsParcelTour[i] = temp.at[i,'TRIP_ID']
         parcelTrips['N_trips_tour'] = [nTripsParcelTour[tourID] for tourID in parcelTrips['TOUR_ID']]
         
-        tours       = trips[[trips['TRIP_ID'][i][-2:]=='_0' for i in trips.index]]
+        tours       = trips[trips['TRIP_ID']==0]
         parcelTours = parcelTrips[[parcelTrips['TRIP_ID'][i][-2:]=='_0' for i in parcelTrips.index]]
 
         if root != '':

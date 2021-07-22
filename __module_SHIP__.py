@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import time
 import datetime
+import shapefile as shp
 from __functions__ import read_mtx, read_shape
 
 # Modules nodig voor de user interface
@@ -145,7 +146,6 @@ def actually_run_module(args):
         
         nNSTR    = 10
         nLogSeg  = 8
-        nTimeIntervals = 6
         
         # Distance decay parameters
         alpha = -6.172
@@ -259,14 +259,17 @@ def actually_run_module(args):
         for i in range(nSuperZones):
             urbanDensityCat[99999901+i] = 1
         
-        # Is a zone a DC or Producer/Consumer zone
+        # Is a zone a DC, a TT or Producer/Consumer zone
         isDC = {}
+        isTT = {}
         isPC = {}
         for i in zonesShape.index:
             isDC[i] = int(zonesShape.at[i,'LOGNODE']==2)
+            isTT[i] = int(zonesShape.at[i,'LOGNODE']==1)
             isPC[i] = int(zonesShape.at[i,'LOGNODE']==0)
         for i in range(nSuperZones):
             isDC[99999901+i] = 0
+            isTT[99999901+i] = 0
             isPC[99999901+i] = 0
                 
         if root != '':
@@ -348,6 +351,7 @@ def actually_run_module(args):
         
         # Estimated parameters MNL for delivery time
         paramsTimeOfDay = pd.read_csv(datapathP + 'Params_TOD.csv', index_col=0)
+        nTimeIntervals  = len([x for x in paramsTimeOfDay.index if x.split('_')[0]=='Interval'])
         timeIntervals    = []
         timeIntervalsDur = []
         nTimeIntervalsLS = [0 for ls in range(nLogSeg)]
@@ -691,14 +695,12 @@ def actually_run_module(args):
                                                             B_LongHaul_TractorTrailer * longHaul * (vt==5) + \
                                                             ASC_VT[vt]                                          
                                                             
-                                probabilities       = [np.exp(u)/np.sum(np.exp(utilities)) for u in utilities]
+                                probabilities       = np.exp(utilities) / np.sum(np.exp(utilities))
                                 cumProbabilities    = np.cumsum(probabilities)
                                             
                                 # Sample one choice based on the cumulative probability distribution
-                                rand = np.random.rand()
-                                
-                                ssvt = np.where([cumProbabilities[i] > rand and utilities[i]!=-99999 for i in range(nVehTypes*nShipSizes)])[0][0]
-                    
+                                ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
+                                        
                                 # The chosen shipment size category                  
                                 ssChosen = int(np.floor(ssvt/nVehTypes))
                                 shipmentSizeCat[count] = ssChosen
@@ -847,14 +849,12 @@ def actually_run_module(args):
                                                                     B_LongHaul_TractorTrailer * longHaul * (vt==5) + \
                                                                     ASC_VT[vt]
                                         
-                                        probabilities       = [np.exp(u)/np.sum(np.exp(utilities)) for u in utilities]
+                                        probabilities       = np.exp(utilities) / np.sum(np.exp(utilities))
                                         cumProbabilities    = np.cumsum(probabilities)
-                                        
+                                                    
                                         # Sample one choice based on the cumulative probability distribution
-                                        rand = np.random.rand()
+                                        ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
                                         
-                                        ssvt = np.where([cumProbabilities[i] > rand and utilities[i]!=-99999 for i in range(nVehTypes*nShipSizes)])[0][0]
-                            
                                         # The chosen shipment size category                  
                                         ssChosen = int(np.floor(ssvt/nVehTypes))
                                         shipmentSizeCat[count] = ssChosen
@@ -1000,14 +1000,12 @@ def actually_run_module(args):
                                                                     B_LongHaul_TractorTrailer * longHaul * (vt==5) + \
                                                                     ASC_VT[vt]
                                                                         
-                                        probabilities    = [np.exp(u)/np.sum(np.exp(utilities)) for u in utilities]
-                                        cumProbabilities = np.cumsum(probabilities)
-                                                
+                                        probabilities       = np.exp(utilities) / np.sum(np.exp(utilities))
+                                        cumProbabilities    = np.cumsum(probabilities)
+                                                    
                                         # Sample one choice based on the cumulative probability distribution
-                                        rand = np.random.rand()
+                                        ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
                                         
-                                        ssvt = np.where([cumProbabilities[i] > rand and utilities[i]!=-99999 for i in range(nVehTypes*nShipSizes)])[0][0]
-                            
                                         # The chosen shipment size category                  
                                         ssChosen = int(np.floor(ssvt/nVehTypes))
                                         shipmentSizeCat[count] = ssChosen
@@ -1113,8 +1111,6 @@ def actually_run_module(args):
                                             origY[count]    = zoneY[origZone[count]]
 
                                         fromDC          = 0
-                
-                                        rand = np.random.rand()
                                         
                                         # Determine values for attributes in the utility function of the shipment size/vehicle type MNL
                                         travTime        = skimTravTime[(origZone[count])*nZones + (destZone[count])] / 3600
@@ -1141,13 +1137,11 @@ def actually_run_module(args):
                                                                     B_LongHaul_TractorTrailer * longHaul * (vt==5) + \
                                                                     ASC_VT[vt]                                          
                                                                     
-                                        probabilities       = [np.exp(u)/np.sum(np.exp(utilities)) for u in utilities]
+                                        probabilities       = np.exp(utilities) / np.sum(np.exp(utilities))
                                         cumProbabilities    = np.cumsum(probabilities)
                                                     
                                         # Sample one choice based on the cumulative probability distribution
-                                        rand = np.random.rand()
-                                        
-                                        ssvt = np.where([cumProbabilities[i] > rand and utilities[i]!=-99999 for i in range(nVehTypes*nShipSizes)])[0][0]
+                                        ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
                             
                                         # The chosen shipment size category                  
                                         ssChosen = int(np.floor(ssvt/nVehTypes))
@@ -1185,9 +1179,10 @@ def actually_run_module(args):
                 ls   = logisticSegment[i]
                                     
                 ASC = {}
-                beta_ToDC   = {}
+                beta_ToTT   = {}
                 beta_ToPC   = {}
-                beta_FromDC = {}
+                beta_FromTT = {}
+                beta_FromPC = {}
                 beta_SmallTruck     = {}
                 beta_MediumTruck    = {}
                 beta_TruckTrailer   = {}
@@ -1197,9 +1192,10 @@ def actually_run_module(args):
                 
                 for t in range(nTimeIntervalsLS[ls]):
                     ASC[t]              = paramsTimeOfDay.at[f'ASC_{t+1}',    str(ls+1)]
-                    beta_ToDC[t]        = paramsTimeOfDay.at[f'ToDC_{t+1}',   str(ls+1)]
+                    beta_ToTT[t]        = paramsTimeOfDay.at[f'ToTT_{t+1}',   str(ls+1)]
                     beta_ToPC[t]        = paramsTimeOfDay.at[f'ToPC_{t+1}',   str(ls+1)]
-                    beta_FromDC[t]      = paramsTimeOfDay.at[f'FromDC_{t+1}', str(ls+1)]
+                    beta_FromTT[t]      = paramsTimeOfDay.at[f'FromTT_{t+1}', str(ls+1)]
+                    beta_FromPC[t]      = paramsTimeOfDay.at[f'FromPC_{t+1}', str(ls+1)]
                     beta_SmallTruck[t]      = paramsTimeOfDay.at[f'VT_SmallTruck_{t+1}',     str(ls+1)]
                     beta_MediumTruck[t]     = paramsTimeOfDay.at[f'VT_MediumTruck_{t+1}',    str(ls+1)]
                     beta_TruckTrailer[t]    = paramsTimeOfDay.at[f'VT_TruckTrailer_{t+1}',   str(ls+1)]
@@ -1209,9 +1205,10 @@ def actually_run_module(args):
                 for t in range(nTimeIntervalsLS[ls]):
                     utilities[t] =      ASC[t] + \
                                         beta_durTimePeriod     * np.log(2 * timeIntervalsDur[ls][t]) + \
-                                        beta_ToDC[t]           * isDC[dest] * urbanDensityCat[dest] + \
+                                        beta_ToTT[t]           * isTT[dest] * urbanDensityCat[dest] + \
                                         beta_ToPC[t]           * isPC[dest] * urbanDensityCat[dest] + \
-                                        beta_FromDC[t]         * isDC[orig] * urbanDensityCat[orig] + \
+                                        beta_FromTT[t]         * isTT[orig] * urbanDensityCat[orig] + \
+                                        beta_FromPC[t]         * isPC[orig] * urbanDensityCat[orig] + \
                                         beta_SmallTruck[t]     * (vehicleType[i] == 0) + \
                                         beta_MediumTruck[t]    * (vehicleType[i] == 1) + \
                                         beta_TruckTrailer[t]   * (vehicleType[i] in (3,4)) + \
@@ -1527,45 +1524,56 @@ def actually_run_module(args):
             
             # ------------------------- Creating shipments SHP ------------------------
             
-            # Write into a geopandas dataframe and export as shapefile
-            print("Writing GeoJSON...")
-            log_file.write("Writing GeoJSON...\n")
-            percStart = 98
+            print("Writing Shapefile...")
+            log_file.write("Writing Shapefile...\n")
+            percStart = 97
             percEnd   = 100
             if root != '':
                 root.progressBar['value'] = percStart
-                root.update_statusbar("Shipment Synthesizer: Writing GeoJSON")
-
-            Ax = np.array(list(origX.values()), dtype=str)
-            Ay = np.array(list(origY.values()), dtype=str)
-            Bx = np.array(list(destX.values()), dtype=str)
-            By = np.array(list(destY.values()), dtype=str)
+                root.update_statusbar("Shipment Synthesizer: Writing Shapefile")
+    
+            Ax = list(origX.values())
+            Ay = list(origY.values())
+            Bx = list(destX.values())
+            By = list(destY.values())
             
-            with open(datapathO + f"Shipments_{label}.geojson", 'w') as geoFile:
-                geoFile.write('{\n' + '"type": "FeatureCollection",\n' + '"features": [\n')
-                for i in range(nShips-1):
-                    outputStr = ""
-                    outputStr = outputStr + '{ "type": "Feature", "properties": '
-                    outputStr = outputStr + str(shipments.loc[i,:].to_dict()).replace("'",'"')
-                    outputStr = outputStr + ', "geometry": { "type": "LineString", "coordinates": [ [ '
-                    outputStr = outputStr + Ax[i] + ', ' + Ay[i] + ' ], [ '
-                    outputStr = outputStr + Bx[i] + ', ' + By[i] + ' ] ] } },\n'
-                    geoFile.write(outputStr)
+            # Initialize shapefile fields
+            w = shp.Writer(datapathO + f'Shipments_{label}.shp')
+            w.field('SHIP_ID',      'N', size=6, decimal=0)
+            w.field('ORIG',         'N', size=8, decimal=0)
+            w.field('DEST',         'N', size=8, decimal=0)
+            w.field('NSTR',         'N', size=2, decimal=0)
+            w.field('WEIGHT',       'N', size=4, decimal=2)
+            w.field('WEIGHT_CAT',   'N', size=2, decimal=0)
+            w.field('FLOWTYPE',     'N', size=2, decimal=0)
+            w.field('LOGSEG',       'N', size=2, decimal=0)
+            w.field('VEHTYPE',      'N', size=2, decimal=0)
+            w.field('SEND_FIRM',    'N', size=8, decimal=0)
+            w.field('RECEIVE_FIRM', 'N', size=8, decimal=0)
+            w.field('SEND_DC',      'N', size=6, decimal=0)
+            w.field('RECEIVE_DC',   'N', size=6, decimal=0)
+            w.field('TOD_PERIOD',   'N', size=2, decimal=0)
+            w.field('TOD_LOWER',    'N', size=2, decimal=0)
+            w.field('TOD_UPPER',    'N', size=2, decimal=0)
+            if label == 'UCC':
+                w.field('FROM_UCC', 'N', size=2, decimal=0)
+                w.field('TO_UCC',   'N', size=2, decimal=0)
+                  
+            dbfData = np.array(shipments, dtype=object)
+            for i in range(nShips):
+                # Add geometry
+                w.line([[[Ax[i],Ay[i]],[Bx[i],By[i]]]])
+                
+                # Add data fields
+                w.record(*dbfData[i,:])
+                                
+                if i%int(round(nShips/10,0)) == 0:
+                    print('\t' + str(int(round((i / nShips)*100, 0))) + '%', end='\r')    
+    
                     if root != '':
-                        if i%1000==0:
-                            root.progressBar['value'] = percStart + (percEnd - percStart) * (i / nShips)  
+                        root.progressBar['value'] = percStart + (percEnd - percStart) * i / nShips
                         
-                # Bij de laatste feature moet er geen komma aan het einde
-                i += 1
-                outputStr = ""
-                outputStr = outputStr + '{ "type": "Feature", "properties": '
-                outputStr = outputStr + str(shipments.loc[i,:].to_dict()).replace("'",'"')
-                outputStr = outputStr + ', "geometry": { "type": "LineString", "coordinates": [ [ '
-                outputStr = outputStr + Ax[i] + ', ' + Ay[i] + ' ], [ '
-                outputStr = outputStr + Bx[i] + ', ' + By[i] + ' ] ] } }\n'
-                geoFile.write(outputStr)
-                geoFile.write(']\n')
-                geoFile.write('}')
+            w.close()
             
             
             
