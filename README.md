@@ -12,6 +12,7 @@ Besides the Python Standard Library, make sure you have the following libraries 
 - scipy==1.5.0
 - pyshp==2.1.0
 - shapely==1.7.0
+- numba==0.53.0
 
 Finally, when you are using the Spyder IDE for running your Python scripts, make sure to have selected `Execute in an external system terminal` under `Tools-->Preferences-->Run-->Console`. This is necessary to make the scripts work that use parallelization of processes (tour formation module and traffic assignment module). 
 
