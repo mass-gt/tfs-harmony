@@ -138,6 +138,7 @@ class Root:
                            "YEARFACTOR", "NUTSLEVEL_INPUT",
                            "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", "N_CPU", "N_MULTIROUTE",
                            "SHIPMENTS_REF", "SELECTED_LINKS", "CORRECTIONS_TONNES",
+                           "MICROHUBS", "VEHICLETYPES",
                            "LABEL", 
                            "MODULES"]
         nVars = len(self.varStrings)
@@ -161,9 +162,11 @@ class Root:
                        "COMMODITYMATRIX","PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
                        "SERVICE_DISTANCEDECAY",
                        "SHIPMENTS_REF", "CORRECTIONS_TONNES",
-                       "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE"]
+                       "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+                       "MICROHUBS", "VEHICLETYPES"]
         optionalVars = ["SHIPMENTS_REF", "CORRECTIONS_TONNES", "SELECTED_LINKS", "N_CPU", "N_MULTIROUTE",
-                        "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE"]
+                        "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+                        "MICROHUBS", "VEHICLETYPES"]
         
         run = True          # Wel of niet runnen, wordt op False gezet als bijv. bestanden niet gevonden kunnen worden
         writeLog = True     # Wel of geen logfile schrijven, wordt op False gezet als de outputfolder niet bestaat

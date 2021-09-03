@@ -52,7 +52,15 @@ def read_shape(shapePath, encoding='latin1', returnGeometry=False):
     columns  = [x[0] for x in fields[1:]]
     colTypes = [x[1:] for x in fields[1:]]
     nRecords = len(records)
-    
+
+    # Check for headers that appear twice
+    for col in range(len(columns)):
+        name = columns[col]
+        whereName = [i for i in range(len(columns)) if columns[i]==name]
+        if len(whereName) > 1:
+            for i in range(1,len(whereName)):
+                columns[whereName[i]] = str(columns[whereName[i]]) + '_' + str(i)
+                
     # Put all the data records into a NumPy array (much faster than Pandas DataFrame)
     shape = np.zeros((nRecords,len(columns)), dtype=object)
     for i in range(nRecords):

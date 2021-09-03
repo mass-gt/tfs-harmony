@@ -9,6 +9,8 @@ import pandas as pd
 import shapefile as shp
 import time
 import datetime
+from numba import njit
+from numba.typed import List
 import scipy.sparse.csgraph
 from scipy.sparse import lil_matrix
 import multiprocessing as mp
@@ -617,21 +619,36 @@ def actually_run_module(args):
             # Selecteer de trips die vertrokken in de huidige time-of-day en bereken de capacity utilization
             trips = allTrips.loc[(allTrips['TRIP_DEPTIME'] >= tod) & (allTrips['TRIP_DEPTIME'] < tod+1),:]     
             trips = np.array(trips[['CARRIER_ID','ORIG','DEST','VEHTYPE','CAP_UT','LOG_SEG','COMBTYPE', 'INDEX']])
+
+            whereODL = {}
+            for i in range(len(tripMatrix)):
+                orig = tripMatrix[i,0]
+                dest = tripMatrix[i,1]
+                for ls in range(nLS):
+                    whereODL[(orig,dest,ls)] = []
+            for i in range(len(trips)):
+                orig = trips[i,1]
+                dest = trips[i,2]
+                ls   = trips[i,5]
+                whereODL[(orig,dest,ls)].append(i)
                 
             for i in range(nOrigSelection):
                 origZone  = origSelection[i]                
-                origTrips = trips[(trips[:,1]==origZone), :]
-                
+                    
                 if origZone in tripMatrixOrigins:
                     destZoneIndex = np.where(tripMatrix[:,0]==origZone)[0]
+                    destZones = tripMatrix[destZoneIndex,1]
+                    
+                    routes = []
+                    for r in range(nMultiRoute):
+                        routes.append([get_route(i, j, prevFreight[r], zoneToCentroid, linkDict) for j in destZones])
                     
                     # Schrijf de volumes op de links
-                    for j in destZoneIndex:
-                        destZone = tripMatrix[j,1]
-                        nTrips   = tripMatrix[j,2:]
+                    for j in range(len(destZones)):
+                        destZone = destZones[j]
+                        nTrips   = tripMatrix[destZoneIndex[j],2:]
                         
                         # Get route and part of route that is stad/buitenweg/snelweg and ZEZ/non-ZEZ
-                        routes = []
                         routesStad      = []
                         routesBuitenweg = []
                         routesSnelweg   = []
@@ -639,10 +656,9 @@ def actually_run_module(args):
                         ZEZSbuitenweg = []
                         ZEZSsnelweg   = []                        
                         for r in range(nMultiRoute):
-                            routes.append(get_route(i, destZone, prevFreight[r], zoneToCentroid, linkDict))
-                            routesStad.append(     routes[r][roadtypeArray[routes[r]]==1])
-                            routesBuitenweg.append(routes[r][roadtypeArray[routes[r]]==2])
-                            routesSnelweg.append(  routes[r][roadtypeArray[routes[r]]==3])
+                            routesStad.append(     routes[r][j][roadtypeArray[routes[r][j]]==1])
+                            routesBuitenweg.append(routes[r][j][roadtypeArray[routes[r][j]]==2])
+                            routesSnelweg.append(  routes[r][j][roadtypeArray[routes[r][j]]==3])
                             ZEZSstad.append(     ZEZarray[routesStad[r]     ]==1)
                             ZEZSbuitenweg.append(ZEZarray[routesBuitenweg[r]]==1)
                             ZEZSsnelweg.append(  ZEZarray[routesSnelweg[r]  ]==1)
@@ -650,7 +666,7 @@ def actually_run_module(args):
                         # Bereken en schrijf de intensiteiten/emissies op de links
                         for ls in range(nLS):
                             # Welke trips worden allemaal gemaakt op de HB van de huidige iteratie van de ij-loop
-                            currentTrips  = origTrips[(origTrips[:,2]==destZone) & (origTrips[:,5]==ls), :]
+                            currentTrips  = trips[whereODL[(origZone,destZone,ls)],:]
                             nCurrentTrips = len(currentTrips)
                             
                             for trip in range(nCurrentTrips):
@@ -660,7 +676,7 @@ def actually_run_module(args):
                                 
                                 # Select which of the calculated routes to use for current trip
                                 whichMultiRoute = np.random.randint(nMultiRoute)
-                                route = routes[whichMultiRoute]
+                                route = routes[whichMultiRoute][j]
                                 routeStad      = routesStad[whichMultiRoute]
                                 routeBuitenweg = routesBuitenweg[whichMultiRoute]
                                 routeSnelweg   = routesSnelweg[whichMultiRoute]
@@ -915,103 +931,109 @@ def actually_run_module(args):
         
         print('\tVan trips (service/construction)...'), log_file.write('\tVan trips (service/construction)...\n')
         for i in range(nOrigSelection):
-            origZone = origSelection[i]
+            origZone  = origSelection[i]            
+            destZones = np.where((vanTripsService[origZone,:]>0) | (vanTripsConstruction[origZone,:]>0))[0]
+            
+            routes = [[get_route(i, j, prevVan[r], zoneToCentroid, linkDict) for j in destZones] for r in range(nMultiRoute)]
             
             # Van: Service segment
-            for destZone in np.where(vanTripsService[origZone,:]>0)[0]:                
-                for r in range(nMultiRoute):
-                    nTrips = vanTripsService[origZone,destZone] / nMultiRoute
-                    route  = get_route(i, destZone, prevVan[r], zoneToCentroid, linkDict)
-                    
-                    # Number of trips made on each link
-                    linkVanTripsArray[route,0] += nTrips
-                                    
-                    routeStad       = route[roadtypeArray[route]==1]
-                    routeBuitenweg  = route[roadtypeArray[route]==2]
-                    routeSnelweg    = route[roadtypeArray[route]==3]
-                    
-                    vt    = 7   # Vehicle type: Van
-                    capUt = 0.5 # Assume half of loading capacity used
+            for j in range(len(destZones)):
+                destZone = destZones[j]
+                
+                if vanTripsService[origZone,destZone] > 0:
+                    for r in range(nMultiRoute):
+                        nTrips = vanTripsService[origZone,destZone] / nMultiRoute
+                        route  = routes[r][j]
+                        
+                        # Number of trips made on each link
+                        linkVanTripsArray[route,0] += nTrips
+                                        
+                        routeStad       = route[roadtypeArray[route]==1]
+                        routeBuitenweg  = route[roadtypeArray[route]==2]
+                        routeSnelweg    = route[roadtypeArray[route]==3]
+                        
+                        vt    = 7   # Vehicle type: Van
+                        capUt = 0.5 # Assume half of loading capacity used
+        
+                        # CO2
+                        stadCO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['CO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']]))
+                        buitenwegCO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['CO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']]))
+                        snelwegCO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['CO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']]))
+                        linkVanEmissionsArray[0][routeStad,      etInvDict['CO2']] += stadCO2
+                        linkVanEmissionsArray[0][routeBuitenweg, etInvDict['CO2']] += buitenwegCO2
+                        linkVanEmissionsArray[0][routeSnelweg,   etInvDict['CO2']] += snelwegCO2                            
     
-                    # CO2
-                    stadCO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['CO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']]))
-                    buitenwegCO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['CO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']]))
-                    snelwegCO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['CO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']]))
-                    linkVanEmissionsArray[0][routeStad,      etInvDict['CO2']] += stadCO2
-                    linkVanEmissionsArray[0][routeBuitenweg, etInvDict['CO2']] += buitenwegCO2
-                    linkVanEmissionsArray[0][routeSnelweg,   etInvDict['CO2']] += snelwegCO2                            
-
-                    # SO2
-                    stadSO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['SO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']]))
-                    buitenwegSO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['SO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']]))
-                    snelwegSO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['SO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']]))
-                    linkVanEmissionsArray[0][routeStad,      etInvDict['SO2']] += stadSO2
-                    linkVanEmissionsArray[0][routeBuitenweg, etInvDict['SO2']] += buitenwegSO2
-                    linkVanEmissionsArray[0][routeSnelweg,   etInvDict['SO2']] += snelwegSO2    
-
-                    # PM
-                    stadPM         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['PM']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['PM']] - emissionsStadLeeg[vtDict[vt],     etInvDict['PM']]))
-                    buitenwegPM    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['PM']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']]))
-                    snelwegPM      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['PM']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']]))
-                    linkVanEmissionsArray[0][routeStad,      etInvDict['PM']] += stadPM
-                    linkVanEmissionsArray[0][routeBuitenweg, etInvDict['PM']] += buitenwegPM
-                    linkVanEmissionsArray[0][routeSnelweg,   etInvDict['PM']] += snelwegPM  
-
-                    # NOX
-                    stadNOX         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['NOX']] - emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']]))
-                    buitenwegNOX    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['NOX']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']]))
-                    snelwegNOX      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['NOX']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']]))
-                    linkVanEmissionsArray[0][routeStad,      etInvDict['NOX']] += stadNOX
-                    linkVanEmissionsArray[0][routeBuitenweg, etInvDict['NOX']] += buitenwegNOX
-                    linkVanEmissionsArray[0][routeSnelweg,   etInvDict['NOX']] += snelwegNOX  
-                    
-            # Van: Construction segment
-            for destZone in np.where(vanTripsConstruction[origZone,:]>0)[0]:                
-                for r in range(nMultiRoute):
-                    nTrips = vanTripsConstruction[origZone,destZone] / nMultiRoute
-                    route  = get_route(i, destZone, prevVan[r], zoneToCentroid, linkDict)
-
-                    # Number of trips made on each link
-                    linkVanTripsArray[route,1] += nTrips
-                    
-                    routeStad       = route[roadtypeArray[route]==1]
-                    routeBuitenweg  = route[roadtypeArray[route]==2]
-                    routeSnelweg    = route[roadtypeArray[route]==3]
-                    
-                    vt    = 7   # Vehicle type: Van
-                    capUt = 0.5 # Assume half of loading capacity used
+                        # SO2
+                        stadSO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['SO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']]))
+                        buitenwegSO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['SO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']]))
+                        snelwegSO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['SO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']]))
+                        linkVanEmissionsArray[0][routeStad,      etInvDict['SO2']] += stadSO2
+                        linkVanEmissionsArray[0][routeBuitenweg, etInvDict['SO2']] += buitenwegSO2
+                        linkVanEmissionsArray[0][routeSnelweg,   etInvDict['SO2']] += snelwegSO2    
     
-                    # CO2
-                    stadCO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['CO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']]))
-                    buitenwegCO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['CO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']]))
-                    snelwegCO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['CO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']]))
-                    linkVanEmissionsArray[1][routeStad,      etInvDict['CO2']] += stadCO2
-                    linkVanEmissionsArray[1][routeBuitenweg, etInvDict['CO2']] += buitenwegCO2
-                    linkVanEmissionsArray[1][routeSnelweg,   etInvDict['CO2']] += snelwegCO2                            
-
-                    # SO2
-                    stadSO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['SO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']]))
-                    buitenwegSO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['SO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']]))
-                    snelwegSO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['SO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']]))
-                    linkVanEmissionsArray[1][routeStad,      etInvDict['SO2']] += stadSO2
-                    linkVanEmissionsArray[1][routeBuitenweg, etInvDict['SO2']] += buitenwegSO2
-                    linkVanEmissionsArray[1][routeSnelweg,   etInvDict['SO2']] += snelwegSO2    
-
-                    # PM
-                    stadPM         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['PM']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['PM']] - emissionsStadLeeg[vtDict[vt],     etInvDict['PM']]))
-                    buitenwegPM    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['PM']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']]))
-                    snelwegPM      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['PM']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']]))
-                    linkVanEmissionsArray[1][routeStad,      etInvDict['PM']] += stadPM
-                    linkVanEmissionsArray[1][routeBuitenweg, etInvDict['PM']] += buitenwegPM
-                    linkVanEmissionsArray[1][routeSnelweg,   etInvDict['PM']] += snelwegPM  
-
-                    # NOX
-                    stadNOX         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['NOX']] - emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']]))
-                    buitenwegNOX    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['NOX']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']]))
-                    snelwegNOX      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['NOX']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']]))
-                    linkVanEmissionsArray[1][routeStad,      etInvDict['NOX']] += stadNOX
-                    linkVanEmissionsArray[1][routeBuitenweg, etInvDict['NOX']] += buitenwegNOX
-                    linkVanEmissionsArray[1][routeSnelweg,   etInvDict['NOX']] += snelwegNOX  
+                        # PM
+                        stadPM         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['PM']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['PM']] - emissionsStadLeeg[vtDict[vt],     etInvDict['PM']]))
+                        buitenwegPM    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['PM']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']]))
+                        snelwegPM      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['PM']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']]))
+                        linkVanEmissionsArray[0][routeStad,      etInvDict['PM']] += stadPM
+                        linkVanEmissionsArray[0][routeBuitenweg, etInvDict['PM']] += buitenwegPM
+                        linkVanEmissionsArray[0][routeSnelweg,   etInvDict['PM']] += snelwegPM  
+    
+                        # NOX
+                        stadNOX         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['NOX']] - emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']]))
+                        buitenwegNOX    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['NOX']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']]))
+                        snelwegNOX      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['NOX']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']]))
+                        linkVanEmissionsArray[0][routeStad,      etInvDict['NOX']] += stadNOX
+                        linkVanEmissionsArray[0][routeBuitenweg, etInvDict['NOX']] += buitenwegNOX
+                        linkVanEmissionsArray[0][routeSnelweg,   etInvDict['NOX']] += snelwegNOX  
+                    
+                # Van: Construction segment
+                if vanTripsConstruction[origZone,destZone] > 0:
+                    for r in range(nMultiRoute):
+                        nTrips = vanTripsConstruction[origZone,destZone] / nMultiRoute
+                        route  = routes[r][j]
+    
+                        # Number of trips made on each link
+                        linkVanTripsArray[route,1] += nTrips
+                        
+                        routeStad       = route[roadtypeArray[route]==1]
+                        routeBuitenweg  = route[roadtypeArray[route]==2]
+                        routeSnelweg    = route[roadtypeArray[route]==3]
+                        
+                        vt    = 7   # Vehicle type: Van
+                        capUt = 0.5 # Assume half of loading capacity used
+        
+                        # CO2
+                        stadCO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['CO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']]))
+                        buitenwegCO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['CO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']]))
+                        snelwegCO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['CO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']]))
+                        linkVanEmissionsArray[1][routeStad,      etInvDict['CO2']] += stadCO2
+                        linkVanEmissionsArray[1][routeBuitenweg, etInvDict['CO2']] += buitenwegCO2
+                        linkVanEmissionsArray[1][routeSnelweg,   etInvDict['CO2']] += snelwegCO2                            
+    
+                        # SO2
+                        stadSO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['SO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']]))
+                        buitenwegSO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['SO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']]))
+                        snelwegSO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['SO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']]))
+                        linkVanEmissionsArray[1][routeStad,      etInvDict['SO2']] += stadSO2
+                        linkVanEmissionsArray[1][routeBuitenweg, etInvDict['SO2']] += buitenwegSO2
+                        linkVanEmissionsArray[1][routeSnelweg,   etInvDict['SO2']] += snelwegSO2    
+    
+                        # PM
+                        stadPM         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['PM']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['PM']] - emissionsStadLeeg[vtDict[vt],     etInvDict['PM']]))
+                        buitenwegPM    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['PM']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']]))
+                        snelwegPM      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['PM']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']]))
+                        linkVanEmissionsArray[1][routeStad,      etInvDict['PM']] += stadPM
+                        linkVanEmissionsArray[1][routeBuitenweg, etInvDict['PM']] += buitenwegPM
+                        linkVanEmissionsArray[1][routeSnelweg,   etInvDict['PM']] += snelwegPM  
+    
+                        # NOX
+                        stadNOX         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['NOX']] - emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']]))
+                        buitenwegNOX    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['NOX']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']]))
+                        snelwegNOX      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['NOX']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']]))
+                        linkVanEmissionsArray[1][routeStad,      etInvDict['NOX']] += stadNOX
+                        linkVanEmissionsArray[1][routeBuitenweg, etInvDict['NOX']] += buitenwegNOX
+                        linkVanEmissionsArray[1][routeSnelweg,   etInvDict['NOX']] += snelwegNOX  
 
             if i%int(round(nOrigSelection/10,0)) == 0:
                 print('\t\t' + str(int(round((i / nOrigSelection)*100, 0))) + '%')    
@@ -1324,34 +1346,43 @@ def get_prev(csgraph, nNodes, indices):
 
 
 
-def get_route(i, j, prev, zoneToCentroid, linkDict):
+def get_route(orig, dest, prev, zoneToCentroid, linkDict):
     '''
-    Deduce the paths from the prev object
-    '''                 
+    Deduce the paths from the prev object.
+    Returns path sequence in terms of link IDs.
+    '''    
+    routeNodes = get_route_nodes(orig, zoneToCentroid[dest], prev)    
+    
+    if orig != dest:
+        if len(routeNodes) > 1:
+            route = np.array([linkDict[routeNodes[w]][routeNodes[w+1]] for w in range(len(routeNodes)-1)], dtype=int)
+        else:
+            route = np.array([], dtype=int)            
+    else:
+        route = np.array([], dtype=int)
+            
+    return route
+
+
+
+@njit
+def get_route_nodes(orig, dest, prev):
+    '''
+    Deduce the paths from the prev object from one origin to multiple destinations. 
+    Returns path sequence in terms of node IDs.
+    '''
     sequenceNodes = []
-    sequenceLinks = []
     
     # Deduce sequence of nodes on network
-    destNode = zoneToCentroid[j]
-    if prev[i][destNode] >= 0:
-        while prev[i][destNode]>=0:
+    destNode = dest
+    if prev[orig][destNode] >= 0:
+        while prev[orig][destNode]>=0:
             sequenceNodes.insert(0,destNode)
-            destNode = prev[i][destNode]
+            destNode = prev[orig][destNode]
         else:
-            sequenceNodes.insert(0,destNode)  
-           
-    # Convert to sequence of links
-    if i != j:
-        if len(sequenceNodes) > 1:
-            sequenceLinks = np.array([linkDict[sequenceNodes[w]][sequenceNodes[w+1]] for w in range(len(sequenceNodes)-1)], dtype=int)
-        else:
-            print(f'\tWarning! No path found for OD {i}-{j}')
-            sequenceLinks = np.array([], dtype=int)            
-    else:
-        sequenceLinks = np.array([], dtype=int)
+            sequenceNodes.insert(0,destNode)
     
-    return sequenceLinks
-
+    return sequenceNodes
        
     
 #%% For if you want to run the module from this script itself (instead of calling it from the GUI module)
@@ -1391,7 +1422,7 @@ if __name__ == '__main__':
     SHIPMENTS_REF = ""
     SELECTED_LINKS = ""
     N_CPU = ""
-    N_MULTIROUTE = 2
+    N_MULTIROUTE = 1
     
     IMPEDANCE_SPEED_FREIGHT = 'V_FR_OS'
     IMPEDANCE_SPEED_VAN     = 'V_PA_OS'

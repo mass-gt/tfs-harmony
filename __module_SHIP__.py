@@ -10,6 +10,7 @@ import pandas as pd
 import time
 import datetime
 import shapefile as shp
+from numba import njit
 from __functions__ import read_mtx, read_shape
 
 # Modules nodig voor de user interface
@@ -103,7 +104,21 @@ class Root:
         Thread(target=actually_run_module, args=self.args, daemon=True).start()
         
 
-
+@njit
+def draw_choice(cumProbs):
+    '''
+    Draw one choice from a list of cumulative probabilities.
+    '''
+    nAlt = len(cumProbs)
+    
+    rand = np.random.rand()
+    for alt in range(nAlt):
+        if cumProbs[alt] >= rand:
+            return alt
+        
+    raise Exception('\nError in function "draw_choice", random draw was outside range of cumulative probability distribution.')
+        
+        
 def actually_run_module(args):
         
     try:
@@ -416,11 +431,11 @@ def actually_run_module(args):
         nDepots = [np.sum(parcelNodes['CEP']==str(cep)) for cep in cepList]
         cepShares['ShareInternal'] = cepShares['ShareNL']
         cepShares.iloc[np.array(nDepots)==1,-1] = 0
-        cepSharesTotal    = np.cumsum(cepShares['ShareTotal'   ]) / np.sum(cepShares['ShareTotal'   ])
-        cepSharesInternal = np.cumsum(cepShares['ShareInternal']) / np.sum(cepShares['ShareInternal'])            
+        cepSharesTotal    = np.array(np.cumsum(cepShares['ShareTotal'   ]) / np.sum(cepShares['ShareTotal'   ]), dtype=float)
+        cepSharesInternal = np.array(np.cumsum(cepShares['ShareInternal']) / np.sum(cepShares['ShareInternal']), dtype=float)
         cepDepotZones  = [np.array(parcelNodes.loc[parcelNodes['CEP']==str(cep),'AREANR'], dtype=int) for cep in cepList]
         cepDepotShares = [np.array(parcelNodes.loc[parcelNodes['CEP']==str(cep),'Surface']) for cep in cepList]
-        cepDepotShares = [np.cumsum(cepDepotShares[i]) / np.sum(cepDepotShares[i]) for i in range(len(cepList))]
+        cepDepotShares = [np.array(np.cumsum(cepDepotShares[i]) / np.sum(cepDepotShares[i]), dtype=float) for i in range(len(cepList))]
         cepDepotX      = [np.array(zonesShape['X'][[zoneDict[x] for x in cepDepotZones[i]]]) for i in range(len(cepList))]
         cepDepotY      = [np.array(zonesShape['Y'][[zoneDict[x] for x in cepDepotZones[i]]]) for i in range(len(cepList))]            
         
@@ -574,8 +589,8 @@ def actually_run_module(args):
                                 rand = np.random.rand()
                                 
                                 if logSeg == 6:
-                                    cep   = np.where(cepSharesInternal > rand)[0][0]
-                                    depot = np.where(cepDepotShares[cep] > np.random.rand())[0][0]
+                                    cep   = draw_choice(cepSharesInternal)
+                                    depot = draw_choice(cepDepotShares[cep])
                                     toFirm[count]   = 0
                                     destZone[count] = cepDepotZones[cep][depot]
                                     destX[count]    = cepDepotX[cep][depot]
@@ -584,7 +599,7 @@ def actually_run_module(args):
                                     
                                 # Determine receiving firm for flows to consumer
                                 elif (flowType[count] in (1,3,6)):
-                                    toFirm[count]   = np.where(cumProbReceive[:,nstr] > rand)[0][0]
+                                    toFirm[count]   = draw_choice(cumProbReceive[:,nstr])
                                     destZone[count] = firmZone[toFirm[count]]
                                     destX[count]    = firmX[toFirm[count]]
                                     destY[count]    = firmY[toFirm[count]]
@@ -592,7 +607,7 @@ def actually_run_module(args):
                                     
                                 # Determine receiving DC for flows to DC
                                 elif (flowType[count] in (2,5,8)):
-                                    toFirm[count]   = np.where(cumProbDC > rand)[0][0]
+                                    toFirm[count]   = draw_choice(cumProbDC)
                                     destZone[count] = dcZones[toFirm[count]]
                                     destX[count]    = logNodesX[toFirm[count]]
                                     destY[count]    = logNodesY[toFirm[count]]
@@ -600,7 +615,7 @@ def actually_run_module(args):
                                     
                                 # Determine receiving Transshipment Terminal for flows to TT
                                 elif (flowType[count] in (4,7,9)):
-                                    toFirm[count]   = ttZones[np.where(cumProbTT > rand)[0][0]]
+                                    toFirm[count]   = ttZones[draw_choice(cumProbTT)]
                                     destZone[count] = toFirm[count]
                                     destX[count]    = zoneX[toFirm[count]]
                                     destY[count]    = zoneY[toFirm[count]]
@@ -616,11 +631,9 @@ def actually_run_module(args):
                                 elif (flowType[count] in (6,8,9)):
                                     distanceDecay = distanceDecay[ttZones]
                                 distanceDecay /= np.sum(distanceDecay)
-            
-                                rand = np.random.rand()
 
                                 if logSeg == 6:
-                                    origDepot = np.where(cepDepotShares[cep] > np.random.rand())[0][0]
+                                    origDepot = draw_choice(cepDepotShares[cep])
                                     if origDepot == depot:
                                         if depot == 0:
                                             origDepot = origDepot + 1
@@ -640,7 +653,7 @@ def actually_run_module(args):
                                     prob = probSend[:,nstr] * distanceDecay
                                     prob = np.cumsum(prob)
                                     prob /= prob[-1]
-                                    fromFirm[count] = np.where(prob > rand)[0][0]
+                                    fromFirm[count] = draw_choice(prob)
                                     origZone[count] = firmZone[fromFirm[count]]
                                     origX[count]    = firmX[fromFirm[count]]
                                     origY[count]    = firmY[fromFirm[count]]
@@ -651,7 +664,7 @@ def actually_run_module(args):
                                     prob = probDC * distanceDecay
                                     prob = np.cumsum(prob)
                                     prob /= prob[-1]
-                                    fromFirm[count] = np.where(prob > rand)[0][0]
+                                    fromFirm[count] = draw_choice(prob)
                                     origZone[count] = dcZones[fromFirm[count]]
                                     origX[count]    = logNodesX[fromFirm[count]]
                                     origY[count]    = logNodesY[fromFirm[count]]
@@ -662,13 +675,12 @@ def actually_run_module(args):
                                     prob = probTT * distanceDecay
                                     prob = np.cumsum(prob)
                                     prob /= prob[-1]
-                                    fromFirm[count] = ttZones[np.where(prob > rand)[0][0]]
+                                    fromFirm[count] = ttZones[draw_choice(prob)]
                                     origZone[count] = fromFirm[count]
                                     origX[count]    = zoneX[fromFirm[count]]
                                     origY[count]    = zoneY[fromFirm[count]]
                                     fromDC          = 0
                                 
-                                rand = np.random.rand()
                                 
                                 # Determine values for attributes in the utility function of the shipment size/vehicle type MNL
                                 travTime        = skimTravTime[(origZone[count])*nZones + (destZone[count])] / 3600
@@ -699,7 +711,7 @@ def actually_run_module(args):
                                 cumProbabilities    = np.cumsum(probabilities)
                                             
                                 # Sample one choice based on the cumulative probability distribution
-                                ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
+                                ssvt = draw_choice(cumProbabilities)
                                         
                                 # The chosen shipment size category                  
                                 ssChosen = int(np.floor(ssvt/nVehTypes))
@@ -780,12 +792,10 @@ def actually_run_module(args):
                                         destZone[count]         = nInternalZones + dest
                                         destX[count]            = superZoneX[dest]
                                         destY[count]            = superZoneY[dest]
-                                        
-                                        rand = np.random.rand()   
     
                                         if logSeg == 6:
-                                            cep   = np.where(cepSharesTotal > rand)[0][0]
-                                            depot = np.where(cepDepotShares[cep] > np.random.rand())[0][0]
+                                            cep   = draw_choice(cepSharesTotal)
+                                            depot = draw_choice(cepDepotShares[cep])
                                             fromFirm[count] = 0
                                             origZone[count] = cepDepotZones[cep][depot]
                                             origX[count]    = cepDepotX[cep][depot]
@@ -797,7 +807,7 @@ def actually_run_module(args):
                                             prob = probSend[:,nstr] * distanceDecay
                                             prob = np.cumsum(prob)
                                             prob /= prob[-1]                                            
-                                            fromFirm[count] = np.where(prob > rand)[0][0]
+                                            fromFirm[count] = draw_choice(prob)
                                             origZone[count] = firmZone[fromFirm[count]]
                                             origX[count]    = firmX[fromFirm[count]]
                                             origY[count]    = firmY[fromFirm[count]]  
@@ -808,7 +818,7 @@ def actually_run_module(args):
                                             prob = probDC * distanceDecay
                                             prob = np.cumsum(prob)
                                             prob /= prob[-1]
-                                            fromFirm[count] = np.where(prob > rand)[0][0]
+                                            fromFirm[count] = draw_choice(prob)
                                             origZone[count] = dcZones[fromFirm[count]]
                                             origX[count]    = logNodesX[fromFirm[count]]
                                             origY[count]    = logNodesY[fromFirm[count]]    
@@ -819,13 +829,11 @@ def actually_run_module(args):
                                             prob = probTT * distanceDecay
                                             prob = np.cumsum(prob)
                                             prob /= prob[-1]
-                                            fromFirm[count] = ttZones[np.where(prob > rand)[0][0]]
+                                            fromFirm[count] = ttZones[draw_choice(prob)]
                                             origZone[count] = fromFirm[count]
                                             origX[count]    = zoneX[fromFirm[count]]
                                             origY[count]    = zoneY[fromFirm[count]]
                                             fromDC          = 0
-                                            
-                                        rand = np.random.rand()
                                         
                                         # Determine values for attributes in the utility function of the shipment size/vehicle type MNL                            
                                         travTime        = skimTravTime[(origZone[count])*nZones + (destZone[count])] / 3600
@@ -853,7 +861,7 @@ def actually_run_module(args):
                                         cumProbabilities    = np.cumsum(probabilities)
                                                     
                                         # Sample one choice based on the cumulative probability distribution
-                                        ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
+                                        ssvt = draw_choice(cumProbabilities)
                                         
                                         # The chosen shipment size category                  
                                         ssChosen = int(np.floor(ssvt/nVehTypes))
@@ -931,13 +939,11 @@ def actually_run_module(args):
                                         fromFirm[count]         = 0
                                         origZone[count]         = nInternalZones + orig
                                         origX[count]            = superZoneX[orig]
-                                        origY[count]            = superZoneY[orig]
-                                        
-                                        rand = np.random.rand()                      
+                                        origY[count]            = superZoneY[orig]                   
 
                                         if logSeg == 6:
-                                            cep   = np.where(cepSharesTotal > rand)[0][0]
-                                            depot = np.where(cepDepotShares[cep] > np.random.rand())[0][0]
+                                            cep   = draw_choice(cepSharesTotal)
+                                            depot = draw_choice(cepDepotShares[cep])
                                             toFirm[count]   = 0
                                             destZone[count] = cepDepotZones[cep][depot]
                                             destX[count]    = cepDepotX[cep][depot]
@@ -949,7 +955,7 @@ def actually_run_module(args):
                                             prob = probReceive[:,nstr] * distanceDecay
                                             prob = np.cumsum(prob)
                                             prob /= prob[-1]
-                                            toFirm[count]   = np.where(prob > rand)[0][0]
+                                            toFirm[count]   = draw_choice(prob)
                                             destZone[count] = firmZone[toFirm[count]]
                                             destX[count]    = firmX[toFirm[count]]
                                             destY[count]    = firmY[toFirm[count]]
@@ -960,7 +966,7 @@ def actually_run_module(args):
                                             prob = probDC * distanceDecay
                                             prob = np.cumsum(prob)
                                             prob /= prob[-1]
-                                            toFirm[count]   = np.where(prob > rand)[0][0]
+                                            toFirm[count]   = draw_choice(prob)
                                             destZone[count] = dcZones[toFirm[count]]
                                             destX[count]    = logNodesX[toFirm[count]]
                                             destY[count]    = logNodesY[toFirm[count]]
@@ -971,13 +977,11 @@ def actually_run_module(args):
                                             prob = probTT * distanceDecay
                                             prob = np.cumsum(prob)
                                             prob /= prob[-1]
-                                            toFirm[count]   = ttZones[np.where(prob > rand)[0][0]]
+                                            toFirm[count]   = ttZones[draw_choice(prob)]
                                             destZone[count] = toFirm[count]
                                             destX[count]    = zoneX[toFirm[count]]
                                             destY[count]    = zoneY[toFirm[count]]
                                             toDC            = 0
-                                            
-                                        rand = np.random.rand()
                                         
                                         # Determine values for attributes in the utility function of the shipment size/vehicle type MNL                           
                                         travTime        = skimTravTime[(origZone[count])*nZones + (destZone[count])] / 3600
@@ -1004,7 +1008,7 @@ def actually_run_module(args):
                                         cumProbabilities    = np.cumsum(probabilities)
                                                     
                                         # Sample one choice based on the cumulative probability distribution
-                                        ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
+                                        ssvt = draw_choice(cumProbabilities)
                                         
                                         # The chosen shipment size category                  
                                         ssChosen = int(np.floor(ssvt/nVehTypes))
@@ -1068,13 +1072,11 @@ def actually_run_module(args):
                                     while allocatedWeight < totalWeight:
                                         flowType[count]        = 1
                                         goodsType[count]       = nstr
-                                        logisticSegment[count] = logSeg
-                                        
-                                        rand = np.random.rand()                
+                                        logisticSegment[count] = logSeg             
                 
                                         # Determine receiving firm
                                         if dest == -1:
-                                            toFirm[count] = np.where(cumProbReceive[:,nstr] > rand)[0][0]
+                                            toFirm[count] = draw_choice(cumProbReceive[:,nstr])
                                             destZone[count] = firmZone[toFirm[count]]
                                             destX[count]    = firmX[toFirm[count]]
                                             destY[count]    = firmY[toFirm[count]]
@@ -1091,8 +1093,6 @@ def actually_run_module(args):
                                         distanceDecay  = 1 / (1 + np.exp(alpha + beta * np.log(distanceDecay)))
                                         distanceDecay = distanceDecay[firmZone]
                                         distanceDecay /= np.sum(distanceDecay)
-                        
-                                        rand = np.random.rand()
                 
                                         # Determine sending firm
                                         if orig == -1:
@@ -1100,7 +1100,7 @@ def actually_run_module(args):
                                             prob *= distanceDecay
                                             prob  = np.cumsum(prob)
                                             prob /= prob[-1]
-                                            fromFirm[count] = np.where(prob > rand)[0][0]
+                                            fromFirm[count] = draw_choice(prob)
                                             origZone[count] = firmZone[fromFirm[count]]
                                             origX[count]    = firmX[fromFirm[count]]
                                             origY[count]    = firmY[fromFirm[count]]
@@ -1141,7 +1141,7 @@ def actually_run_module(args):
                                         cumProbabilities    = np.cumsum(probabilities)
                                                     
                                         # Sample one choice based on the cumulative probability distribution
-                                        ssvt = np.where(cumProbabilities > np.random.rand())[0][0]
+                                        ssvt = draw_choice(cumProbabilities)
                             
                                         # The chosen shipment size category                  
                                         ssChosen = int(np.floor(ssvt/nVehTypes))
@@ -1220,7 +1220,7 @@ def actually_run_module(args):
                 cumProbs  = np.cumsum(probs)
                 cumProbs /= cumProbs[-1]
                 
-                deliveryTimePeriod[i] = np.where(cumProbs >= np.random.rand())[0][0]
+                deliveryTimePeriod[i] = draw_choice(cumProbs)
                 lowerTOD[i] = timeIntervals[ls][deliveryTimePeriod[i]][0]
                 upperTOD[i] = timeIntervals[ls][deliveryTimePeriod[i]][1]
                     
@@ -1357,7 +1357,7 @@ def actually_run_module(args):
                         newShipments.at[count,'DEST'    ] = newOrigin
                         newShipments.at[count,'FROM_UCC'] = 0
                         newShipments.at[count,'TO_UCC'  ] = 1
-                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[np.where(sharesVehUCC[ls,:]>np.random.rand())[0][0]]
+                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
                         if shipmentsRef == "":
                             origX[nShips+count] = zoneX[invZoneDict[trueOrigin]]
                             origY[nShips+count] = zoneY[invZoneDict[trueOrigin]]
@@ -1388,7 +1388,7 @@ def actually_run_module(args):
                         newShipments.at[count,'DEST'    ] = trueDest
                         newShipments.at[count,'FROM_UCC'] = 1
                         newShipments.at[count,'TO_UCC'  ] = 0
-                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[np.where(sharesVehUCC[ls,:]>np.random.rand())[0][0]]
+                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
                         if shipmentsRef == "":
                             origX[nShips+count] = zoneX[invZoneDict[newDest]]
                             origY[nShips+count] = zoneY[invZoneDict[newDest]]
@@ -1405,7 +1405,7 @@ def actually_run_module(args):
                 # Assume dangerous goods keep the same vehicle type
                 if zonesShape['Gemeentena'][shipments['ORIG'][i]] == zonesShape['Gemeentena'][shipments['DEST'][i]]:                    
                     if ls != 7:
-                        shipments.at[i,'VEHTYPE'] = vehUccToVeh[np.where(sharesVehUCC[ls,:]>np.random.rand())[0][0]]
+                        shipments.at[i,'VEHTYPE'] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
                 
                 # Als het van de ene ZEZ naar de andere ZEZ gaat, maken we 3 legs: ZEZ1--> UCC1, UCC1-->UCC2, UCC2-->ZEZ2
                 else:
@@ -1428,7 +1428,7 @@ def actually_run_module(args):
                         newShipments.at[count,'DEST'    ] = newOrigin
                         newShipments.at[count,'FROM_UCC'] = 0
                         newShipments.at[count,'TO_UCC'  ] = 1
-                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[np.where(sharesVehUCC[ls,:]>np.random.rand())[0][0]]
+                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
                         if shipmentsRef == "":
                             origX[nShips+count] = zoneX[invZoneDict[trueOrigin]]
                             origY[nShips+count] = zoneY[invZoneDict[trueOrigin]]
@@ -1450,7 +1450,7 @@ def actually_run_module(args):
                         newShipments.at[count,'DEST'    ] = trueDest
                         newShipments.at[count,'FROM_UCC'] = 1
                         newShipments.at[count,'TO_UCC'  ] = 0
-                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[np.where(sharesVehUCC[ls,:]>np.random.rand())[0][0]]
+                        newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
                         if shipmentsRef == "":
                             origX[nShips+count] = zoneX[invZoneDict[newDest]]
                             origY[nShips+count] = zoneY[invZoneDict[newDest]]
