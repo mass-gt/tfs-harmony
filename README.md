@@ -54,19 +54,42 @@ OUTPUTFOLDER = C:\...\RunREF2016\
 # ------------------- Input files ------------------------------------------------
 SKIMTIME     = C:\...\data\LOS\2016\skimTijd_REF.mtx
 SKIMDISTANCE = C:\...\data\LOS\2016\skimAfstand_REF.mtx
-LINKS		          = <<INPUTFOLDER>>links_v5.shp
-NODES             = <<INPUTFOLDER>>nodes_v5.shp
-ZONES             = <<INPUTFOLDER>>Zones_v5.shp
-SEGS              = <<INPUTFOLDER>>SEGS2016_verrijkt.csv
-COMMODITYMATRIX   = <<INPUTFOLDER>>CommodityMatrixNUTS3_2016.csv
-PARCELNODES       = <<INPUTFOLDER>>parcelNodes_v2.shp
-CEP_SHARES        = <<INPUTFOLDER>>CEPshares.csv
-DISTRIBUTIECENTRA = <<INPUTFOLDER>>distributieCentra.csv
-COST_VEHTYPE      = <<PARAMFOLDER>>Cost_VehType_2016.csv
-COST_SOURCING     = <<PARAMFOLDER>>Cost_Sourcing_2016.csv
-MRDH_TO_NUTS3   	= <<PARAMFOLDER>>MRDHtoNUTS32013.csv
-NUTS3_TO_MRDH   	= <<PARAMFOLDER>>NUTS32013toMRDH.csv
-SERVICE_DISTANCEDECAY 	= <<PARAMFOLDER>>Params_DistanceDecay_SERVICE.csv
+LINKS  = <<INPUTFOLDER>>links_v5.shp
+NODES  = <<INPUTFOLDER>>nodes_v5.shp
+ZONES  = <<INPUTFOLDER>>Zones_v5.shp
+SEGS   = <<INPUTFOLDER>>SEGS2016_verrijkt.csv
+COMMODITYMATRIX    = <<INPUTFOLDER>>CommodityMatrixNUTS3_2016.csv
+PARCELNODES        = <<INPUTFOLDER>>parcelNodes_v2.shp
+CEP_SHARES         = <<INPUTFOLDER>>CEPshares.csv
+DISTRIBUTIECENTRA  = <<INPUTFOLDER>>distributieCentra.csv
+NSTR_TO_LS         = <<INPUTFOLDER>>nstrToLogisticSegment.csv
+MAKE_DISTRIBUTION  = <<INPUTFOLDER>>MakeDistribution.csv
+USE_DISTRIBUTION   = <<INPUTFOLDER>>UseDistribution.csv
+SUP_COORDINATES_ID = <<INPUTFOLDER>>SupCoordinatesID.csv
+DEPTIME_FREIGHT = <<INPUTFOLDER>>departureTimePDF.csv
+DEPTIME_PARCELS = <<INPUTFOLDER>>departureTimeParcelsCDF.csv
+
+COST_VEHTYPE   = <<PARAMFOLDER>>Cost_VehType_2016.csv
+COST_SOURCING  = <<PARAMFOLDER>>Cost_Sourcing_2016.csv
+MRDH_TO_NUTS3  = <<PARAMFOLDER>>MRDHtoNUTS32013.csv
+NUTS3_TO_MRDH  = <<PARAMFOLDER>>NUTS32013toMRDH.csv
+SERVICE_DISTANCEDECAY = <<PARAMFOLDER>>Params_DistanceDecay_SERVICE.csv
+VEHICLE_CAPACITY      = <<PARAMFOLDER>>CarryingCapacity.csv
+LOGISTIC_FLOWTYPES    = <<PARAMFOLDER>>LogFlowtype_Shares.csv
+PARAMS_TOD  = <<PARAMFOLDER>>Params_TOD.csv
+PARAMS_SSVT = <<PARAMFOLDER>>Params_ShipSize_VehType.csv
+PARAMS_ET_FIRST = <<PARAMFOLDER>>Params_EndTourFirst.csv
+PARAMS_ET_LATER = <<PARAMFOLDER>>Params_EndTourLater.csv
+
+EMISSIONFACS_BUITENWEG_LEEG = <<INPUTFOLDER>>EmissieFactoren_BUITENWEG_LEEG.csv
+EMISSIONFACS_BUITENWEG_VOL  = <<INPUTFOLDER>>EmissieFactoren_BUITENWEG_VOL.csv
+EMISSIONFACS_SNELWEG_LEEG = <<INPUTFOLDER>>EmissieFactoren_SNELWEG_LEEG.csv
+EMISSIONFACS_SNELWEG_VOL  = <<INPUTFOLDER>>EmissieFactoren_SNELWEG_VOL.csv
+EMISSIONFACS_STAD_LEEG = <<INPUTFOLDER>>EmissieFactoren_STAD_LEEG.csv
+EMISSIONFACS_STAD_VOL  = <<INPUTFOLDER>>EmissieFactoren_STAD_VOL.csv
+
+ZEZ_CONSOLIDATION = <<INPUTFOLDER>>ConsolidationPotential.csv
+ZEZ_SCENARIO      = <<INPUTFOLDER>>ZEZscenario.csv
 
 # ------------------- SIF parameters ---------------------------------------------
 NUTSLEVEL_INPUT = 3
@@ -82,6 +105,9 @@ PARCELS_DROPTIME = 120
 PARCELS_SUCCESS_B2C   = 0.75
 PARCELS_SUCCESS_B2B   = 0.95
 PARCELS_GROWTHFREIGHT = 1.0
+
+MICROHUBS    = <<INPUTFOLDER>>Microhubs.csv
+VEHICLETYPES = <<INPUTFOLDER>>Microhubs_vehicleTypes.csv
 
 CROWDSHIPPING    = FALSE
 #CRW_PARCELSHARE  = 0.06
@@ -99,5 +125,9 @@ CORRECTIONS_TONNES = <<INPUTFOLDER>>CorrectionsTonnes2016.csv
 #SELECTED_LINKS = 
 #SHIPMENTS_REF =
 #N_CPU = 
+#NEAREST_DC =
+#SHIFT_FREIGHT_TO_COMB1 =
+#SHIFT_FREIGHT_TO_COMB2 =
+#SHIFT_VAN_TO_COMB1
 ```
   
