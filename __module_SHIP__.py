@@ -125,30 +125,13 @@ def actually_run_module(args):
         
         root    = args[0]
         varDict = args[1]
-        
-        datapathI = varDict['INPUTFOLDER']
-        datapathO = varDict['OUTPUTFOLDER']
-        datapathP = varDict['PARAMFOLDER']
-        yearFac   = varDict['YEARFACTOR']
-        zonesPath        = varDict['ZONES']
-        segsPath         = varDict['SEGS']
-        skimTravTimePath = varDict['SKIMTIME']
-        skimDistancePath = varDict['SKIMDISTANCE']
-        shipmentsRef     = varDict['SHIPMENTS_REF']
-        parcelDepotsPath = varDict['PARCELNODES']
-        parcelsGrowthFreight  = varDict['PARCELS_GROWTHFREIGHT']
-        pathNUTS3toMRDH       = varDict['NUTS3_TO_MRDH']
-        distributieCentraPath = varDict['DISTRIBUTIECENTRA']
-        costVehTypePath     = varDict['COST_VEHTYPE']
-        costSourcingPath    = varDict['COST_SOURCING']
-        correctionsTonnesPath = varDict['CORRECTIONS_TONNES']
-        
-        label = varDict['LABEL']
 
         start_time = time.time()
         
-        log_file = open(datapathO + "Logfile_ShipmentSynthesizer.log", "w")
+        log_file = open(varDict['OUTPUTFOLDER'] + "Logfile_ShipmentSynthesizer.log", "w")
         log_file.write("Start simulation at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
+        
+        chooseNearestDC = (varDict['NEAREST_DC'].upper() == 'TRUE')
                 
         
         
@@ -165,14 +148,20 @@ def actually_run_module(args):
         # Distance decay parameters
         alpha = -6.172
         beta  =  2.180
+
+        # Factors for increasing or decreasing total flow of certain logistics segments
+        facLS = [1 for ls in range(nLogSeg)]
+        for ls in range(nLogSeg):
+            if varDict[f'FAC_LS{ls}'] != '':
+                facLS[ls] = float(varDict[f'FAC_LS{ls}'])
         
         # Which NSTR belongs to which Logistic Segments
-        nstrToLogSeg  = np.array(pd.read_csv(datapathI + 'nstrToLogisticSegment.csv', header=None), dtype=float)
+        nstrToLogSeg  = np.array(pd.read_csv(varDict['NSTR_TO_LS'], header=None), dtype=float)
         for nstr in range(nNSTR):
             nstrToLogSeg[nstr,:] = nstrToLogSeg[nstr,:] / np.sum(nstrToLogSeg[nstr,:])
         
         # Which Logistic Segment belongs to which NSTRs      
-        logSegToNstr  = np.array(pd.read_csv(datapathI + 'nstrToLogisticSegment.csv', header=None), dtype=float)
+        logSegToNstr  = np.array(pd.read_csv(varDict['NSTR_TO_LS'], header=None), dtype=float)
         for ls in range(nLogSeg):
             logSegToNstr[:,ls] = logSegToNstr[:,ls] / np.sum(logSegToNstr[:,ls])
         
@@ -180,22 +169,25 @@ def actually_run_module(args):
             root.progressBar['value'] = 0.2
         
         # Import make/use distribution tables (by NSTR and industry sector)
-        makeDistribution = np.array(pd.read_csv(f"{datapathI}MakeDistribution.csv"))
-        useDistribution  = np.array(pd.read_csv(f"{datapathI}UseDistribution.csv"))
+        makeDistribution = np.array(pd.read_csv(varDict['MAKE_DISTRIBUTION']))
+        useDistribution  = np.array(pd.read_csv(varDict['USE_DISTRIBUTION']))
         
         if root != '':
             root.progressBar['value'] = 0.4
         
         # Import external zones demand and coordinates
-        superCommodityMatrixNSTR = pd.read_csv(datapathO + 'CommodityMatrixNUTS3.csv', sep=',')
-        superCommodityMatrixNSTR['WeightDay'] = superCommodityMatrixNSTR['TonnesYear'] / yearFac
-        superCommodityMatrixNSTR = np.array(superCommodityMatrixNSTR[['ORIG','DEST','NSTR','WeightDay']], dtype=object)
-        superCoordinates = pd.read_csv(f'{datapathI}SupCoordinatesID.csv')
+        if varDict['SHIPMENTS_REF'] == "":
+            superCommodityMatrixNSTR = pd.read_csv(varDict['OUTPUTFOLDER'] + 'CommodityMatrixNUTS3.csv', sep=',')
+            superCommodityMatrixNSTR['WeightDay'] = superCommodityMatrixNSTR['TonnesYear'] / varDict['YEARFACTOR']
+            superCommodityMatrixNSTR = np.array(superCommodityMatrixNSTR[['ORIG','DEST','NSTR','WeightDay']], dtype=object)
+        
+        # Locations of the external zones
+        superCoordinates = pd.read_csv(varDict['SUP_COORDINATES_ID'])
         superZoneX       = np.array(superCoordinates['Xcoor'])
         superZoneY       = np.array(superCoordinates['Ycoor'])
         nSuperZones      = len(superCoordinates)
         
-        NUTS3toAREANR = pd.read_csv(pathNUTS3toMRDH, sep=',')
+        NUTS3toAREANR = pd.read_csv(varDict['NUTS3_TO_MRDH'], sep=',')
         NUTS3toAREANR = dict((NUTS3toAREANR.at[i,'NUTS_ID'],NUTS3toAREANR.at[i,'AREANR']) for i in NUTS3toAREANR.index)
         AREANRtoNUTS3 = {}
         for nuts3, areanr in NUTS3toAREANR.items():
@@ -205,44 +197,49 @@ def actually_run_module(args):
                 AREANRtoNUTS3[areanr] = [nuts3]
                 
         # Convert demand from NSTR to logistic segments
-        nRows = (nSuperZones+1) * (nSuperZones+1) * nLogSeg
-        superCommodityMatrix = np.zeros((nRows,4))
-        superCommodityMatrix[:,0] = np.floor(np.arange(nRows)/(nSuperZones+1)/nLogSeg)
-        superCommodityMatrix[:,1]= np.floor(np.arange(nRows)/nLogSeg) - superCommodityMatrix[:,0]*(nSuperZones+1)
-        for logSeg in range(nLogSeg):
-            superCommodityMatrix[np.arange(logSeg,nRows,nLogSeg), 2] = logSeg
-        for i in range(nSuperZones+1):
-            if 99999900+i in AREANRtoNUTS3.keys():
-                for j in range(nSuperZones+1):
-                    if 99999900+j in AREANRtoNUTS3.keys():
-                        for nstr in range(nNSTR):
-                            origNUTS3 = AREANRtoNUTS3[99999900+i]
-                            destNUTS3 = AREANRtoNUTS3[99999900+j]
-                            whereCurrent = [x for x in range(len(superCommodityMatrixNSTR)) if superCommodityMatrixNSTR[x,0] in origNUTS3 and \
-                                                                                               superCommodityMatrixNSTR[x,1] in destNUTS3 and \
-                                                                                               superCommodityMatrixNSTR[x,2] == nstr]
-                            if len(whereCurrent) > 0:
-                                weightDay = np.sum(superCommodityMatrixNSTR[whereCurrent, 3])
-                                for logSeg in range(nLogSeg):
-                                    currentRow = i*(nSuperZones+1)*nLogSeg + j*nLogSeg + logSeg
-                                    superCommodityMatrix[currentRow, 3] += nstrToLogSeg[nstr,logSeg] * float(weightDay)
+        if varDict['SHIPMENTS_REF'] == "":
+            nRows = (nSuperZones+1) * (nSuperZones+1) * nLogSeg
+            superCommodityMatrix = np.zeros((nRows,4))
+            superCommodityMatrix[:,0] = np.floor(np.arange(nRows)/(nSuperZones+1)/nLogSeg)
+            superCommodityMatrix[:,1]= np.floor(np.arange(nRows)/nLogSeg) - superCommodityMatrix[:,0]*(nSuperZones+1)
+            for logSeg in range(nLogSeg):
+                superCommodityMatrix[np.arange(logSeg,nRows,nLogSeg), 2] = logSeg
+            for i in range(nSuperZones+1):
+                if 99999900+i in AREANRtoNUTS3.keys():
+                    for j in range(nSuperZones+1):
+                        if 99999900+j in AREANRtoNUTS3.keys():
+                            for nstr in range(nNSTR):
+                                origNUTS3 = AREANRtoNUTS3[99999900+i]
+                                destNUTS3 = AREANRtoNUTS3[99999900+j]
+                                whereCurrent = [x for x in range(len(superCommodityMatrixNSTR)) if superCommodityMatrixNSTR[x,0] in origNUTS3 and \
+                                                                                                   superCommodityMatrixNSTR[x,1] in destNUTS3 and \
+                                                                                                   superCommodityMatrixNSTR[x,2] == nstr]
+                                if len(whereCurrent) > 0:
+                                    weightDay = np.sum(superCommodityMatrixNSTR[whereCurrent, 3])
                                     
-                                    # Apply growth to parcel market
-                                    if logSeg == 6:
-                                        superCommodityMatrix[currentRow, 3] *= parcelsGrowthFreight
-        
-        superCommodityMatrix = pd.DataFrame(superCommodityMatrix, columns=['From','To','LogSeg','WeightDay'])
-        superCommodityMatrix.loc[(superCommodityMatrix['From']!=0) & (superCommodityMatrix['To']!=0), 'WeightDay'] = 0
+                                    for logSeg in range(nLogSeg):
+                                        currentRow = i*(nSuperZones+1)*nLogSeg + j*nLogSeg + logSeg
+                                        superCommodityMatrix[currentRow, 3] += nstrToLogSeg[nstr,logSeg] * float(weightDay)
+                                        
+                                        # Apply growth to parcel market
+                                        if logSeg == 6:
+                                            superCommodityMatrix[currentRow, 3] *= varDict['PARCELS_GROWTHFREIGHT']
+                                            
+                                        # Apply increase/decrease factor for logistics segment
+                                        superCommodityMatrix[currentRow, 3] *= facLS[logSeg]
+            
+            superCommodityMatrix = pd.DataFrame(superCommodityMatrix, columns=['From','To','LogSeg','WeightDay'])
+            superCommodityMatrix.loc[(superCommodityMatrix['From']!=0) & (superCommodityMatrix['To']!=0), 'WeightDay'] = 0
         
         if root != '':
             root.progressBar['value'] = 1
         
         # Socio-economic data of zones
-        segs = pd.read_csv(segsPath)
+        segs = pd.read_csv(varDict['SEGS'])
         segs.index  = segs['zone']
         
         # Import internal zones data
-        zonesShape = read_shape(zonesPath)
+        zonesShape = read_shape(varDict['ZONES'])
         zonesShape = zonesShape.sort_values('AREANR')
         zonesShape.index = zonesShape['AREANR']
         zoneID      = np.array(zonesShape['AREANR'])
@@ -291,24 +288,28 @@ def actually_run_module(args):
             root.progressBar['value'] = 1.2
         
         # Import firm data
-        firms    = pd.read_csv(datapathO + 'Firms.csv')
-        firmID   = np.array(firms['FIRM_ID'])
-        firmZone = np.array([invZoneDict[firms['MRDH_ZONE'][i]] for i in firms.index])
-        firmSize = np.array(firms['EMPL'])
-        firmX    = np.array(firms['X'])
-        firmY    = np.array(firms['Y'])
-        
-        sectorDict = {'LANDBOUW':1, 'INDUSTRIE':2, 'DETAIL':3, \
-                      'DIENSTEN':4, 'OVERHEID':5,  'OVERIG':6}
-        firmSector  = np.array([sectorDict[firms['SECTOR'][i]] for i in firms.index])
+        if varDict['SHIPMENTS_REF'] == "":
+            firms    = pd.read_csv(varDict['OUTPUTFOLDER'] + 'Firms.csv')
+            firmID   = np.array(firms['FIRM_ID'])
+            firmZone = np.array([invZoneDict[firms['MRDH_ZONE'][i]] for i in firms.index])
+            firmSize = np.array(firms['EMPL'])
+            firmX    = np.array(firms['X'])
+            firmY    = np.array(firms['Y'])
+            
+            sectorDict = {'LANDBOUW':1, 'INDUSTRIE':2, 'DETAIL':3, \
+                          'DIENSTEN':4, 'OVERHEID':5,  'OVERIG':6}
+            firmSector  = np.array([sectorDict[firms['SECTOR'][i]] for i in firms.index])
+            
+            nFirms = len(firms)
         
         if root != '':
             root.progressBar['value'] = 1.5
         
         # Import logistic nodes data
-        logNodes  = pd.read_csv(distributieCentraPath)
+        logNodes  = pd.read_csv(varDict['DISTRIBUTIECENTRA'])
         logNodes  = logNodes[~pd.isna(logNodes['AREANR'])]
         logNodes['AREANR'] = [invZoneDict[x] for x in logNodes['AREANR']]
+        logNodesAREANR = np.array(logNodes['AREANR'], dtype=int)
         logNodesX = np.array(logNodes['Xcoor'])
         logNodesY = np.array(logNodes['Ycoor'])
              
@@ -317,19 +318,19 @@ def actually_run_module(args):
         dcZones = np.array(logNodes['AREANR'])
         
         # Flowtype distribution (10 NSTRs and 12 flowtypes)
-        ftShares = np.array(pd.read_csv(datapathP + 'LogFlowtype_Shares.csv', index_col=0)) 
+        ftShares = np.array(pd.read_csv(varDict['LOGISTIC_FLOWTYPES'], index_col=0)) 
         
         # Corrections
-        if correctionsTonnesPath != '':
-            corrections = pd.read_csv(correctionsTonnesPath, sep=',')
+        if varDict['CORRECTIONS_TONNES'] != '':
+            corrections = pd.read_csv(varDict['CORRECTIONS_TONNES'], sep=',')
             nCorrections = len(corrections)
             
         if root != '':
             root.progressBar['value'] = 1.5
         
         # Skim with travel times and distances
-        skimTravTime = read_mtx(skimTravTimePath)
-        skimDistance = read_mtx(skimDistancePath)
+        skimTravTime = read_mtx(varDict['SKIMTIME'])
+        skimDistance = read_mtx(varDict['SKIMDISTANCE'])
         nZones = int(len(skimTravTime)**0.5)
         
         skimTravTime[skimTravTime<0] = 0
@@ -352,20 +353,20 @@ def actually_run_module(args):
             root.progressBar['value'] = 2.5
         
         # Cost parameters by vehicle type with size (small/medium/large)
-        costParams  = pd.read_csv(costVehTypePath, index_col=0)
+        costParams  = pd.read_csv(varDict['COST_VEHTYPE'], index_col=0)
         costPerKm   = np.array(costParams['CostPerKm'])
         costPerHour = np.array(costParams['CostPerH'])
         
         # Cost parameters generic for sourcing (vehicle type is now known yet then)
-        costParamsSourcing   = pd.read_csv(costSourcingPath)
+        costParamsSourcing   = pd.read_csv(varDict['COST_SOURCING'])
         costPerKmSourcing    = costParamsSourcing['CostPerKm'][0]
         costPerHourSourcing  = costParamsSourcing['CostPerHour'][0]     
         
         # Estimated parameters MNL for combined shipment size and vehicle type
-        paramsShipSizeVehType = pd.read_csv(datapathP + "Params_ShipSize_VehType.csv", index_col=0)
+        paramsShipSizeVehType = pd.read_csv(varDict['PARAMS_SSVT'], index_col=0)
         
         # Estimated parameters MNL for delivery time
-        paramsTimeOfDay = pd.read_csv(datapathP + 'Params_TOD.csv', index_col=0)
+        paramsTimeOfDay = pd.read_csv(varDict['PARAMS_TOD'], index_col=0)
         nTimeIntervals  = len([x for x in paramsTimeOfDay.index if x.split('_')[0]=='Interval'])
         timeIntervals    = []
         timeIntervalsDur = []
@@ -391,10 +392,10 @@ def actually_run_module(args):
             root.progressBar['value'] = 2.6
         
         # Consolidation potential per logistic segment (for UCC scenario)
-        probConsolidation = np.array(pd.read_csv(datapathI + 'ConsolidationPotential.csv', index_col='Segment'))
+        probConsolidation = np.array(pd.read_csv(varDict['ZEZ_CONSOLIDATION'], index_col='Segment'))
         
         # Vehicle/combustion shares (for UCC scenario)
-        sharesUCC  = pd.read_csv(datapathI + 'ZEZscenario.csv', index_col='Segment')
+        sharesUCC  = pd.read_csv(varDict['ZEZ_SCENARIO'], index_col='Segment')
         #combTypes  = ['Fuel', 'Electric', 'Hydrogen', 'Hybrid (electric)', 'Biofuel']
         vtNamesUCC = ['LEVV','Moped','Van','Truck','TractorTrailer','WasteCollection','SpecialConstruction']
         
@@ -417,7 +418,7 @@ def actually_run_module(args):
         vehUccToVeh = {0:8, 1:9, 2:7, 3:1, 4:5, 5:6, 6:6}
     
         # Depots for parcel deliveries
-        parcelNodes       = read_shape(parcelDepotsPath)
+        parcelNodes       = read_shape(varDict['PARCELNODES'])
         parcelNodes.index = parcelNodes['id'].astype(int)
         parcelNodes       = parcelNodes.sort_index()
         parcelNodes       = parcelNodes[parcelNodes['AREANR']<99999900] # Remove parcel nodes in external zones
@@ -426,7 +427,7 @@ def actually_run_module(args):
         parcelNodes.index = np.arange(nParcelNodes)
            
         # Market shares of the different parcel couriers
-        cepShares = pd.read_csv(datapathI + 'CEPshares.csv', index_col=0)
+        cepShares = pd.read_csv(varDict['CEP_SHARES'], index_col=0)
         cepList   = list(cepShares.index)
         nDepots = [np.sum(parcelNodes['CEP']==str(cep)) for cep in cepList]
         cepShares['ShareInternal'] = cepShares['ShareNL']
@@ -446,42 +447,42 @@ def actually_run_module(args):
         
         # -------------------- Set parameters -------------------------------------
         
-        nFirms = len(firms)
         nFlowTypesInternal = 9
         nFlowTypesExternal = 3
         nShipSizes = 6
         nVehTypes  = 7
-        truckCapacities = np.array(pd.read_csv(f"{datapathP}CarryingCapacity.csv", index_col=0))[:,0] / 1000
+        truckCapacities = np.array(pd.read_csv(varDict['VEHICLE_CAPACITY'], index_col=0))[:,0] / 1000
         absoluteShipmentSizes = [1.5, 4.5, 8.0, 15.0, 25.0, 35.0]
         ExtArea = True        
         
         
         
         # ----------- Cumulative probability functions for allocation -------------
-        
-        # Cumulative probability function of firms being receiver or sender
-        probReceive     = np.zeros((nFirms,nNSTR))
-        probSend        = np.zeros((nFirms,nNSTR))
-        cumProbReceive  = np.zeros((nFirms,nNSTR))
-        cumProbSend     = np.zeros((nFirms,nNSTR))
-                
-        # Per goods type, determine probability based on firm size and make/use share
-        for nstr in range(nNSTR):
-            probReceive[:,nstr]     = firmSize * [useDistribution[nstr,sector-1]  for sector in firmSector]
-            probSend[:,nstr]        = firmSize * [makeDistribution[nstr,sector-1] for sector in firmSector]
-            cumProbReceive[:,nstr]  = np.cumsum(probReceive[:,nstr])
-            cumProbReceive[:,nstr] /= cumProbReceive[-1,nstr]
-            cumProbSend[:,nstr]     = np.cumsum(probSend[:,nstr])
-            cumProbSend[:,nstr]    /= cumProbSend[-1,nstr]
-        
-        # Cumulative probability function of a shipment being allocated to a particular DC/TT (based on surface)        
-        probDC     = np.array(logNodes['oppervlak'])
-        cumProbDC  = np.cumsum(probDC)
-        cumProbDC  = cumProbDC / cumProbDC[-1]
 
-        probTT     = zoneSurface[ttZones]
-        cumProbTT  = np.cumsum(probTT)
-        cumProbTT  = cumProbTT / cumProbTT[-1]
+        if varDict['SHIPMENTS_REF'] == "":
+            # Cumulative probability function of firms being receiver or sender
+            probReceive     = np.zeros((nFirms,nNSTR))
+            probSend        = np.zeros((nFirms,nNSTR))
+            cumProbReceive  = np.zeros((nFirms,nNSTR))
+            cumProbSend     = np.zeros((nFirms,nNSTR))
+                    
+            # Per goods type, determine probability based on firm size and make/use share
+            for nstr in range(nNSTR):
+                probReceive[:,nstr]     = firmSize * [useDistribution[nstr,sector-1]  for sector in firmSector]
+                probSend[:,nstr]        = firmSize * [makeDistribution[nstr,sector-1] for sector in firmSector]
+                cumProbReceive[:,nstr]  = np.cumsum(probReceive[:,nstr])
+                cumProbReceive[:,nstr] /= cumProbReceive[-1,nstr]
+                cumProbSend[:,nstr]     = np.cumsum(probSend[:,nstr])
+                cumProbSend[:,nstr]    /= cumProbSend[-1,nstr]
+            
+            # Cumulative probability function of a shipment being allocated to a particular DC/TT (based on surface)        
+            probDC     = np.array(logNodes['oppervlak'])
+            cumProbDC  = np.cumsum(probDC)
+            cumProbDC  = cumProbDC / cumProbDC[-1]
+    
+            probTT     = zoneSurface[ttZones]
+            cumProbTT  = np.cumsum(probTT)
+            cumProbTT  = cumProbTT / cumProbTT[-1]
 
         if root != '':
             root.progressBar['value'] = 2.9
@@ -489,29 +490,30 @@ def actually_run_module(args):
         
         
         # ----------------------- Demand by flowtype ------------------------------
-        
-        # Split demand by internal/export/import and goods type
-        demandInternal  = np.array(superCommodityMatrix['WeightDay'][:nLogSeg],dtype=float)
-        demandExport    = np.zeros((nSuperZones,nLogSeg),dtype=float)
-        demandImport    = np.zeros((nSuperZones,nLogSeg),dtype=float)
-        for superZone in range(nSuperZones):
-            for logSeg in range(nLogSeg):
-                exportIndex = (superZone+1) * (nSuperZones+1) * nLogSeg + logSeg
-                demandExport[superZone][logSeg] = superCommodityMatrix['WeightDay'][exportIndex]
-            
-                importIndex = (superZone+1) * nLogSeg + logSeg
-                demandImport[superZone][logSeg] = superCommodityMatrix['WeightDay'][importIndex]  
+
+        if varDict['SHIPMENTS_REF'] == "":
+            # Split demand by internal/export/import and goods type
+            demandInternal  = np.array(superCommodityMatrix['WeightDay'][:nLogSeg],dtype=float)
+            demandExport    = np.zeros((nSuperZones,nLogSeg),dtype=float)
+            demandImport    = np.zeros((nSuperZones,nLogSeg),dtype=float)
+            for superZone in range(nSuperZones):
+                for logSeg in range(nLogSeg):
+                    exportIndex = (superZone+1) * (nSuperZones+1) * nLogSeg + logSeg
+                    demandExport[superZone][logSeg] = superCommodityMatrix['WeightDay'][exportIndex]
                 
-        # Then split demand by flowtype            
-        demandInternalByFT  = [None] * nFlowTypesInternal
-        demandExportByFT    = [None] * nFlowTypesExternal
-        demandImportByFT    = [None] * nFlowTypesExternal
-        for ft in range(nFlowTypesInternal):
-            demandInternalByFT[ft]  = demandInternal.copy() * ftShares[ft,:]
-            
-        for ft in range(nFlowTypesExternal):
-            demandExportByFT[ft]    = demandExport.copy() * ftShares[nFlowTypesInternal+ft,:]
-            demandImportByFT[ft]    = demandImport.copy() * ftShares[nFlowTypesInternal+ft,:]
+                    importIndex = (superZone+1) * nLogSeg + logSeg
+                    demandImport[superZone][logSeg] = superCommodityMatrix['WeightDay'][importIndex]  
+                    
+            # Then split demand by flowtype            
+            demandInternalByFT  = [None] * nFlowTypesInternal
+            demandExportByFT    = [None] * nFlowTypesExternal
+            demandImportByFT    = [None] * nFlowTypesExternal
+            for ft in range(nFlowTypesInternal):
+                demandInternalByFT[ft]  = demandInternal.copy() * ftShares[ft,:]
+                
+            for ft in range(nFlowTypesExternal):
+                demandExportByFT[ft]    = demandExport.copy() * ftShares[nFlowTypesInternal+ft,:]
+                demandImportByFT[ft]    = demandImport.copy() * ftShares[nFlowTypesInternal+ft,:]
 
         if root != '':
             root.progressBar['value'] = 3
@@ -520,7 +522,7 @@ def actually_run_module(args):
 
         # ------------------- Shipment synthesizer procedure ----------------------
         
-        if shipmentsRef == "":                
+        if varDict['SHIPMENTS_REF'] == "":
                 
             # Initialize a counter for the procedure
             count = 0
@@ -586,8 +588,6 @@ def actually_run_module(args):
                                 goodsType[count]       = nstr
                                 logisticSegment[count] = logSeg
                                 
-                                rand = np.random.rand()
-                                
                                 if logSeg == 6:
                                     cep   = draw_choice(cepSharesInternal)
                                     depot = draw_choice(cepDepotShares[cep])
@@ -607,6 +607,7 @@ def actually_run_module(args):
                                     
                                 # Determine receiving DC for flows to DC
                                 elif (flowType[count] in (2,5,8)):
+                                    
                                     toFirm[count]   = draw_choice(cumProbDC)
                                     destZone[count] = dcZones[toFirm[count]]
                                     destX[count]    = logNodesX[toFirm[count]]
@@ -661,10 +662,14 @@ def actually_run_module(args):
                                     
                                 # Determine sending DC for flows from DC
                                 elif (flowType[count] in (3,5,7)):
-                                    prob = probDC * distanceDecay
-                                    prob = np.cumsum(prob)
-                                    prob /= prob[-1]
-                                    fromFirm[count] = draw_choice(prob)
+                                    if chooseNearestDC and flowType[count] == 3:
+                                        dists = skimDistance[logNodesAREANR * nZones + destZone[count]]
+                                        fromFirm[count] = np.argmin(dists)
+                                    else:
+                                        prob = probDC * distanceDecay
+                                        prob = np.cumsum(prob)
+                                        prob /= prob[-1]
+                                        fromFirm[count] = draw_choice(prob)
                                     origZone[count] = dcZones[fromFirm[count]]
                                     origX[count]    = logNodesX[fromFirm[count]]
                                     origY[count]    = logNodesY[fromFirm[count]]
@@ -1028,7 +1033,7 @@ def actually_run_module(args):
                                                 root.progressBar['value'] = percStart + (percEnd - percStart) * (allocatedWeightImport / totalWeightImport)            
  
             
-            if correctionsTonnesPath != '':
+            if varDict['CORRECTIONS_TONNES'] != '':
                 print("Synthesizing additional shipments (corrections)...")
                 log_file.write("Synthesizing additional shipments (corrections)...\n")
                 percStart = 90
@@ -1287,7 +1292,7 @@ def actually_run_module(args):
         
         else:
             # Import the reference shipments
-            shipments = pd.read_csv(shipmentsRef)
+            shipments = pd.read_csv(varDict['SHIPMENTS_REF'])
         
         # Get the datatypes right
         intCols  =  ["SHIP_ID",    "ORIG",         "DEST",    "NSTR",       \
@@ -1299,16 +1304,16 @@ def actually_run_module(args):
         shipments[floatCols] = shipments[floatCols].astype(float)
         
         # Redirect shipments via UCCs and change vehicle type
-        if label == 'UCC':
-            if shipmentsRef == "":
-                print('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv")
-                log_file.write('Exporting REF shipments to ' + datapathO + "Shipments_REF.csv\n")
+        if varDict['LABEL'] == 'UCC':
+            if varDict['SHIPMENTS_REF'] == "":
+                print('Exporting REF shipments to ' + varDict['OUTPUTFOLDER'] + "Shipments_REF.csv")
+                log_file.write('Exporting REF shipments to ' + varDict['OUTPUTFOLDER'] + "Shipments_REF.csv\n")
                 
                 if root != '':
                     root.progressBar['value'] = 93
                     root.update_statusbar("Shipment Synthesizer: Exporting REF shipments to CSV")
                                 
-                shipments.to_csv(datapathO + 'Shipments_REF.csv')
+                shipments.to_csv(varDict['OUTPUTFOLDER'] + 'Shipments_REF.csv')
 
             print("Redirecting shipments via UCC...")
             log_file.write("Redirecting shipments via UCC...\n")
@@ -1347,7 +1352,7 @@ def actually_run_module(args):
                         # Redirect to UCC
                         shipments.at[i,'ORIG'    ] = newOrigin
                         shipments.at[i,'FROM_UCC'] = 1
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             origX[i] = zoneX[invZoneDict[newOrigin]]
                             origY[i] = zoneY[invZoneDict[newOrigin]]                        
                         
@@ -1358,7 +1363,7 @@ def actually_run_module(args):
                         newShipments.at[count,'FROM_UCC'] = 0
                         newShipments.at[count,'TO_UCC'  ] = 1
                         newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             origX[nShips+count] = zoneX[invZoneDict[trueOrigin]]
                             origY[nShips+count] = zoneY[invZoneDict[trueOrigin]]
                             destX[nShips+count] = zoneX[invZoneDict[newOrigin]]
@@ -1378,7 +1383,7 @@ def actually_run_module(args):
                         # Redirect to UCC
                         shipments.at[i,'DEST'  ] = newDest
                         shipments.at[i,'TO_UCC'] = 1
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             destX[i] = zoneX[invZoneDict[newDest]]
                             destY[i] = zoneY[invZoneDict[newDest]]   
                         
@@ -1389,7 +1394,7 @@ def actually_run_module(args):
                         newShipments.at[count,'FROM_UCC'] = 1
                         newShipments.at[count,'TO_UCC'  ] = 0
                         newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             origX[nShips+count] = zoneX[invZoneDict[newDest]]
                             origY[nShips+count] = zoneY[invZoneDict[newDest]]
                             destX[nShips+count] = zoneX[invZoneDict[trueDest]]
@@ -1418,7 +1423,7 @@ def actually_run_module(args):
                         # Redirect to UCC
                         shipments.at[i,'ORIG'    ] = newOrigin
                         shipments.at[i,'FROM_UCC'] = 1
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             origX[i] = zoneX[invZoneDict[newOrigin]]
                             origY[i] = zoneY[invZoneDict[newOrigin]]                        
                         
@@ -1429,7 +1434,7 @@ def actually_run_module(args):
                         newShipments.at[count,'FROM_UCC'] = 0
                         newShipments.at[count,'TO_UCC'  ] = 1
                         newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             origX[nShips+count] = zoneX[invZoneDict[trueOrigin]]
                             origY[nShips+count] = zoneY[invZoneDict[trueOrigin]]
                             destX[nShips+count] = zoneX[invZoneDict[newOrigin]]
@@ -1440,7 +1445,7 @@ def actually_run_module(args):
                         # Redirect to UCC
                         shipments.at[i,'DEST'  ] = newDest
                         shipments.at[i,'TO_UCC'] = 1
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             destX[i] = zoneX[invZoneDict[newDest]]
                             destY[i] = zoneY[invZoneDict[newDest]]   
                         
@@ -1451,7 +1456,7 @@ def actually_run_module(args):
                         newShipments.at[count,'FROM_UCC'] = 1
                         newShipments.at[count,'TO_UCC'  ] = 0
                         newShipments.at[count,'VEHTYPE' ] = vehUccToVeh[draw_choice(sharesVehUCC[ls,:])]
-                        if shipmentsRef == "":
+                        if varDict['SHIPMENTS_REF'] == "":
                             origX[nShips+count] = zoneX[invZoneDict[newDest]]
                             origY[nShips+count] = zoneY[invZoneDict[newDest]]
                             destX[nShips+count] = zoneX[invZoneDict[trueDest]]
@@ -1466,8 +1471,8 @@ def actually_run_module(args):
             shipments['SHIP_ID'] = np.arange(nShips)
             shipments.index      = np.arange(nShips)                        
 
-        print('Exporting ' + str(label) + ' shipments to ' + datapathO + f"Shipments_{label}.csv")
-        log_file.write('Exporting ' + str(label) + ' shipments to ' + datapathO + f"Shipments_{label}.csv\n")
+        print('Exporting ' + str(varDict['LABEL']) + ' shipments to ' + varDict['OUTPUTFOLDER'] + f"Shipments_{varDict['LABEL']}.csv")
+        log_file.write('Exporting ' + str(varDict['LABEL']) + ' shipments to ' + varDict['OUTPUTFOLDER'] + f"Shipments_{varDict['LABEL']}.csv\n")
         if root != '':
             root.progressBar['value'] = 95             
             root.update_statusbar("Shipment Synthesizer: Exporting shipments to CSV")
@@ -1478,10 +1483,10 @@ def actually_run_module(args):
         for col in dtypes.keys():
             shipments[col] = shipments[col].astype(dtypes[col])
             
-        shipments.to_csv(datapathO + f"Shipments_{label}.csv", index=False)  
+        shipments.to_csv(varDict['OUTPUTFOLDER'] + f"Shipments_{varDict['LABEL']}.csv", index=False)  
               
         
-        if shipmentsRef == "":
+        if varDict['SHIPMENTS_REF'] == "":
             
             # ---------------------- Zonal productions and attractions ----------------
             print("Writing zonal productions/attractions...\n")
@@ -1517,8 +1522,8 @@ def actually_run_module(args):
             zonalAttractions = zonalAttractions[cols]
             
             # Export to csv
-            zonalProductions.to_csv(datapathO + f'zonal_productions_{label}.csv', index=False)
-            zonalAttractions.to_csv(datapathO + f'zonal_attractions_{label}.csv', index=False)            
+            zonalProductions.to_csv(varDict['OUTPUTFOLDER'] + f"zonal_productions_{varDict['LABEL']}.csv", index=False)
+            zonalAttractions.to_csv(varDict['OUTPUTFOLDER'] + f"zonal_attractions_{varDict['LABEL']}.csv", index=False)            
             
             
             
@@ -1538,7 +1543,7 @@ def actually_run_module(args):
             By = list(destY.values())
             
             # Initialize shapefile fields
-            w = shp.Writer(datapathO + f'Shipments_{label}.shp')
+            w = shp.Writer(varDict['OUTPUTFOLDER'] + f"Shipments_{varDict['LABEL']}.shp")
             w.field('SHIP_ID',      'N', size=6, decimal=0)
             w.field('ORIG',         'N', size=8, decimal=0)
             w.field('DEST',         'N', size=8, decimal=0)
@@ -1555,7 +1560,7 @@ def actually_run_module(args):
             w.field('TOD_PERIOD',   'N', size=2, decimal=0)
             w.field('TOD_LOWER',    'N', size=2, decimal=0)
             w.field('TOD_UPPER',    'N', size=2, decimal=0)
-            if label == 'UCC':
+            if varDict['LABEL'] == 'UCC':
                 w.field('FROM_UCC', 'N', size=2, decimal=0)
                 w.field('TO_UCC',   'N', size=2, decimal=0)
                   
@@ -1627,87 +1632,92 @@ def actually_run_module(args):
         
 if __name__ == '__main__':
     
-    INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
-    PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
-    
-    SKIMTIME            = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		        = INPUTFOLDER + 'links_v5.shp'
-    NODES               = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES               = INPUTFOLDER + 'Zones_v5.shp'
-    SEGS                = INPUTFOLDER + 'SEGS2016.csv'
-    COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
-    PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
-    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
-    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
-    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
-    MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
-    NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
-    CORRECTIONS_TONNES  = INPUTFOLDER + 'CorrectionsTonnes2016.csv'
-    
-    YEARFACTOR = 209
-    
-    NUTSLEVEL_INPUT = 3
-    
-    PARCELS_PER_HH	 = 0.112
-    PARCELS_PER_EMPL = 0.041
-    PARCELS_MAXLOAD	 = 180
-    PARCELS_DROPTIME = 120
-    PARCELS_SUCCESS_B2C   = 0.75
-    PARCELS_SUCCESS_B2B   = 0.95
-    PARCELS_GROWTHFREIGHT = 1.0
-    
-    SHIPMENTS_REF = ""
-    SELECTED_LINKS = ""
-    N_CPU = ""
-    
-    IMPEDANCE_SPEED = 'V_FR_OS'
-    
-    LABEL = 'REF'
-    
-    MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
-    
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
-            LINKS, NODES, ZONES, SEGS, \
-            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING,\
-            COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
-            PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
-            PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
-            YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED, N_CPU, \
-            SHIPMENTS_REF, SELECTED_LINKS,CORRECTIONS_TONNES,\
-            LABEL, \
-            MODULES]
-
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                  "LINKS", "NODES", "ZONES", "SEGS", \
-                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
-                  "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
-                  "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                  "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
-                  "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED", "N_CPU", \
-                  "SHIPMENTS_REF", "SELECTED_LINKS", "CORRECTIONS_TONNES", \
-                  "LABEL", \
-                  "MODULES"]
-     
     varDict = {}
-    for i in range(len(args)):
-        varDict[varStrings[i]] = args[i]
-        
+
+    varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
+    varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
+    varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
+    
+    varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
+    varDict['NODES'] = varDict['INPUTFOLDER'] + 'nodes_v5.shp'
+    varDict['ZONES'] = varDict['INPUTFOLDER'] + 'Zones_v5.shp'
+    varDict['SEGS']  = varDict['INPUTFOLDER'] + 'SEGS2016.csv'
+    varDict['COMMODITYMATRIX']    = varDict['INPUTFOLDER'] + 'CommodityMatrixNUTS3_2016.csv'
+    varDict['PARCELNODES']        = varDict['INPUTFOLDER'] + 'parcelNodes_v2.shp'
+    varDict['DISTRIBUTIECENTRA']  = varDict['INPUTFOLDER'] + 'distributieCentra.csv'
+    varDict['NSTR_TO_LS']         = varDict['INPUTFOLDER'] + 'nstrToLogisticSegment.csv'
+    varDict['MAKE_DISTRIBUTION']  = varDict['INPUTFOLDER'] + 'MakeDistribution.csv'
+    varDict['USE_DISTRIBUTION']   = varDict['INPUTFOLDER'] + 'UseDistribution.csv'
+    varDict['SUP_COORDINATES_ID'] = varDict['INPUTFOLDER'] + 'SupCoordinatesID.csv'
+    varDict['CORRECTIONS_TONNES'] = varDict['INPUTFOLDER'] + 'CorrectionsTonnes2016.csv'
+    varDict['DEPTIME_FREIGHT'] = varDict['INPUTFOLDER'] + 'departureTimePDF.csv'
+    varDict['DEPTIME_PARCELS'] = varDict['INPUTFOLDER'] + 'departureTimeParcelsCDF.csv'
+
+    varDict['COST_VEHTYPE']        = varDict['PARAMFOLDER'] + 'Cost_VehType_2016.csv'
+    varDict['COST_SOURCING']       = varDict['PARAMFOLDER'] + 'Cost_Sourcing_2016.csv'
+    varDict['MRDH_TO_NUTS3']       = varDict['PARAMFOLDER'] + 'MRDHtoNUTS32013.csv'
+    varDict['NUTS3_TO_MRDH']       = varDict['PARAMFOLDER'] + 'NUTS32013toMRDH.csv'
+    varDict['VEHICLE_CAPACITY']    = varDict['PARAMFOLDER'] + 'CarryingCapacity.csv'
+    varDict['LOGISTIC_FLOWTYPES']  = varDict['PARAMFOLDER'] + 'LogFlowtype_Shares.csv'
+    varDict['PARAMS_TOD']          = varDict['PARAMFOLDER'] + 'Params_TOD.csv'
+    varDict['PARAMS_SSVT']         = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
+    varDict['PARAMS_ET_FIRST']     = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
+    varDict['PARAMS_ET_LATER']     = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+
+    varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
+    varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
+    varDict['EMISSIONFACS_SNELWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_LEEG.csv'
+    varDict['EMISSIONFACS_SNELWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_VOL.csv'
+    varDict['EMISSIONFACS_STAD_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_LEEG.csv'
+    varDict['EMISSIONFACS_STAD_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_VOL.csv'
+
+    varDict['ZEZ_CONSOLIDATION'] = varDict['INPUTFOLDER'] + 'ConsolidationPotential.csv'
+    varDict['ZEZ_SCENARIO']      = varDict['INPUTFOLDER'] + 'ZEZscenario.csv'
+
+    varDict['YEARFACTOR'] = 209
+    
+    varDict['NUTSLEVEL_INPUT'] = 3
+    
+    varDict['PARCELS_PER_HH']	 = 0.112
+    varDict['PARCELS_PER_EMPL'] = 0.041
+    varDict['PARCELS_MAXLOAD']	 = 180
+    varDict['PARCELS_DROPTIME'] = 120
+    varDict['PARCELS_SUCCESS_B2C']   = 0.75
+    varDict['PARCELS_SUCCESS_B2B']   = 0.95
+    varDict['PARCELS_GROWTHFREIGHT'] = 1.0
+
+    varDict['MICROHUBS']    = varDict['INPUTFOLDER'] + 'Microhubs.csv'
+    varDict['VEHICLETYPES'] = varDict['INPUTFOLDER'] + 'Microhubs_vehicleTypes.csv'
+
+    varDict['SHIPMENTS_REF'] = ""
+    varDict['SELECTED_LINKS'] = ""
+    varDict['N_CPU'] = ""
+    
+    varDict['FAC_LS0'] = ""
+    varDict['FAC_LS1'] = ""
+    varDict['FAC_LS2'] = ""
+    varDict['FAC_LS3'] = ""
+    varDict['FAC_LS4'] = ""
+    varDict['FAC_LS5'] = ""
+    varDict['FAC_LS6'] = ""
+    varDict['FAC_LS7'] = ""
+    varDict['NEAREST_DC'] = ""
+
+    varDict['CROWDSHIPPING']    = False
+    varDict['CRW_PARCELSHARE']  = ""
+    varDict['CRW_MODEPARAMS']   = ""
+    varDict['CRW_PDEMAND_CAR']  = ""
+    varDict['CRW_PDEMAND_BIKE'] = ""
+    
+    varDict['SHIFT_FREIGHT_TO_COMB1'] = ""
+    
+    varDict['IMPEDANCE_SPEED'] = 'V_FR_OS'
+    
+    varDict['LABEL'] = 'REF'
+    
     # Run the module
     main(varDict)
 
 
-
-
-
-    
-
-
-
-
-
-
-    

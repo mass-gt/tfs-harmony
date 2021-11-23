@@ -153,13 +153,15 @@ def actually_run_module(args):
             
         # Read data
         print('\tImporting shipments...'), log_file.write('\tImporting shipments...\n')
-        shipments   = pd.read_csv(f"{datapathO}Shipments_{label}.csv", index_col=None)
+        shipments = pd.read_csv(f"{datapathO}Shipments_{label}.csv", index_col=None)
 
         if root != '':
             root.progressBar['value'] = 5.0
             
         print('\tImporting tours...'), log_file.write('\tImporting tours...\n')
-        trips       = pd.read_csv(f'{datapathO}Tours_{label}.csv')
+        trips = pd.read_csv(f'{datapathO}Tours_{label}.csv')
+        trips['TOUR_ID'] = [str(trips.at[i, 'CARRIER_ID']) + '_' + str(trips.at[i, 'TOUR_ID'])
+                            for i in trips.index]
 
         if root != '':
             root.progressBar['value'] = 10.0
@@ -889,6 +891,63 @@ def actually_run_module(args):
                 total = np.sum(currentLinks[emission])
                 totalParcel = np.sum(currentLinks[emission + '_LS8'])
                 outfile.write(gem + sep + emission + sep + str(total) + sep + str(totalParcel) + '\n')                   
+ 
+        if root != '':
+            root.progressBar['value'] = 99.0
+
+        outfile.write('\nCO2 Emissions from network (in Zuid-Holland) (freight/parcel/vans; by logistic segment)\n')
+        outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
+        for ls in range(nLS):
+            for emission in ['CO2']:
+                total = np.sum(linksLoadedZH[emission + '_LS' + str(ls)])
+                outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedZH[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
+                
+        outfile.write('\nCO2 Emissions from network (in Rotterdam) (freight/parcel/vans; by logistic segment)\n')
+        outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
+        for ls in range(nLS):
+            for emission in ['CO2']:
+                total = np.sum(linksLoadedRdam[emission + '_LS' + str(ls)])
+                outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedRdam[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
+                
+        outfile.write('\nCO2 Emissions from network (in The Hague) (freight/parcel/vans; by logistic segment)\n')
+        outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
+        for ls in range(nLS):
+            for emission in ['CO2']:
+                total = np.sum(linksLoadedDH[emission + '_LS' + str(ls)])
+                outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2','SO2','PM','NOX']:
+                total = np.sum(linksLoadedDH[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
+                
+        outfile.write('\nCO2 Emissions from network (in ZEZ) (freight/parcel/vans; by logistic segment)\n')
+        outfile.write('Logistic segment' + sep + 'Type' + sep + 'kg\n')        
+        for ls in range(nLS):
+            for emission in ['CO2']:
+                total = np.sum(linksLoadedZEZ[emission + '_LS' + str(ls)])
+                outfile.write(lsNames[ls] + sep + emission + sep + str(total) + '\n')   
+        for ls in ['VAN_S','VAN_C']:
+            for emission in ['CO2']:
+                total = np.sum(linksLoadedZEZ[emission + '_' + str(ls)])
+                outfile.write(ls + sep + emission + sep + str(total) + '\n')  
+                
+        outfile.write('\nCO2 Emissions from network (freight/parcel/vans; by municipality)\n')
+        outfile.write('Municipality' + sep + 'Type' + sep + 'kg (all)' + sep + 'kg (parcel)' + '\n')
+        for gem in np.unique(linksLoaded['Gemeentena']):
+            currentLinks = linksLoaded[linksLoaded['Gemeentena']==gem]
+            for emission in ['CO2']:
+                total = np.sum(currentLinks[emission])
+                totalParcel = np.sum(currentLinks[emission + '_LS8'])
+                outfile.write(gem + sep + emission + sep + str(total) + sep + str(totalParcel) + '\n')     
+                
                 
         print(f"Tables written to {datapathOI}Output_Outputindicator_{label}.csv"), log_file.write(f"Tables written to {datapathOI}Output_Outputindicator_{label}.csv\n")
         

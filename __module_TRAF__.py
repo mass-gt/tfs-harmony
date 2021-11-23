@@ -9,8 +9,7 @@ import pandas as pd
 import shapefile as shp
 import time
 import datetime
-from numba import njit
-from numba.typed import List
+from numba import njit, int32
 import scipy.sparse.csgraph
 from scipy.sparse import lil_matrix
 import multiprocessing as mp
@@ -125,33 +124,18 @@ def actually_run_module(args):
         
         if root != '':
             root.progressBar['value'] = 0
-                
-        # Define folders relative to current datapath
-        datapathI        = varDict['INPUTFOLDER']
-        datapathO        = varDict['OUTPUTFOLDER']
-        datapathP        = varDict['PARAMFOLDER']
-        linksPath        = varDict['LINKS']
-        nodesPath        = varDict['NODES']
-        zonesPath        = varDict['ZONES']
-        selectedLinks    = varDict['SELECTED_LINKS']
-        skimDistancePath = varDict['SKIMDISTANCE']
-        costSourcingPath = varDict['COST_SOURCING']
-        costVehTypePath  = varDict['COST_VEHTYPE'] 
-        label            = varDict['LABEL']    
-        nCPU             = varDict['N_CPU']
-        nMultiRoute      = varDict['N_MULTIROUTE']
-        impedanceSpeedFreight = varDict['IMPEDANCE_SPEED_FREIGHT']
-        impedanceSpeedVan     = varDict['IMPEDANCE_SPEED_VAN']
         
+        doShiftVanToElectric = (varDict['SHIFT_VAN_TO_COMB1'] != '')
+
         exportShp  = True
         addZezToLinks = False
         
-        if nMultiRoute == '':
-            nMultiRoute = 1
+        if varDict['N_MULTIROUTE'] == '':
+            varDict['N_MULTIROUTE'] = 1
         else:
-            nMultiRoute = int(nMultiRoute)
+            varDict['N_MULTIROUTE'] = int(varDict['N_MULTIROUTE'])
         
-        log_file = open(datapathO + "Logfile_TrafficAssignment.log", 'w')
+        log_file = open(varDict['OUTPUTFOLDER'] + "Logfile_TrafficAssignment.log", 'w')
         log_file.write("Start simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
             
         # To convert emissions to kilograms
@@ -171,12 +155,12 @@ def actually_run_module(args):
         timeOfDays = np.arange(nHours)
         
         # Carrying capacity in kg
-        carryingCapacity = np.array(pd.read_csv(datapathP + 'CarryingCapacity.csv', index_col='Vehicle Type'))
+        carryingCapacity = np.array(pd.read_csv(varDict['VEHICLE_CAPACITY'], index_col='Vehicle Type'))
 
         # For which LINKNR-values to perform selected link analyses
-        doSelectedLink = (selectedLinks != "") and (selectedLinks != "''") and (selectedLinks != '""')
+        doSelectedLink = (varDict['SELECTED_LINKS'] not in ["", "''", '""'])
         if doSelectedLink:
-            selectedLinks = selectedLinks.split(',')
+            selectedLinks = varDict['SELECTED_LINKS'].split(',')
             nSelectedLinks = len(selectedLinks)
             try:
                 selectedLinks = [int(x) for x in selectedLinks]
@@ -186,9 +170,9 @@ def actually_run_module(args):
         
         # Number of CPUs over which the route search procedure is parallelized
         maxCPU = 16
-        if nCPU not in ['', '""', "''"]:
+        if varDict['N_CPU'] not in ['', '""', "''"]:
             try:
-                nCPU = int(nCPU)
+                nCPU = int(varDict['N_CPU'])
                 if nCPU > mp.cpu_count():
                     nCPU = max(1,min(mp.cpu_count()-1,maxCPU))
                     print(         'N_CPU parameter too high. Only ' + str(mp.cpu_count()) + ' CPUs available. Hence defaulting to ' + str(nCPU) + 'CPUs.')
@@ -210,27 +194,27 @@ def actually_run_module(args):
         print("Importing and preprocessing network..."), log_file.write("Importing and preprocessing network...\n")
         
         # Import links
-        MRDHlinks, MRDHlinksGeometry = read_shape(linksPath, returnGeometry=True)
+        MRDHlinks, MRDHlinksGeometry = read_shape(varDict['LINKS'], returnGeometry=True)
         nLinks = len(MRDHlinks)
         
         if root != '':
             root.progressBar['value'] = 2.0
             
         # Import nodes and zones
-        MRDHnodes            = read_shape(nodesPath)
-        zones, zonesGeometry = read_shape(zonesPath, returnGeometry=True)
+        MRDHnodes            = read_shape(varDict['NODES'])
+        zones, zonesGeometry = read_shape(varDict['ZONES'], returnGeometry=True)
         nNodes = len(MRDHnodes)
 
         if root != '':
             root.progressBar['value'] = 2.5
             
         # Cost parameters freight
-        costParamsSourcing = pd.read_csv(costSourcingPath)
+        costParamsSourcing = pd.read_csv(varDict['COST_SOURCING'])
         costPerKmFreight    = costParamsSourcing['CostPerKm'][0]
         costPerHourFreight  = costParamsSourcing['CostPerHour'][0]  
 
         # Cost parameters vans
-        costParamsVehType = pd.read_csv(costVehTypePath, index_col=0)        
+        costParamsVehType = pd.read_csv(varDict['COST_VEHTYPE'], index_col=0)        
         costPerKmVan   = costParamsVehType.at['Van', 'CostPerKm']
         costPerHourVan = costParamsVehType.at['Van', 'CostPerH']
         
@@ -241,6 +225,8 @@ def actually_run_module(args):
         nSupZones   = 43
         nZones      = nIntZones + nSupZones
         
+        ZEZzones = set(np.where(zones['ZEZ']>=1)[0])
+                    
         # If you want to do the spatial coupling of ZEZ zones to the links here instead of in QGIS
         if addZezToLinks:
             print('Performing spatial coupling of ZEZ-zones to links...'), log_file.write('Performing spatial coupling of ZEZ-zones to links...\n')
@@ -300,8 +286,8 @@ def actually_run_module(args):
             zoneToCentroid[nIntZones+i] = np.where((MRDHnodes['AREANR']==99999900+i+1) & (MRDHnodes['TYPENO']==99))[0][0]
             
         # Dictionary with zone number (used in this script) to corresponding zone number (used in input/output)
-        zoneDict    = dict(np.transpose(np.vstack((np.arange(nIntZones), zones['AREANR']))))
-        zoneDict    = {int(a):int(b) for a,b in zoneDict.items()}
+        zoneDict = dict(np.transpose(np.vstack((np.arange(nIntZones), zones['AREANR']))))
+        zoneDict = {int(a):int(b) for a,b in zoneDict.items()}
         for i in range(nSupZones):
             zoneDict[nIntZones+i] = 99999900 + i + 1
         invZoneDict = dict((v, k) for k, v in zoneDict.items())   
@@ -325,41 +311,43 @@ def actually_run_module(args):
             
         # Recode the node IDs
         MRDHnodes['NODENR'] = np.arange(nNodes)
-        MRDHlinks['A']      = [invNodeDict[x] for x in MRDHlinks['A']]
-        MRDHlinks['B']      = [invNodeDict[x] for x in MRDHlinks['B']]
+        MRDHlinks['A'] = [invNodeDict[x] for x in MRDHlinks['A']]
+        MRDHlinks['B'] = [invNodeDict[x] for x in MRDHlinks['B']]
         
         # Recode the link IDs from 0 to len(MRDHlinks)
         MRDHlinks.index = np.arange(len(MRDHlinks))
         MRDHlinks.index = MRDHlinks.index.map(int)
         
         # Dictionary with fromNodeID, toNodeID (keys) and link IDs (values)        
-        linkDict = {}
+        maxNumConnections = 8
+        linkDict = -1 * np.ones((max(MRDHlinks['A']) + 1, 2 * maxNumConnections), dtype=int)
         for i in MRDHlinks.index:
             aNode = MRDHlinks['A'][i]
             bNode = MRDHlinks['B'][i]
-            try:
-                linkDict[aNode][bNode] = i
-            except:
-                linkDict[aNode] = {}
-                linkDict[aNode][bNode] = i
+            
+            for col in range(maxNumConnections):
+                if linkDict[aNode][col] == -1:
+                    linkDict[aNode][col] = bNode
+                    linkDict[aNode][col + maxNumConnections] = i
+                    break
         
         # Assume a speed of 50 km/h if there are links with freight speed <= 0
-        nSpeedZero = np.sum(MRDHlinks[impedanceSpeedFreight]<=0)
+        nSpeedZero = np.sum(MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']]<=0)
         if nSpeedZero > 0:
-            MRDHlinks.loc[MRDHlinks[impedanceSpeedFreight]<=0, impedanceSpeedFreight] = 50 
-            print(         '\tWarning: ' + str(nSpeedZero) + ' links found with freight speed (' + impedanceSpeedFreight + ') <= 0 km/h. Adjusting those to 50 km/h.')
-            log_file.write('\tWarning: ' + str(nSpeedZero) + ' links found with freight speed (' + impedanceSpeedFreight + ') <= 0 km/h. Adjusting those to 50 km/h.' + '\n')
+            MRDHlinks.loc[MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']]<=0, varDict['IMPEDANCE_SPEED_FREIGHT']] = 50 
+            print(         '\tWarning: ' + str(nSpeedZero) + ' links found with freight speed (' + varDict['IMPEDANCE_SPEED_FREIGHT'] + ') <= 0 km/h. Adjusting those to 50 km/h.')
+            log_file.write('\tWarning: ' + str(nSpeedZero) + ' links found with freight speed (' + varDict['IMPEDANCE_SPEED_FREIGHT'] + ') <= 0 km/h. Adjusting those to 50 km/h.' + '\n')
 
         # Assume a speed of 50 km/h if there are links with van speed <= 0
-        nSpeedZero = np.sum(MRDHlinks[impedanceSpeedVan]<=0)
+        nSpeedZero = np.sum(MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']]<=0)
         if nSpeedZero > 0:
-            MRDHlinks.loc[MRDHlinks[impedanceSpeedVan]<=0, impedanceSpeedVan] = 50 
-            print(         '\tWarning: ' + str(nSpeedZero) + ' links found with van speed (' + impedanceSpeedVan + ') <= 0 km/h. Adjusting those to 50 km/h.')
-            log_file.write('\tWarning: ' + str(nSpeedZero) + ' links found with van speed (' + impedanceSpeedVan + ') <= 0 km/h. Adjusting those to 50 km/h.' + '\n')
+            MRDHlinks.loc[MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']]<=0, varDict['IMPEDANCE_SPEED_VAN']] = 50 
+            print(         '\tWarning: ' + str(nSpeedZero) + ' links found with van speed (' + varDict['IMPEDANCE_SPEED_VAN'] + ') <= 0 km/h. Adjusting those to 50 km/h.')
+            log_file.write('\tWarning: ' + str(nSpeedZero) + ' links found with van speed (' + varDict['IMPEDANCE_SPEED_VAN'] + ') <= 0 km/h. Adjusting those to 50 km/h.' + '\n')
             
         # Travel times and travel costs
-        MRDHlinks['T0_FREIGHT'  ] = MRDHlinks['LENGTH'] / MRDHlinks[impedanceSpeedFreight]
-        MRDHlinks['T0_VAN'      ] = MRDHlinks['LENGTH'] / MRDHlinks[impedanceSpeedVan]
+        MRDHlinks['T0_FREIGHT'  ] = MRDHlinks['LENGTH'] / MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']]
+        MRDHlinks['T0_VAN'      ] = MRDHlinks['LENGTH'] / MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']]
         MRDHlinks['COST_FREIGHT'] = costPerKmFreight * MRDHlinks['LENGTH'] + costPerHourFreight * MRDHlinks['T0_FREIGHT']
         MRDHlinks['COST_VAN'    ] = costPerKmVan     * MRDHlinks['LENGTH'] + costPerHourVan     * MRDHlinks['T0_VAN']
         
@@ -372,7 +360,7 @@ def actually_run_module(args):
         MRDHlinks.loc[MRDHlinks['WEGTYPE']=='Vrachtstrook','COST_FREIGHT'] = 10000
         
         # Set travel times on links in ZEZ Rotterdam high so these are only used to go to UCC and not for through traffic
-        if label == 'UCC':
+        if varDict['LABEL'] == 'UCC':
             MRDHlinks.loc[MRDHlinks['ZEZ']==1, 'COST_FREIGHT'] += 10000
             
         # Initialize empty fields with emissions and traffic intensity per link (also save list with all field names)
@@ -405,8 +393,8 @@ def actually_run_module(args):
         MRDHlinksIntensities = pd.DataFrame(np.zeros((len(MRDHlinks),len(intensityFields))), columns=intensityFields)                                
         
         # Van trips for service and construction purposes
-        vanTripsService      = read_mtx(datapathO + 'TripsVanService.mtx')
-        vanTripsConstruction = read_mtx(datapathO + 'TripsVanConstruction.mtx')
+        vanTripsService      = read_mtx(varDict['OUTPUTFOLDER'] + 'TripsVanService.mtx')
+        vanTripsConstruction = read_mtx(varDict['OUTPUTFOLDER'] + 'TripsVanConstruction.mtx')
         
         # ODs with very low number of trips: set to 0 to reduce memory burden of searches routes for all these ODs
         vanTripsService[np.where(vanTripsService<0.1)[0]] = 0
@@ -425,12 +413,12 @@ def actually_run_module(args):
             
         # ----------------- Information for the emission calculations ------------------------------------
         # Lees emissiefactoren in (kolom 0=CO2, 1=SO2, 2=PM, 3=NOX)
-        emissionsBuitenwegLeeg  = np.array(pd.read_csv(datapathI + "EmissieFactoren_BUITENWEG_LEEG.csv", index_col='Voertuigtype'))
-        emissionsBuitenwegVol   = np.array(pd.read_csv(datapathI + "EmissieFactoren_BUITENWEG_VOL.csv", index_col='Voertuigtype'))
-        emissionsSnelwegLeeg    = np.array(pd.read_csv(datapathI + "EmissieFactoren_SNELWEG_LEEG.csv", index_col='Voertuigtype'))
-        emissionsSnelwegVol     = np.array(pd.read_csv(datapathI + "EmissieFactoren_SNELWEG_VOL.csv", index_col='Voertuigtype'))
-        emissionsStadLeeg       = np.array(pd.read_csv(datapathI + "EmissieFactoren_STAD_LEEG.csv", index_col='Voertuigtype'))
-        emissionsStadVol        = np.array(pd.read_csv(datapathI + "EmissieFactoren_STAD_VOL.csv", index_col='Voertuigtype'))
+        emissionsBuitenwegLeeg  = np.array(pd.read_csv(varDict['EMISSIONFACS_BUITENWEG_LEEG'], index_col='Voertuigtype'))
+        emissionsBuitenwegVol   = np.array(pd.read_csv(varDict['EMISSIONFACS_BUITENWEG_VOL' ], index_col='Voertuigtype'))
+        emissionsSnelwegLeeg    = np.array(pd.read_csv(varDict['EMISSIONFACS_SNELWEG_LEEG'], index_col='Voertuigtype'))
+        emissionsSnelwegVol     = np.array(pd.read_csv(varDict['EMISSIONFACS_SNELWEG_VOL' ], index_col='Voertuigtype'))
+        emissionsStadLeeg       = np.array(pd.read_csv(varDict['EMISSIONFACS_STAD_LEEG'], index_col='Voertuigtype'))
+        emissionsStadVol        = np.array(pd.read_csv(varDict['EMISSIONFACS_STAD_VOL' ], index_col='Voertuigtype'))
         
         # Average of small and large tractor+trailer
         emissionsBuitenwegLeeg[7,:] = (emissionsBuitenwegLeeg[7,:]  + emissionsBuitenwegLeeg[8,:]) / 2
@@ -452,7 +440,7 @@ def actually_run_module(args):
         vtDict = {0:2, 1:3, 2:5, 3:4, 4:6, 5:7, 6:9, 7:0, 8:0, 9:0}                
             
         # Import trips csv
-        allTrips = pd.read_csv(datapathO + "Tours_" + label + ".csv")
+        allTrips = pd.read_csv(varDict['OUTPUTFOLDER'] + "Tours_" + varDict['LABEL'] + ".csv")
         allTrips['ORIG'] = [invZoneDict[x] for x in allTrips['ORIG']]
         allTrips['DEST'] = [invZoneDict[x] for x in allTrips['DEST']]
         allTrips.loc[allTrips['TRIP_DEPTIME']>=24,'TRIP_DEPTIME'] -= 24
@@ -462,7 +450,7 @@ def actually_run_module(args):
         allTrips['INDEX' ] = allTrips.index
         
         # Import parcel schedule csv         
-        allParcelTrips = pd.read_csv(datapathO + "ParcelSchedule_" + label + ".csv")
+        allParcelTrips = pd.read_csv(varDict['OUTPUTFOLDER'] + "ParcelSchedule_" + varDict['LABEL'] + ".csv")
         allParcelTrips = allParcelTrips.rename(columns={'O_zone':'ORIG', 'D_zone':'DEST', 'TripDepTime':'TRIP_DEPTIME'})
         allParcelTrips['ORIG'] = [invZoneDict[x] for x in allParcelTrips['ORIG']]
         allParcelTrips['DEST'] = [invZoneDict[x] for x in allParcelTrips['DEST']]
@@ -470,21 +458,59 @@ def actually_run_module(args):
         allParcelTrips.loc[allParcelTrips['TRIP_DEPTIME']>=24,'TRIP_DEPTIME'] -= 24
         allParcelTrips['CAP_UT'  ] = 0.5
         allParcelTrips['VEHTYPE' ] = [{'Van':7, 'LEVV':8}[vt] for vt in allParcelTrips['VehType']]
-        allParcelTrips['COMBTYPE'] = 0 # Fuel as basic combustion type
         allParcelTrips.loc[allParcelTrips['OrigType']=='UCC', 'COMBTYPE'] = 1 # Trips coming from UCC to ZEZ use electric
         allParcelTrips['LOG_SEG' ] = 6
         allParcelTrips['INDEX'   ] = allParcelTrips.index
         
-        # Determine linktypes (urban/rural/highway)
-        stadLinkTypes       = ['ETW_bibeko_30',         'GOW_bibeko_50',                'GOW_bibeko_70',        \
-                               'WOW_bibeko_50',         'Verblijfsgebied_15']
-        buitenwegLinkTypes  = ['ETW_bubeko_breed_60',   'ETW_bubeko_smal_60',           'GOW_bubeko_gemengd_80',\
-                               'GOW_bubeko_gesloten_80','Industrieontsluitingsweg_50',  'Industriestraat_30']
-        snelwegLinkTypes    = ['Autosnelweg',           'Autoweg',                      'Vrachtverbod']
+        # For each tourID, at which indices are its trips found
+        whereParcelTour = {}
+        for i in allParcelTrips.index:
+            tourID = allParcelTrips.at[i, 'Tour_ID']
+            try:
+                whereParcelTour[tourID].append(i)
+            except:
+                whereParcelTour[tourID] = [i]
+
+        # Fuel as basic combustion type for parcel tours
+        allParcelTrips['COMBTYPE'] = 0 
+
+        # In UCC scenario
+        # Switch to electric for deliveries from UCC to ZEZ
+        # Switch to hybrid for deliveries from depot to ZEZ
+        origType   = np.array(allParcelTrips['OrigType'])
+        destParcel = np.array(allParcelTrips['DEST'])
+        if varDict['LABEL'] == 'UCC':
+            for i in allParcelTrips.index:
+                if origType[i] == 'UCC':
+                    allParcelTrips.at[i, 'COMBTYPE'] = 1
+                elif destParcel[i] in ZEZzones:
+                    allParcelTrips.at[i, 'COMBTYPE'] = 3
+
+        # Possibility to switch to electric
+        if doShiftVanToElectric:
+            for indices in list(whereParcelTour.values()):
+                if varDict['SHIFT_VAN_TO_COMB1'] <= np.random.rand():
+                    allParcelTrips.loc[indices, 'COMBTYPE'] = 1
         
-        whereStad       = [MRDHlinks['WEGTYPE'][i] in stadLinkTypes      for i in MRDHlinks.index]
-        whereBuitenweg  = [MRDHlinks['WEGTYPE'][i] in buitenwegLinkTypes for i in MRDHlinks.index]
-        whereSnelweg    = [MRDHlinks['WEGTYPE'][i] in snelwegLinkTypes   for i in MRDHlinks.index]      
+        # Determine linktypes (urban/rural/highway)
+        stadLinkTypes       = ['ETW_bibeko_30',
+                               'GOW_bibeko_50',
+                               'GOW_bibeko_70',
+                               'WOW_bibeko_50',
+                               'Verblijfsgebied_15']
+        buitenwegLinkTypes  = ['ETW_bubeko_breed_60',
+                               'ETW_bubeko_smal_60',
+                               'GOW_bubeko_gemengd_80',
+                               'GOW_bubeko_gesloten_80',
+                               'Industrieontsluitingsweg_50',
+                               'Industriestraat_30']
+        snelwegLinkTypes    = ['Autosnelweg',
+                               'Autoweg',
+                               'Vrachtverbod']
+        
+        whereStad      = [MRDHlinks['WEGTYPE'][i] in stadLinkTypes      for i in MRDHlinks.index]
+        whereBuitenweg = [MRDHlinks['WEGTYPE'][i] in buitenwegLinkTypes for i in MRDHlinks.index]
+        whereSnelweg   = [MRDHlinks['WEGTYPE'][i] in snelwegLinkTypes   for i in MRDHlinks.index]      
        
         roadtypeArray = np.zeros((len(MRDHlinks)))
         roadtypeArray[whereStad     ] = 1
@@ -501,7 +527,7 @@ def actually_run_module(args):
         # Trip matrices per time-of-day
         tripMatricesTOD = []
         for tod in range(nHours):
-            tripMatricesTOD.append(pd.read_csv(datapathO + "tripmatrix_" + label + "_TOD" + str(tod) + ".txt", sep='\t'))
+            tripMatricesTOD.append(pd.read_csv(varDict['OUTPUTFOLDER'] + "tripmatrix_" + varDict['LABEL'] + "_TOD" + str(tod) + ".txt", sep='\t'))
             tripMatricesTOD[tod]['ORIG'] = [invZoneDict[x] for x in tripMatricesTOD[tod]['ORIG'].values]
             tripMatricesTOD[tod]['DEST'] = [invZoneDict[x] for x in tripMatricesTOD[tod]['DEST'].values]
             tripMatricesTOD[tod]['N_LS8'  ] = 0
@@ -513,7 +539,7 @@ def actually_run_module(args):
         # Parcels trip matrices per time-of-day
         tripMatricesParcelsTOD = []
         for tod in range(nHours):
-            tripMatricesParcelsTOD.append(pd.read_csv(datapathO + "tripmatrix_parcels_" + str(label) + "_TOD" + str(tod) + ".txt", sep='\t'))
+            tripMatricesParcelsTOD.append(pd.read_csv(varDict['OUTPUTFOLDER'] + "tripmatrix_parcels_" + str(varDict['LABEL']) + "_TOD" + str(tod) + ".txt", sep='\t'))
             tripMatricesParcelsTOD[tod]['ORIG'] = [invZoneDict[x] for x in tripMatricesParcelsTOD[tod]['ORIG'].values]
             tripMatricesParcelsTOD[tod]['DEST'] = [invZoneDict[x] for x in tripMatricesParcelsTOD[tod]['DEST'].values]
             tripMatricesParcelsTOD[tod] = np.array(tripMatricesParcelsTOD[tod])
@@ -551,20 +577,26 @@ def actually_run_module(args):
             indicesPerCPU       = [[indices[cpu::nCPU], cpu] for cpu in range(nCPU)]
             origSelectionPerCPU = [np.arange(nOrigSelection)[cpu::nCPU] for cpu in range(nCPU)]
                         
-            for r in range(nMultiRoute):
+            for r in range(varDict['N_MULTIROUTE']):
                 print(         f"\tRoute search (freight - multirouting part {r+1})...")
                 log_file.write(f"\tRoute search (freight - multirouting part {r+1})...\n")
                 
                 # The network with costs between nodes (freight)
                 csgraphFreight = lil_matrix((nNodes, nNodes))
-                csgraphFreight[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])]  = np.array(MRDHlinks['COST_FREIGHT'])
-                csgraphFreight[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+                csgraphFreight[np.array(MRDHlinks['A']), 
+                               np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_FREIGHT'])
+                if varDict['N_MULTIROUTE'] > 1:
+                    csgraphFreight[np.array(MRDHlinks['A']), 
+                                   np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
                 
                 # Initialize a pool object that spreads tasks over different CPUs
                 p = mp.Pool(nCPU)
                 
                 # Execute the Dijkstra route search
-                prevFreightPerCPU = p.map(functools.partial(get_prev, csgraphFreight, nNodes), indicesPerCPU)
+                prevFreightPerCPU = p.map(functools.partial(get_prev, 
+                                                            csgraphFreight, 
+                                                            nNodes), 
+                                          indicesPerCPU)
                 
                 # Wait for completion of processes
                 p.close()
@@ -580,23 +612,26 @@ def actually_run_module(args):
                 del prevFreightPerCPU
                 
                 if root != '':
-                    root.progressBar['value'] = 5.0 + (33.0 - 5.0) * (1 + r) / nMultiRoute
+                    root.progressBar['value'] = 5.0 + (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE']
             
         else:
-            for r in range(nMultiRoute):
+            for r in range(varDict['N_MULTIROUTE']):
                 print(         f"\tRoute search (freight - multirouting part {r+1})...")
                 log_file.write(f"\tRoute search (freight - multirouting part {r+1})...\n")
 
                 # The network with costs between nodes (freight)
                 csgraphFreight = lil_matrix((nNodes, nNodes))
-                csgraphFreight[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])]  = np.array(MRDHlinks['COST_FREIGHT'])
-                csgraphFreight[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+                csgraphFreight[np.array(MRDHlinks['A']), 
+                               np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_FREIGHT'])
+                if varDict['N_MULTIROUTE'] > 1:
+                    csgraphFreight[np.array(MRDHlinks['A']), 
+                                   np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
                 
                 # Execute the Dijkstra route search
                 prevFreight.append(get_prev(csgraphFreight, nNodes, [indices, 0]))
 
                 if root != '':
-                    root.progressBar['value'] = 5.0 + (33.0 - 5.0) * (1 + r) / nMultiRoute
+                    root.progressBar['value'] = 5.0 + (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE']
         
         # Make some space available on the RAM
         del csgraphFreight
@@ -617,9 +652,17 @@ def actually_run_module(args):
             tripMatrixOrigins = set(tripMatrix[:,0])
             
             # Selecteer de trips die vertrokken in de huidige time-of-day en bereken de capacity utilization
-            trips = allTrips.loc[(allTrips['TRIP_DEPTIME'] >= tod) & (allTrips['TRIP_DEPTIME'] < tod+1),:]     
-            trips = np.array(trips[['CARRIER_ID','ORIG','DEST','VEHTYPE','CAP_UT','LOG_SEG','COMBTYPE', 'INDEX']])
+            trips = allTrips.loc[(allTrips['TRIP_DEPTIME'] >= tod    ) & 
+                                 (allTrips['TRIP_DEPTIME'] <  tod + 1),:]     
+            trips = np.array(trips[['CARRIER_ID',
+                                    'ORIG', 'DEST',
+                                    'VEHTYPE',
+                                    'CAP_UT',
+                                    'LOG_SEG',
+                                    'COMBTYPE',
+                                    'INDEX']])
 
+            # At which indices are trips per orig-dest-ls found
             whereODL = {}
             for i in range(len(tripMatrix)):
                 orig = tripMatrix[i,0]
@@ -632,6 +675,7 @@ def actually_run_module(args):
                 ls   = trips[i,5]
                 whereODL[(orig,dest,ls)].append(i)
                 
+            # Assign to routes and calculate emissions
             for i in range(nOrigSelection):
                 origZone  = origSelection[i]                
                     
@@ -640,8 +684,11 @@ def actually_run_module(args):
                     destZones = tripMatrix[destZoneIndex,1]
                     
                     routes = []
-                    for r in range(nMultiRoute):
-                        routes.append([get_route(i, j, prevFreight[r], zoneToCentroid, linkDict) for j in destZones])
+                    for r in range(varDict['N_MULTIROUTE']):
+                        routes.append([get_route(i, zoneToCentroid[j], 
+                                                 prevFreight[r],
+                                                 linkDict) 
+                                       for j in destZones])
                     
                     # Schrijf de volumes op de links
                     for j in range(len(destZones)):
@@ -655,7 +702,7 @@ def actually_run_module(args):
                         ZEZSstad      = []
                         ZEZSbuitenweg = []
                         ZEZSsnelweg   = []                        
-                        for r in range(nMultiRoute):
+                        for r in range(varDict['N_MULTIROUTE']):
                             routesStad.append(     routes[r][j][roadtypeArray[routes[r][j]]==1])
                             routesBuitenweg.append(routes[r][j][roadtypeArray[routes[r][j]]==2])
                             routesSnelweg.append(  routes[r][j][roadtypeArray[routes[r][j]]==3])
@@ -675,7 +722,7 @@ def actually_run_module(args):
                                 capUt   =     currentTrips[trip,4]
                                 
                                 # Select which of the calculated routes to use for current trip
-                                whichMultiRoute = np.random.randint(nMultiRoute)
+                                whichMultiRoute = np.random.randint(varDict['N_MULTIROUTE'])
                                 route = routes[whichMultiRoute][j]
                                 routeStad      = routesStad[whichMultiRoute]
                                 routeBuitenweg = routesBuitenweg[whichMultiRoute]
@@ -744,6 +791,9 @@ def actually_run_module(args):
                                     linkEmissionsArray[ls][tod][routeSnelweg, etInvDict['NOX']]   += snelwegNOX
 
                                     tripsCO2[currentTrips[trip,-1]] = (np.sum(stadCO2) + np.sum(buitenwegCO2) + np.sum(snelwegCO2))
+                                    
+                                else:
+                                    tripsCO2[currentTrips[trip,-1]] = 0.0
 
             if root != '':
                 root.progressBar['value'] = 33.0 + (43.0 - 33.0) * (tod + 1) / nHours
@@ -754,24 +804,31 @@ def actually_run_module(args):
         # ----------------------- Route search (vans) ----------------------------------------   
         
         # List of matrices with for each node the previous node on the shortest path
-        prevVan     = []
+        prevVan = []
         
         # Route search vans
         if nCPU > 1:                        
-            for r in range(nMultiRoute):
+            for r in range(varDict['N_MULTIROUTE']):
                 print(         f"\tRoute search (vans - multirouting part {r+1})...")
                 log_file.write(f"\tRoute search (vans - multirouting part {r+1})...\n")
 
                 # The network with costs between nodes (vans)
                 csgraphVan = lil_matrix((nNodes, nNodes))
-                csgraphVan[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])]  = np.array(MRDHlinks['COST_VAN'])
-                csgraphVan[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+                csgraphVan[np.array(MRDHlinks['A']), 
+                           np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_VAN'])
+                
+                if varDict['N_MULTIROUTE'] > 1:
+                    csgraphVan[np.array(MRDHlinks['A']),
+                               np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
                 
                 # Initialize a pool object that spreads tasks over different CPUs
                 p = mp.Pool(nCPU)
                 
                 # Execute the Dijkstra route search
-                prevVanPerCPU = p.map(functools.partial(get_prev, csgraphVan, nNodes), indicesPerCPU)
+                prevVanPerCPU = p.map(functools.partial(get_prev, 
+                                                        csgraphVan, 
+                                                        nNodes), 
+                                      indicesPerCPU)
                 
                 # Wait for completion of processes
                 p.close()
@@ -787,22 +844,25 @@ def actually_run_module(args):
                 del prevVanPerCPU
                 
                 if root != '':
-                    root.progressBar['value'] = 33.0 + (60.0 - 33.0) * (1 + r) / nMultiRoute
+                    root.progressBar['value'] = 33.0 + (60.0 - 33.0) * (1 + r) / varDict['N_MULTIROUTE']
         else:
-            for r in range(nMultiRoute):
+            for r in range(varDict['N_MULTIROUTE']):
                 print(         f"\tRoute search (vans - multirouting part {r+1})...")
                 log_file.write(f"\tRoute search (vans - multirouting part {r+1})...\n")
 
                 # The network with costs between nodes (vans)
                 csgraphVan = lil_matrix((nNodes, nNodes))
-                csgraphVan[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])]  = np.array(MRDHlinks['COST_VAN'])
-                csgraphVan[np.array(MRDHlinks['A']), np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+                csgraphVan[np.array(MRDHlinks['A']), 
+                           np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_VAN'])
+                if varDict['N_MULTIROUTE'] > 1:
+                    csgraphVan[np.array(MRDHlinks['A']), 
+                               np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
                 
                 # Execute the Dijkstra route search
                 prevVan.append(get_prev(csgraphVan, nNodes, [indices, 0]))
              
                 if root != '':
-                    root.progressBar['value'] = 43.0 + (70.0 - 43.0) * (1 + r) / nMultiRoute
+                    root.progressBar['value'] = 43.0 + (70.0 - 43.0) * (1 + r) / varDict['N_MULTIROUTE']
                     
         # Make some space available on the RAM
         del csgraphVan
@@ -829,7 +889,13 @@ def actually_run_module(args):
                                            (allParcelTrips['TRIP_DEPTIME'] < tod+1) & \
                                            (allParcelTrips['VEHTYPE'     ] ==vt   ), :]
                 if len(trips) > 0:
-                    trips = np.array(trips[['Depot_ID','ORIG','DEST','VEHTYPE','CAP_UT','LOG_SEG','COMBTYPE','INDEX']])
+                    trips = np.array(trips[['Depot_ID',
+                                            'ORIG', 'DEST',
+                                            'VEHTYPE',
+                                            'CAP_UT',
+                                            'LOG_SEG',
+                                            'COMBTYPE',
+                                            'INDEX']])
                         
                     for i in range(nOrigSelection):
                         origZone = origSelection[i]
@@ -839,15 +905,18 @@ def actually_run_module(args):
                             
                             # Schrijf de volumes op de links
                             for j in destZoneIndex:
-                                destZone    = tripMatrixParcels[j,1]
-                                nTrips      = tripMatrixParcels[j,2]
-                                route       = get_route(i, destZone, prevVan[0], zoneToCentroid, linkDict)
+                                destZone = tripMatrixParcels[j,1]
+                                nTrips   = tripMatrixParcels[j,2]
+                                route = get_route(i, zoneToCentroid[destZone],
+                                                  prevVan[0],
+                                                  linkDict)
                                 linkTripsArray[tod][route, ls]       += nTrips # Number of trips for LS8 (=parcel deliveries)
                                 linkTripsArray[tod][route, nLS+2+vt] += nTrips # Number of trips for vehicle type
                                 linkTripsArray[tod][route,-1]        += nTrips # Total number of trips
 
                                 # Welke trips worden allemaal gemaakt op de HB van de huidige iteratie van de ij-loop
-                                currentTrips = trips[(trips[:,1]==origZone) & (trips[:,2]==destZone), :]
+                                currentTrips = trips[(trips[:,1]==origZone) & 
+                                                     (trips[:,2]==destZone), :]
                                 
                                 # De parcel demand trips per voertuigtype
                                 MRDHlinksIntensities.loc[route, 'N_LS8_VEH' + str(vt)] += len(currentTrips)
@@ -867,8 +936,8 @@ def actually_run_module(args):
                                 
                                 # Bereken en schrijf de emissies op de links                                                               
                                 for trip in range(len(currentTrips)):
-                                    ct      = int(currentTrips[trip,6])
-                                    capUt   =     currentTrips[trip,4]
+                                    ct    = int(currentTrips[trip,6])
+                                    capUt =     currentTrips[trip,4]
                                     
                                     # If combustion type is fuel, hybrid or bio-fuel                             
                                     if ct in [0,3,4]:
@@ -923,6 +992,10 @@ def actually_run_module(args):
                                         # CO2-emissions for the current trip
                                         parcelTripsCO2[currentTrips[trip,-1]] = (np.sum(stadCO2) + np.sum(buitenwegCO2) + np.sum(snelwegCO2))
         
+                                    else:
+                                        parcelTripsCO2[currentTrips[trip,-1]] = 0
+                                        
+            
             if root != '':
                 root.progressBar['value'] = 70.0 + (75.0 - 70.0) * (tod + 1) / nHours
                     
@@ -934,24 +1007,35 @@ def actually_run_module(args):
             origZone  = origSelection[i]            
             destZones = np.where((vanTripsService[origZone,:]>0) | (vanTripsConstruction[origZone,:]>0))[0]
             
-            routes = [[get_route(i, j, prevVan[r], zoneToCentroid, linkDict) for j in destZones] for r in range(nMultiRoute)]
+            routes = [[get_route(i, zoneToCentroid[j],
+                                 prevVan[r],
+                                 linkDict) for j in destZones] for r in range(varDict['N_MULTIROUTE'])]
             
             # Van: Service segment
             for j in range(len(destZones)):
                 destZone = destZones[j]
                 
+                if varDict['LABEL'] == 'UCC':
+                    tripIsZEZ = ((i in ZEZzones) or (j in ZEZzones))
+                
                 if vanTripsService[origZone,destZone] > 0:
-                    for r in range(nMultiRoute):
-                        nTrips = vanTripsService[origZone,destZone] / nMultiRoute
+                    for r in range(varDict['N_MULTIROUTE']):
+                        nTrips = vanTripsService[origZone,destZone] / varDict['N_MULTIROUTE']
                         route  = routes[r][j]
-                        
+                            
                         # Number of trips made on each link
                         linkVanTripsArray[route,0] += nTrips
                                         
                         routeStad       = route[roadtypeArray[route]==1]
                         routeBuitenweg  = route[roadtypeArray[route]==2]
                         routeSnelweg    = route[roadtypeArray[route]==3]
-                        
+
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                ZEZstad      = np.where(ZEZarray[routeStad]      == 1)[0]
+                                ZEZbuitenweg = np.where(ZEZarray[routeBuitenweg] == 1)[0]
+                                ZEZsnelweg   = np.where(ZEZarray[routeSnelweg]   == 1)[0]
+                                
                         vt    = 7   # Vehicle type: Van
                         capUt = 0.5 # Assume half of loading capacity used
         
@@ -959,6 +1043,11 @@ def actually_run_module(args):
                         stadCO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['CO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']]))
                         buitenwegCO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['CO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']]))
                         snelwegCO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['CO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadCO2[ZEZstad]           = 0
+                                buitenwegCO2[ZEZbuitenweg] = 0
+                                snelwegCO2[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[0][routeStad,      etInvDict['CO2']] += stadCO2
                         linkVanEmissionsArray[0][routeBuitenweg, etInvDict['CO2']] += buitenwegCO2
                         linkVanEmissionsArray[0][routeSnelweg,   etInvDict['CO2']] += snelwegCO2                            
@@ -967,6 +1056,11 @@ def actually_run_module(args):
                         stadSO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['SO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']]))
                         buitenwegSO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['SO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']]))
                         snelwegSO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['SO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadSO2[ZEZstad]           = 0
+                                buitenwegSO2[ZEZbuitenweg] = 0
+                                snelwegSO2[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[0][routeStad,      etInvDict['SO2']] += stadSO2
                         linkVanEmissionsArray[0][routeBuitenweg, etInvDict['SO2']] += buitenwegSO2
                         linkVanEmissionsArray[0][routeSnelweg,   etInvDict['SO2']] += snelwegSO2    
@@ -975,6 +1069,11 @@ def actually_run_module(args):
                         stadPM         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['PM']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['PM']] - emissionsStadLeeg[vtDict[vt],     etInvDict['PM']]))
                         buitenwegPM    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['PM']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']]))
                         snelwegPM      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['PM']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadPM[ZEZstad]           = 0
+                                buitenwegPM[ZEZbuitenweg] = 0
+                                snelwegPM[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[0][routeStad,      etInvDict['PM']] += stadPM
                         linkVanEmissionsArray[0][routeBuitenweg, etInvDict['PM']] += buitenwegPM
                         linkVanEmissionsArray[0][routeSnelweg,   etInvDict['PM']] += snelwegPM  
@@ -983,14 +1082,19 @@ def actually_run_module(args):
                         stadNOX         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['NOX']] - emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']]))
                         buitenwegNOX    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['NOX']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']]))
                         snelwegNOX      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['NOX']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadNOX[ZEZstad]           = 0
+                                buitenwegNOX[ZEZbuitenweg] = 0
+                                snelwegNOX[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[0][routeStad,      etInvDict['NOX']] += stadNOX
                         linkVanEmissionsArray[0][routeBuitenweg, etInvDict['NOX']] += buitenwegNOX
-                        linkVanEmissionsArray[0][routeSnelweg,   etInvDict['NOX']] += snelwegNOX  
-                    
+                        linkVanEmissionsArray[0][routeSnelweg,   etInvDict['NOX']] += snelwegNOX
+                                
                 # Van: Construction segment
                 if vanTripsConstruction[origZone,destZone] > 0:
-                    for r in range(nMultiRoute):
-                        nTrips = vanTripsConstruction[origZone,destZone] / nMultiRoute
+                    for r in range(varDict['N_MULTIROUTE']):
+                        nTrips = vanTripsConstruction[origZone,destZone] / varDict['N_MULTIROUTE']
                         route  = routes[r][j]
     
                         # Number of trips made on each link
@@ -999,7 +1103,13 @@ def actually_run_module(args):
                         routeStad       = route[roadtypeArray[route]==1]
                         routeBuitenweg  = route[roadtypeArray[route]==2]
                         routeSnelweg    = route[roadtypeArray[route]==3]
-                        
+
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                ZEZstad      = np.where(ZEZarray[routeStad]      == 1)[0]
+                                ZEZbuitenweg = np.where(ZEZarray[routeBuitenweg] == 1)[0]
+                                ZEZsnelweg   = np.where(ZEZarray[routeSnelweg]   == 1)[0]
+                                
                         vt    = 7   # Vehicle type: Van
                         capUt = 0.5 # Assume half of loading capacity used
         
@@ -1007,6 +1117,11 @@ def actually_run_module(args):
                         stadCO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['CO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['CO2']]))
                         buitenwegCO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['CO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['CO2']]))
                         snelwegCO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['CO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['CO2']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadCO2[ZEZstad]           = 0
+                                buitenwegCO2[ZEZbuitenweg] = 0
+                                snelwegCO2[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[1][routeStad,      etInvDict['CO2']] += stadCO2
                         linkVanEmissionsArray[1][routeBuitenweg, etInvDict['CO2']] += buitenwegCO2
                         linkVanEmissionsArray[1][routeSnelweg,   etInvDict['CO2']] += snelwegCO2                            
@@ -1015,6 +1130,11 @@ def actually_run_module(args):
                         stadSO2         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['SO2']] - emissionsStadLeeg[vtDict[vt],     etInvDict['SO2']]))
                         buitenwegSO2    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['SO2']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['SO2']]))
                         snelwegSO2      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['SO2']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['SO2']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadSO2[ZEZstad]           = 0
+                                buitenwegSO2[ZEZbuitenweg] = 0
+                                snelwegSO2[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[1][routeStad,      etInvDict['SO2']] += stadSO2
                         linkVanEmissionsArray[1][routeBuitenweg, etInvDict['SO2']] += buitenwegSO2
                         linkVanEmissionsArray[1][routeSnelweg,   etInvDict['SO2']] += snelwegSO2    
@@ -1023,6 +1143,11 @@ def actually_run_module(args):
                         stadPM         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['PM']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['PM']] - emissionsStadLeeg[vtDict[vt],     etInvDict['PM']]))
                         buitenwegPM    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['PM']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['PM']]))
                         snelwegPM      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['PM']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['PM']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadPM[ZEZstad]           = 0
+                                buitenwegPM[ZEZbuitenweg] = 0
+                                snelwegPM[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[1][routeStad,      etInvDict['PM']] += stadPM
                         linkVanEmissionsArray[1][routeBuitenweg, etInvDict['PM']] += buitenwegPM
                         linkVanEmissionsArray[1][routeSnelweg,   etInvDict['PM']] += snelwegPM  
@@ -1031,22 +1156,27 @@ def actually_run_module(args):
                         stadNOX         = nTrips * distArray[routeStad     ] * (emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']] + capUt * (emissionsStadVol[vtDict[vt],     etInvDict['NOX']] - emissionsStadLeeg[vtDict[vt],     etInvDict['NOX']]))
                         buitenwegNOX    = nTrips * distArray[routeBuitenweg] * (emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']] + capUt * (emissionsBuitenwegVol[vtDict[vt],etInvDict['NOX']] - emissionsBuitenwegLeeg[vtDict[vt],etInvDict['NOX']]))
                         snelwegNOX      = nTrips * distArray[routeSnelweg  ] * (emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']] + capUt * (emissionsSnelwegVol[vtDict[vt],  etInvDict['NOX']] - emissionsSnelwegLeeg[vtDict[vt],  etInvDict['NOX']]))
+                        if varDict['LABEL'] == 'UCC':
+                            if tripIsZEZ:
+                                stadNOX[ZEZstad]           = 0
+                                buitenwegNOX[ZEZbuitenweg] = 0
+                                snelwegNOX[ZEZsnelweg]     = 0
                         linkVanEmissionsArray[1][routeStad,      etInvDict['NOX']] += stadNOX
                         linkVanEmissionsArray[1][routeBuitenweg, etInvDict['NOX']] += buitenwegNOX
-                        linkVanEmissionsArray[1][routeSnelweg,   etInvDict['NOX']] += snelwegNOX  
+                        linkVanEmissionsArray[1][routeSnelweg,   etInvDict['NOX']] += snelwegNOX
 
             if i%int(round(nOrigSelection/10,0)) == 0:
                 print('\t\t' + str(int(round((i / nOrigSelection)*100, 0))) + '%')    
 
             if root != '':
                 root.progressBar['value'] = 75.0 + (85.0 - 75.0) * (i + 1) / nOrigSelection
-                               
+        
+        if doShiftVanToElectric:
+            linkVanEmissionsArray[0] *= (1 - varDict['SHIFT_VAN_TO_COMB1'])
+            linkVanEmissionsArray[1] *= (1 - varDict['SHIFT_VAN_TO_COMB1'])
+
         # Make some space available on the RAM
         del prevVan, vanTripsService, vanTripsConstruction
-        
-        # Assume all electric for vans in UCC scenario
-        if label == 'UCC':
-            linkVanEmissionsArray = [np.zeros((len(MRDHlinks),nET)) for ls in ['VAN_S','VAN_C']]            
             
         # Write the intensities and emissions into the links-DataFrames
         for tod in timeOfDays:
@@ -1110,7 +1240,7 @@ def actually_run_module(args):
         for col in intensityFields:
             cols.append(col)
         MRDHlinksIntensities = MRDHlinksIntensities[cols]
-        MRDHlinksIntensities.to_csv(datapathO + 'links_loaded_' + str(label) + '_intensities.csv', index=False)
+        MRDHlinksIntensities.to_csv(varDict['OUTPUTFOLDER'] + 'links_loaded_' + str(varDict['LABEL']) + '_intensities.csv', index=False)
 
         if doSelectedLink:
             print('Writing selected link analysis to CSV...'), log_file.write('Writing selected link analysis to CSV...' + '\n')
@@ -1122,7 +1252,7 @@ def actually_run_module(args):
             for l in range(nSelectedLinks):
                 cols.append('N_' + str(selectedLinks[l]))
             selectedLinkTripsArray = selectedLinkTripsArray[cols]
-            selectedLinkTripsArray.to_csv(datapathO + 'SelectedLinks.csv', sep=',', index=False)
+            selectedLinkTripsArray.to_csv(varDict['OUTPUTFOLDER'] + 'SelectedLinks.csv', sep=',', index=False)
             
         # Make some space available on the RAM
         del linkTripsArray, linkEmissionsArray
@@ -1135,23 +1265,23 @@ def actually_run_module(args):
         # ----------------------- Enriching tours and shipments -------------------        
         try:
             print("Writing emissions into Tours and ParcelSchedule..."), log_file.write("Writing emissions into Tours and ParcelSchedule...\n")
-            tours            = pd.read_csv(datapathO + 'Tours_' + label + '.csv')
-            tours['TOUR_ID'] = [str(tours.at[i,'CARRIER_ID']) + '_' + str(tours.at[i,'TOUR_ID']) for i in tours.index]
-            tours['CO2'    ] = [tripsCO2[i] for i in tours.index]
-            tours.to_csv(datapathO + 'Tours_' + label + '.csv', index=False)
-        
-            parcelTours        = pd.read_csv(datapathO + 'ParcelSchedule_' + label + '.csv')
+            tours        = pd.read_csv(varDict['OUTPUTFOLDER'] + 'Tours_' + varDict['LABEL'] + '.csv')
+            tours['CO2'] = [tripsCO2[i] for i in tours.index]
+            tours.to_csv(varDict['OUTPUTFOLDER'] + 'Tours_' + varDict['LABEL'] + '.csv', index=False)
+            
+            parcelTours        = pd.read_csv(varDict['OUTPUTFOLDER'] + 'ParcelSchedule_' + varDict['LABEL'] + '.csv')
             parcelTours['CO2'] = [parcelTripsCO2[i] for i in parcelTours.index]
-            parcelTours.to_csv(datapathO + 'ParcelSchedule_' + label + '.csv', index=False)
+            parcelTours.to_csv(varDict['OUTPUTFOLDER'] + 'ParcelSchedule_' + varDict['LABEL'] + '.csv', index=False)
 
             print("Writing emissions into Shipments..."), log_file.write("Writing emissions into Shipments...\n")        
             # Calculate emissions at the tour level instead of trip level
+            tours['TOUR_ID'] = [str(tours.at[i,'CARRIER_ID']) + '_' + str(tours.at[i,'TOUR_ID']) for i in tours.index]
             toursCO2 = pd.pivot_table(tours, values=['CO2'], index=['TOUR_ID'], aggfunc=np.sum)
             tourIDDict = dict(np.transpose(np.vstack((toursCO2.index, np.arange(len(toursCO2))))))
             toursCO2 = np.array(toursCO2['CO2'])
             
             # Read the shipments
-            shipments = pd.read_csv(datapathO + 'Shipments_AfterScheduling_' + label + '.csv')
+            shipments = pd.read_csv(varDict['OUTPUTFOLDER'] + 'Shipments_AfterScheduling_' + varDict['LABEL'] + '.csv')
             shipments['ORIG'] = [invZoneDict[x] for x in shipments['ORIG']]
             shipments['DEST'] = [invZoneDict[x] for x in shipments['DEST']]
             shipments = shipments.sort_values('TOUR_ID')
@@ -1170,7 +1300,7 @@ def actually_run_module(args):
             shipIDs.append(currentShipIDs.copy())
                 
             # Network distance of each shipment
-            skimDistance = read_mtx(skimDistancePath)
+            skimDistance = read_mtx(varDict['SKIMDISTANCE'])
             shipDist = skimDistance[(shipments['ORIG'] - 1) * nZones + (shipments['DEST'] - 1)]            
             
             # Divide CO2 of each tour over its shipments based on distance
@@ -1189,7 +1319,7 @@ def actually_run_module(args):
             shipments.index = np.arange(len(shipments))            
             shipments['ORIG'] = [zoneDict[x] for x in shipments['ORIG']]
             shipments['DEST'] = [zoneDict[x] for x in shipments['DEST']]            
-            shipments.to_csv(datapathO + 'Shipments_AfterScheduling_' + label + '.csv', index=False)
+            shipments.to_csv(varDict['OUTPUTFOLDER'] + 'Shipments_AfterScheduling_' + varDict['LABEL'] + '.csv', index=False)
             
         except:
             print("Writing emissions into Tours/ParcelSchedule/Shipments failed!")
@@ -1225,7 +1355,7 @@ def actually_run_module(args):
             MRDHlinks = MRDHlinks.drop(columns='NAME')
             
             # Initialize shapefile fields
-            w = shp.Writer(datapathO + f'links_loaded_{label}.shp')
+            w = shp.Writer(varDict['OUTPUTFOLDER'] + f"links_loaded_{varDict['LABEL']}.shp")
             w.field('LINKNR',     'N', size=8, decimal=0)
             w.field('A',          'N', size=9, decimal=0)
             w.field('B',          'N', size=9, decimal=0)
@@ -1342,151 +1472,134 @@ def get_prev(csgraph, nNodes, indices):
             if i%int(round(nOrigSelection/10,0)) == 0:
                 print('\t\t' + str(int(round((i / nOrigSelection)*100, 0))) + '%')          
     
+    del csgraph
+
     return prev
 
-
-
-def get_route(orig, dest, prev, zoneToCentroid, linkDict):
+@njit
+def get_route(orig, dest, prev, linkDict, maxNumConnections=8):
     '''
     Deduce the paths from the prev object.
     Returns path sequence in terms of link IDs.
-    '''    
-    routeNodes = get_route_nodes(orig, zoneToCentroid[dest], prev)    
-    
+    '''
+    route = []
+
     if orig != dest:
-        if len(routeNodes) > 1:
-            route = np.array([linkDict[routeNodes[w]][routeNodes[w+1]] for w in range(len(routeNodes)-1)], dtype=int)
-        else:
-            route = np.array([], dtype=int)            
-    else:
-        route = np.array([], dtype=int)
-            
-    return route
+        # Deduce sequence of nodes on network
+        sequenceNodes = []
+        destNode = dest
+        if prev[orig][destNode] >= 0:
+            while prev[orig][destNode] >= 0:
+                sequenceNodes.insert(0, destNode)
+                destNode = prev[orig][destNode]
+            else:
+                sequenceNodes.insert(0, destNode) 
+    
+        # Deduce sequence of links on network        
+        if len(sequenceNodes) > 1:
+
+            for i in range(len(sequenceNodes) - 1):
+                aNode = sequenceNodes[i]
+                bNode = sequenceNodes[i + 1]
+                
+                tmp = linkDict[aNode]
+                for col in range(maxNumConnections):
+                    if tmp[col] == bNode:
+                        route.append(tmp[col + maxNumConnections])
+                        break
+
+    return np.array(route, dtype=int32)
 
 
 
-@njit
-def get_route_nodes(orig, dest, prev):
-    '''
-    Deduce the paths from the prev object from one origin to multiple destinations. 
-    Returns path sequence in terms of node IDs.
-    '''
-    sequenceNodes = []
-    
-    # Deduce sequence of nodes on network
-    destNode = dest
-    if prev[orig][destNode] >= 0:
-        while prev[orig][destNode]>=0:
-            sequenceNodes.insert(0,destNode)
-            destNode = prev[orig][destNode]
-        else:
-            sequenceNodes.insert(0,destNode)
-    
-    return sequenceNodes
-       
-    
 #%% For if you want to run the module from this script itself (instead of calling it from the GUI module)
         
 if __name__ == '__main__':
     
-    INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
-    PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
-    
-    SKIMTIME            = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		        = INPUTFOLDER + 'links_v5.shp'
-    NODES               = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES               = INPUTFOLDER + 'Zones_v4.shp'
-    SEGS                = INPUTFOLDER + 'SEGS2016.csv'
-    COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
-    PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
-    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
-    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
-    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
-    MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
-    NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
-    
-    YEARFACTOR = 209
-    
-    NUTSLEVEL_INPUT = 3
-    
-    PARCELS_PER_HH	 = 0.112
-    PARCELS_PER_EMPL = 0.041
-    PARCELS_MAXLOAD	 = 180
-    PARCELS_DROPTIME = 120
-    PARCELS_SUCCESS_B2C   = 0.75
-    PARCELS_SUCCESS_B2B   = 0.95
-    PARCELS_GROWTHFREIGHT = 1.0
-    
-    SHIPMENTS_REF = ""
-    SELECTED_LINKS = ""
-    N_CPU = ""
-    N_MULTIROUTE = 1
-    
-    IMPEDANCE_SPEED_FREIGHT = 'V_FR_OS'
-    IMPEDANCE_SPEED_VAN     = 'V_PA_OS'
-    
-    LABEL = 'REF'
-    
-    MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
-    
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
-            LINKS, NODES, ZONES, SEGS, \
-            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING,\
-            COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
-            PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
-            PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
-            YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED_FREIGHT, IMPEDANCE_SPEED_VAN, N_CPU, N_MULTIROUTE, \
-            SHIPMENTS_REF, SELECTED_LINKS,\
-            LABEL, \
-            MODULES]
-
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                  "LINKS", "NODES", "ZONES", "SEGS", \
-                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
-                  "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
-                  "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                  "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
-                  "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", "N_CPU", "N_MULTIROUTE", \
-                  "SHIPMENTS_REF", "SELECTED_LINKS", \
-                  "LABEL", \
-                  "MODULES"]
-     
     varDict = {}
-    for i in range(len(args)):
-        varDict[varStrings[i]] = args[i]
-        
+
+    varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
+    varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
+    varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
+    
+    varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
+    varDict['NODES'] = varDict['INPUTFOLDER'] + 'nodes_v5.shp'
+    varDict['ZONES'] = varDict['INPUTFOLDER'] + 'Zones_v5.shp'
+    varDict['SEGS']  = varDict['INPUTFOLDER'] + 'SEGS2016.csv'
+    varDict['COMMODITYMATRIX']    = varDict['INPUTFOLDER'] + 'CommodityMatrixNUTS3_2016.csv'
+    varDict['PARCELNODES']        = varDict['INPUTFOLDER'] + 'parcelNodes_v2.shp'
+    varDict['DISTRIBUTIECENTRA']  = varDict['INPUTFOLDER'] + 'distributieCentra.csv'
+    varDict['NSTR_TO_LS']         = varDict['INPUTFOLDER'] + 'nstrToLogisticSegment.csv'
+    varDict['MAKE_DISTRIBUTION']  = varDict['INPUTFOLDER'] + 'MakeDistribution.csv'
+    varDict['USE_DISTRIBUTION']   = varDict['INPUTFOLDER'] + 'UseDistribution.csv'
+    varDict['SUP_COORDINATES_ID'] = varDict['INPUTFOLDER'] + 'SupCoordinatesID.csv'
+    varDict['CORRECTIONS_TONNES'] = varDict['INPUTFOLDER'] + 'CorrectionsTonnes2016.csv'
+    varDict['DEPTIME_FREIGHT'] = varDict['INPUTFOLDER'] + 'departureTimePDF.csv'
+    varDict['DEPTIME_PARCELS'] = varDict['INPUTFOLDER'] + 'departureTimeParcelsCDF.csv'
+
+    varDict['COST_VEHTYPE']        = varDict['PARAMFOLDER'] + 'Cost_VehType_2016.csv'
+    varDict['COST_SOURCING']       = varDict['PARAMFOLDER'] + 'Cost_Sourcing_2016.csv'
+    varDict['MRDH_TO_NUTS3']       = varDict['PARAMFOLDER'] + 'MRDHtoNUTS32013.csv'
+    varDict['NUTS3_TO_MRDH']       = varDict['PARAMFOLDER'] + 'NUTS32013toMRDH.csv'
+    varDict['VEHICLE_CAPACITY']    = varDict['PARAMFOLDER'] + 'CarryingCapacity.csv'
+    varDict['LOGISTIC_FLOWTYPES']  = varDict['PARAMFOLDER'] + 'LogFlowtype_Shares.csv'
+    varDict['PARAMS_TOD']          = varDict['PARAMFOLDER'] + 'Params_TOD.csv'
+    varDict['PARAMS_SSVT']         = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
+    varDict['PARAMS_ET_FIRST']     = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
+    varDict['PARAMS_ET_LATER']     = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+
+    varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
+    varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
+    varDict['EMISSIONFACS_SNELWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_LEEG.csv'
+    varDict['EMISSIONFACS_SNELWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_VOL.csv'
+    varDict['EMISSIONFACS_STAD_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_LEEG.csv'
+    varDict['EMISSIONFACS_STAD_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_VOL.csv'
+
+    varDict['ZEZ_CONSOLIDATION'] = varDict['INPUTFOLDER'] + 'ConsolidationPotential.csv'
+    varDict['ZEZ_SCENARIO']      = varDict['INPUTFOLDER'] + 'ZEZscenario.csv'
+
+    varDict['YEARFACTOR'] = 209
+    
+    varDict['NUTSLEVEL_INPUT'] = 3
+    
+    varDict['PARCELS_PER_HH']	 = 0.112
+    varDict['PARCELS_PER_EMPL'] = 0.041
+    varDict['PARCELS_MAXLOAD']	 = 180
+    varDict['PARCELS_DROPTIME'] = 120
+    varDict['PARCELS_SUCCESS_B2C']   = 0.75
+    varDict['PARCELS_SUCCESS_B2B']   = 0.95
+    varDict['PARCELS_GROWTHFREIGHT'] = 1.0
+
+    varDict['MICROHUBS']    = varDict['INPUTFOLDER'] + 'Microhubs.csv'
+    varDict['VEHICLETYPES'] = varDict['INPUTFOLDER'] + 'Microhubs_vehicleTypes.csv'
+
+    varDict['SHIPMENTS_REF'] = ""
+    varDict['SELECTED_LINKS'] = ""
+    varDict['N_CPU'] = ""
+    
+    varDict['FAC_LS0'] = ""
+    varDict['FAC_LS1'] = ""
+    varDict['FAC_LS2'] = ""
+    varDict['FAC_LS3'] = ""
+    varDict['FAC_LS4'] = ""
+    varDict['FAC_LS5'] = ""
+    varDict['FAC_LS6'] = ""
+    varDict['FAC_LS7'] = ""
+    varDict['NEAREST_DC'] = ""
+
+    varDict['CROWDSHIPPING']    = False
+    varDict['CRW_PARCELSHARE']  = ""
+    varDict['CRW_MODEPARAMS']   = ""
+    varDict['CRW_PDEMAND_CAR']  = ""
+    varDict['CRW_PDEMAND_BIKE'] = ""
+    
+    varDict['SHIFT_FREIGHT_TO_COMB1'] = ""
+    
+    varDict['IMPEDANCE_SPEED'] = 'V_FR_OS'
+    
+    varDict['LABEL'] = 'REF'
+    
     # Run the module
     main(varDict)
-
-
-
-     
-#%% For visualization of a particular OD-path during debugging
-    
-#import matplotlib.pyplot as plt
-#import geopandas as gpd
-##xLower =  65000
-##xUpper = 100000
-##yLower = 425000
-##yUpper = 470000
-#
-#xLower =  50000
-#xUpper = 250000
-#yLower = 300000
-#yUpper = 500000
-#
-##zones = gpd.read_file(datapathI + 'Zones_v4.shp')
-##links = gpd.read_file(linksPath)
-#
-#route = np.array(dijkstraPaths[6666][6])
-##route = np.array(dijkstraPaths[6666][6])
-#ax = zones.plot(figsize=(15,15),color='#b2b2b2')
-#links.plot(ax=ax, color='k', linewidth=0.1)
-#links.iloc[route,:].plot(ax=ax, color='r')
-#plt.xlim(xLower,xUpper)
-#plt.ylim(yLower,yUpper)
-

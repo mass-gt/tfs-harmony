@@ -122,26 +122,20 @@ def actually_run_module(args):
         
         if root != '':
             root.progressBar['value'] = 0
-        
-        datapathI = varDict['INPUTFOLDER']
-        datapathO = varDict['OUTPUTFOLDER']
-        datapathP = varDict['PARAMFOLDER']
-        label     = varDict['LABEL']
-        nCPU      = varDict['N_CPU']
-        zonesPath        = varDict['ZONES']
-        skimTravTimePath = varDict['SKIMTIME']
-        skimDistancePath = varDict['SKIMDISTANCE']
-        segsPath         = varDict['SEGS']
-        distributieCentraPath = varDict['DISTRIBUTIECENTRA']
-        
-        log_file=open(f"{datapathO}Logfile_TourFormation.log", "w")
+
+        log_file=open(varDict['OUTPUTFOLDER'] + "Logfile_TourFormation.log", "w")
         log_file.write("Start simulation at: "+datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
 
+        shiftFreightToComb1 = varDict['SHIFT_FREIGHT_TO_COMB1']
+        shiftFreightToComb2 = varDict['SHIFT_FREIGHT_TO_COMB2']
+        doShiftToElectric = (shiftFreightToComb1 != "")
+        doShiftToHydrogen = (shiftFreightToComb2 != "")
+                
         # Number of CPUs over which the tour formation is parallelized
         maxCPU = 16
-        if nCPU not in ['', '""', "''"]:
+        if varDict['N_CPU'] not in ['', '""', "''"]:
             try:
-                nCPU = int(nCPU)
+                nCPU = int(varDict['N_CPU'])
                 if nCPU > mp.cpu_count():
                     nCPU = max(1,min(mp.cpu_count()-1,maxCPU))
                     print(         'N_CPU parameter too high. Only ' + str(mp.cpu_count()) + ' CPUs available. Hence defaulting to ' + str(nCPU) + 'CPUs.')
@@ -159,11 +153,11 @@ def actually_run_module(args):
         timeFac = 1.00
         
          # Carrying capacity for each vehicle type
-        if   label == 'REF':
-            carryingCapacity = np.array(pd.read_csv(f"{datapathP}CarryingCapacity.csv", index_col=0))[:-1,0]  
-        elif label == 'UCC':
+        if   varDict['LABEL'] == 'REF':
+            carryingCapacity = np.array(pd.read_csv(varDict['VEHICLE_CAPACITY'], index_col=0))[:-1,0]  
+        elif varDict['LABEL'] == 'UCC':
             # In the UCC scenario we also need to define a capacity for zero emission vehicles (last one in list, value=-1)
-            carryingCapacity = np.array(pd.read_csv(f"{datapathP}CarryingCapacity.csv", index_col=0))[:  ,0]               
+            carryingCapacity = np.array(pd.read_csv(varDict['VEHICLE_CAPACITY'], index_col=0))[:  ,0]               
         
         # The number of carriers that transport the shipments not going to or from a DC
         nCarNonDC  = 200 
@@ -183,13 +177,13 @@ def actually_run_module(args):
         print("Importing shipments and zones..."), log_file.write("Importing shipments and zones...\n")
         
         # Import zones
-        zones = read_shape(zonesPath)
+        zones = read_shape(varDict['ZONES'])
         zones = zones.sort_values('AREANR')
         
         UCCzones = np.unique(zones['UCC_zone'])[1:]
         
         # Add level of urbanization based on segs (# houses / jobs) and surface (square m)
-        segs  = pd.read_csv(segsPath)
+        segs  = pd.read_csv(varDict['SEGS'])
         segs.index  = segs['zone']
         zones.index = zones['AREANR']
         zones['HOUSEDENSITY'] = segs['1: woningen'] / zones['area']
@@ -205,7 +199,7 @@ def actually_run_module(args):
             root.progressBar['value'] = 0.5
             
         # Get coordinates of the external zones
-        coropCoordinates        = pd.read_csv(f'{datapathI}SupCoordinatesID.csv')
+        coropCoordinates        = pd.read_csv(varDict['SUP_COORDINATES_ID'])
         coropCoordinates.index  = np.arange(len(coropCoordinates))
 
         nSupZones = len(coropCoordinates)
@@ -227,7 +221,7 @@ def actually_run_module(args):
             zones[nIntZones+i][4] = False                             # No urbanized zone
 
         # Import logistic nodes data
-        logNodes = pd.read_csv(distributieCentraPath)
+        logNodes = pd.read_csv(varDict['DISTRIBUTIECENTRA'])
         logNodes = logNodes[~pd.isna(logNodes['AREANR'])]
         logNodes['AREANR'] = [invZoneDict[x] for x in logNodes['AREANR']]
         nDC = len(logNodes)
@@ -235,23 +229,23 @@ def actually_run_module(args):
         dcZones = np.array(logNodes['AREANR'])
 
         # Import shipments data        
-        shipments = pd.read_csv(f'{datapathO}Shipments_{label}.csv')
+        shipments = pd.read_csv(f"{varDict['OUTPUTFOLDER']}Shipments_{varDict['LABEL']}.csv")
 
         if root != '':
             root.progressBar['value'] = 1.0
             
         # Import ZEZ scenario input
-        if label == 'UCC':
+        if varDict['LABEL'] == 'UCC':
             # Vehicle/combustion shares (for UCC scenario)
-            sharesUCC  = pd.read_csv(datapathI + 'ZEZscenario.csv', index_col='Segment')
+            sharesUCC  = pd.read_csv(varDict['ZEZ_SCENARIO'], index_col='Segment')
             combTypes  = ['Fuel', 'Electric', 'Hydrogen', 'Hybrid (electric)', 'Biofuel']
             
             # Assume no consolidation potential and vehicle type switch for dangerous goods
             sharesUCC = np.array(sharesUCC)[:-1,:-1]
             
             # Combustion type shares per vehicle type and logistic segment
-            cumProbCombustion = [np.zeros((nLogSeg-1,len(combTypes)),dtype=float) for vt in range(nVT)]
-
+            cumProbCombustion  = [np.zeros((nLogSeg-1,len(combTypes)),dtype=float) for vt in range(nVT)]
+            
             for ls in range(nLogSeg-1):
                 
                 # Truck_Small, Truck_Medium, Truck_Large, TruckTrailer_Small, TruckTrailer_Large
@@ -299,7 +293,8 @@ def actually_run_module(args):
             
         # --------------- PREPARE SHIPMENTS DATA -------------------------------        
         
-        print("Preparing shipments for tour formation..."), log_file.write("Preparing shipments for tour formation...\n")
+        print("Preparing shipments for tour formation...")
+        log_file.write("Preparing shipments for tour formation...\n")
         shipments['ORIG'] = [invZoneDict[x] for x in shipments['ORIG']]
         shipments['DEST'] = [invZoneDict[x] for x in shipments['DEST']]
         shipments['WEIGHT'] *= 1000
@@ -335,7 +330,7 @@ def actually_run_module(args):
             root.progressBar['value'] = 2.0
             
         # Extra carrierIDs for shipments transported from Urban Consolidation Centers
-        if label == 'UCC':
+        if varDict['LABEL'] == 'UCC':
             whereToUCC   = np.where(shipments['TO_UCC'  ]==1)[0]
             whereFromUCC = np.where(shipments['FROM_UCC']==1)[0]
             
@@ -391,8 +386,8 @@ def actually_run_module(args):
         print('Importing skims...'), log_file.write('Importing skims...\n')
 
         # Import binary skim files
-        skimTravTime = read_mtx(skimTravTimePath)
-        skimAfstand  = read_mtx(skimDistancePath)
+        skimTravTime = read_mtx(varDict['SKIMTIME'])
+        skimAfstand  = read_mtx(varDict['SKIMDISTANCE'])
         nZones       = int(len(skimTravTime)**0.5)
         
         # For zero times and distances assume half the value to the nearest (non-zero) zone 
@@ -411,16 +406,17 @@ def actually_run_module(args):
         
         # -------------------- IMPORT LOGIT PARAMETERS ------------------------
         
-        print('Importing logit parameters...'), log_file.write('Importing logit parameters...\n')
+        print('Importing logit parameters...')
+        log_file.write('Importing logit parameters...\n')
         
-        logitParams_ETfirst = np.array(pd.read_csv(f"{datapathP}Params_EndTourFirst.csv",   index_col=0))[:,0]
-        logitParams_ETlater = np.array(pd.read_csv(f"{datapathP}Params_EndTourLater.csv",   index_col=0))[:,0]
-        
+        logitParams_ETfirst = np.array(pd.read_csv(varDict['PARAMS_ET_FIRST'], index_col=0))[:,0]
+        logitParams_ETlater = np.array(pd.read_csv(varDict['PARAMS_ET_LATER'], index_col=0))[:,0]
         
         
         # -----------------INFORMATION NEEDED BEFORE TOUR FORMATION------------
         
-        print('Obtaining other information required before tour formation...'), log_file.write('Obtaining other information required before tour formation...\n')
+        print('Obtaining other information required before tour formation...')
+        log_file.write('Obtaining other information required before tour formation...\n')
         
         nship   = len(shipments)                        # Total number of shipments
         ncar    = len(np.unique(shipments[:,3]))        # Total number of carriers
@@ -457,7 +453,8 @@ def actually_run_module(args):
         # Bepaal het aantal CPUs dat we gebruiken en welke CPU welke carriers doet
         chunks = [np.arange(ncar)[i::nCPU] for i in range(nCPU)]
     
-        print(f'Start tour formation (parallelized over {nCPU} cores)'), log_file.write(f'Start tour formation (parallelized over {nCPU} cores)\n')
+        print(f'Start tour formation (parallelized over {nCPU} cores)')
+        log_file.write(f'Start tour formation (parallelized over {nCPU} cores)\n')
         
         # Initialiseer een pool object dat de taken verdeelt over de CPUs
         p = mp.Pool(nCPU)
@@ -480,7 +477,9 @@ def actually_run_module(args):
         p.join()         
         
         nTours = nTours.astype(int)
-        print('\tTour formation completed for all carriers'), log_file.write('\tTour formation completed for all carriers\n')
+
+        print('\tTour formation completed for all carriers')
+        log_file.write('\tTour formation completed for all carriers\n')
 
         if root != '':
             root.progressBar['value'] = 81.0
@@ -488,7 +487,9 @@ def actually_run_module(args):
         
         # --------------------- PROCEDURES AFTER TOUR FORMATION ----------------------
         
-        print('Adding empty trips...'), log_file.write('Adding empty trips...\n') 
+        print('Adding empty trips...')
+        log_file.write('Adding empty trips...\n') 
+
         # Add empty trips
         emptytripadded = [[None for tour in range(nTours[car])] for car in range(ncar)]
         for car in range(ncar):
@@ -505,7 +506,9 @@ def actually_run_module(args):
         if root != '':
             root.progressBar['value'] = 82.0
             
-        print('Obtaining number of shipments and trip weights...'), log_file.write('Obtaining number of shipments and trip weights...\n') 
+        print('Obtaining number of shipments and trip weights...')
+        log_file.write('Obtaining number of shipments and trip weights...\n') 
+
         # Number of shipments and trips of each tour
         nshiptour   = [ [None for tour in range(nTours[car])] for car in range(ncar) ]
         ntripstour  = [ [None for tour in range(nTours[car])] for car in range(ncar) ]
@@ -554,7 +557,7 @@ def actually_run_module(args):
         print('Drawing departure times of tours ...'), log_file.write('Drawing departure times of tours...\n') 
         
         # Import probability distribution of departure time (per logistic segment)
-        probDepTime     = pd.read_csv(f"{datapathI}departuretimePDF.csv")            
+        probDepTime     = pd.read_csv(varDict['DEPTIME_FREIGHT'])            
         cumProbDepTime  = np.array(np.cumsum(probDepTime))
           
         depTimeTour   = [ [None for tour in range(nTours[car])] for car in range(ncar) ]        
@@ -570,7 +573,7 @@ def actually_run_module(args):
         print('Determining combustion type of tours...'), log_file.write('Determining combustion type of tours...\n')                
         combTypeTour   = [ [None for tour in range(nTours[car])] for car in range(ncar) ] 
             
-        if label == 'UCC':            
+        if varDict['LABEL'] == 'UCC':            
             ZEZzones = set(zones[zones[:,5]==1,0])
             
             for car in range(ncar):
@@ -596,21 +599,36 @@ def actually_run_module(args):
                         # Fuel for all other tours that do not go to the ZEZ
                         else:
                             combTypeTour[car][tour] = 0
-             
-        # In the not-UCC scenario everything is assumed to be fuel
-        else:
+                                    
+        # In the not-UCC scenario everything is assumed to be fuel     
+        if varDict['LABEL'] == 'REF':
             for car in range(ncar):
                 for tour in range(nTours[car]):
                     combTypeTour[car][tour] = 0
-            
+
+        # Unless the shift-to-electric or shift-to-hydrogen
+        # parameter is set (SHIFT_FREIGHT_TO_COMB1 or _COMB2)
+        if doShiftToElectric or doShiftToHydrogen:
+            for car in range(ncar):
+                for tour in range(nTours[car]):                
+                    if doShiftToElectric:
+                        if np.random.rand() <= shiftFreightToComb1:
+                            combTypeTour[car][tour] = 1
+                    if doShiftToHydrogen:
+                        if combTypeTour[car][tour] != 1:
+                            if np.random.rand() <= shiftFreightToComb2:
+                                combTypeTour[car][tour] = 2
+                                    
         if root != '':
             root.progressBar['value'] = 86.0                    
                         
                     
         # ---------------------------- Create Tours CSV ----------------------------------------
         
-        print('Writing tour data to CSV...'), log_file.write('Writing tour data to CSV...\n') 
-        outputTours = np.zeros((ntrips,20),dtype=object)
+        print('Writing tour data to CSV...')
+        log_file.write('Writing tour data to CSV...\n')
+
+        outputTours = np.zeros((ntrips,20), dtype=object)
         tripcount = 0
         
         for car in range(ncar):
@@ -674,8 +692,9 @@ def actually_run_module(args):
                      int,   float,  float,  int,    int]
         for i in range(len(outputTours.columns)):
             outputTours.iloc[:,i] = outputTours.iloc[:,i].astype(dataTypes[i])
-        outputTours.to_csv(f'{datapathO}Tours_{label}.csv',index=None, header=True)
-        print(f'Tour data written to {datapathO}Tours_{label}.csv'), log_file.write(f'Tour data written to {datapathO}Tours_{label}.csv\n')
+        outputTours.to_csv(f"{varDict['OUTPUTFOLDER']}Tours_{varDict['LABEL']}.csv",index=None, header=True)
+        print(f"CSV written to {varDict['OUTPUTFOLDER']}Tours_{varDict['LABEL']}.csv")
+        log_file.write(f"CSV written to {varDict['OUTPUTFOLDER']}Tours_{varDict['LABEL']}.csv\n")
 
         if root != '':
             root.progressBar['value'] = 89.0
@@ -683,7 +702,9 @@ def actually_run_module(args):
 
         # -------------------------- Enrich Shipments CSV --------------------------------------
         
-        print('Enriching Shipments CSV...'), log_file.write('Enriching Shipments CSV...\n')
+        print('Enriching Shipments CSV...')
+        log_file.write('Enriching Shipments CSV...\n')
+
         shipmentTourID = {}
         for car in range(ncar):
             for tour in range(nTours[car]):
@@ -696,7 +717,7 @@ def actually_run_module(args):
                              'VEHTYPE'           , 'NSTR' , 'WEIGHT' , 'LOGNODE_LOADING' , \
                              'LOGNODE_UNLOADING' , 'URBAN', 'LOGSEG' , 'SEND_FIRM', 'RECEIVE_FIRM']
         
-        shipments['SHIP_ID'] = [shipmentDict[x] for x in shipments['SHIP_ID']]
+        shipments['SHIP_ID'] = [shipmentDict[x]   for x in shipments['SHIP_ID']]
         shipments['TOUR_ID'] = [shipmentTourID[x] for x in shipments['SHIP_ID']]        
         shipments['ORIG']    = [zoneDict[x] for x in shipments['ORIG']]
         shipments['DEST']    = [zoneDict[x] for x in shipments['DEST']]
@@ -706,7 +727,7 @@ def actually_run_module(args):
                                'VEHTYPE', 'NSTR'     , 'WEIGHT' , 'LOGSEG', 
                                'TOUR_ID', 'SEND_FIRM', 'RECEIVE_FIRM']]
         shipments = shipments.sort_values('SHIP_ID')
-        shipments.to_csv(datapathO + "Shipments_AfterScheduling_" + label + '.csv', index=False)
+        shipments.to_csv(varDict['OUTPUTFOLDER'] + "Shipments_AfterScheduling_" + varDict['LABEL'] + '.csv', index=False)
         
         if root != '':
             root.progressBar['value'] = 90.0
@@ -725,7 +746,7 @@ def actually_run_module(args):
         By = list(outputTours['Y_DEST'])
         
         # Initialize shapefile fields
-        w = shp.Writer(datapathO + f'Tours_{label}.shp')
+        w = shp.Writer(varDict['OUTPUTFOLDER'] + 'Tours_' + varDict['LABEL'] + '.shp')
         w.field('CARRIER_ID',   'N', size=5, decimal=0)
         w.field('TOUR_ID',      'N', size=5, decimal=0)
         w.field('TRIP_ID',      'N', size=3, decimal=0)
@@ -760,14 +781,15 @@ def actually_run_module(args):
                     
         w.close()
 
-        
-        print(f'Tours written to {datapathO}Tours_{label}.geojson'), log_file.write(f'Tours written to {datapathO}Tours_{label}.geojson\n')        
+        print('Tours written to ' + varDict['OUTPUTFOLDER'] + 'Tours_' + varDict['LABEL'] + '.shp')
+        log_file.write('Tours written to ' + varDict['OUTPUTFOLDER'] + 'Tours_' + varDict['LABEL'] + '.shp\n')        
 
 
-        
         # ------------------ Create trip matrices for traffic assignment ----------------------------
         
-        print('Generating trip matrix...'), log_file.write('Generating trip matrix...\n')      
+        print('Generating trip matrix...')
+        log_file.write('Generating trip matrix...\n')      
+
         cols = ['ORIG','DEST',\
                 'N_LS0', 'N_LS1', 'N_LS2', 'N_LS3', 'N_LS4', 'N_LS5', 'N_LS6', 'N_LS7', \
                 'N_VEH0','N_VEH1','N_VEH2','N_VEH3','N_VEH4','N_VEH5','N_VEH6', 'N_VEH7','N_VEH8','N_VEH9', \
@@ -786,13 +808,14 @@ def actually_run_module(args):
         pivotTable['DEST'] = [x[1] for x in pivotTable.index]
         pivotTable = pivotTable[cols]
         
-        pivotTable.to_csv(f"{datapathO}tripmatrix_{label}.txt", index=False, sep='\t')
-        print(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt'), log_file.write(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt\n')
+        pivotTable.to_csv(f"{varDict['OUTPUTFOLDER']}tripmatrix_{varDict['LABEL']}.txt", index=False, sep='\t')
+        print(f"Trip matrix written to {varDict['OUTPUTFOLDER']}tripmatrix_{varDict['LABEL']}.txt")
+        log_file.write(f"Trip matrix written to {varDict['OUTPUTFOLDER']}tripmatrix_{varDict['LABEL']}.txt\n")
 
         if root != '':
             root.progressBar['value'] = 98.0
                         
-        tours = pd.read_csv(f"{datapathO}Tours_{label}.csv")
+        tours = pd.read_csv(f"{varDict['OUTPUTFOLDER']}Tours_{varDict['LABEL']}.csv")
         tours.loc[tours['TRIP_DEPTIME']>24,'TRIP_DEPTIME'] -= 24
         tours.loc[tours['TRIP_DEPTIME']>24,'TRIP_DEPTIME'] -= 24
         
@@ -813,7 +836,7 @@ def actually_run_module(args):
             pivotTable['DEST'] = [x[1] for x in pivotTable.index]
             pivotTable = pivotTable[cols]
             
-            pivotTable.to_csv(f"{datapathO}tripmatrix_{label}_TOD{tod}.txt", index=False, sep='\t')
+            pivotTable.to_csv(f"{varDict['OUTPUTFOLDER']}tripmatrix_{varDict['LABEL']}_TOD{tod}.txt", index=False, sep='\t')
             
             if root != '':
                 root.progressBar['value'] = 98.0 + (100.0 - 98.0) * (tod + 1) / 24       
@@ -1368,75 +1391,96 @@ def tourformation(carMarkers, shipments, skim, nZones, timeFac, maxNumShips, car
 
 
 #%% For if you want to run the module from this script itself (instead of calling it from the GUI module)
-        
+    
 if __name__ == '__main__':
     
-    INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
-    PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
-    
-    SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE    = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		    = INPUTFOLDER + 'links_v5.shp'
-    NODES           = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES           = INPUTFOLDER + 'Zones_v4.shp'
-    SEGS            = INPUTFOLDER + 'SEGS2016_verrijkt.csv'
-    COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS2_2016.csv'
-    PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
-    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
-    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
-    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
-    
-    YEARFACTOR = 193
-    
-    NUTSLEVEL_INPUT = 2
-    
-    PARCELS_PER_HH	 = 0.195
-    PARCELS_PER_EMPL = 0.073
-    PARCELS_MAXLOAD	 = 180
-    PARCELS_DROPTIME = 120
-    PARCELS_SUCCESS_B2C   = 0.75
-    PARCELS_SUCCESS_B2B   = 0.95
-    PARCELS_GROWTHFREIGHT = 1.0
-    
-    SHIPMENTS_REF = ""
-    SELECTED_LINKS = ""
-    
-    IMPEDANCE_SPEED = 'V_FR_OS'
-    
-    N_CPU = -1
-    
-    LABEL = 'REF'
-    
-    MODULES = ['SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
-    
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, LINKS, NODES, ZONES, SEGS, \
-            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING, \
-            COMMODITYMATRIX, PARCELNODES, PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
-            PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
-            YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED, N_CPU, \
-            SHIPMENTS_REF, SELECTED_LINKS,\
-            LABEL, \
-            MODULES]
-
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES", "SEGS", \
-                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
-                  "COMMODITYMATRIX", "PARCELNODES", "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                  "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
-                  "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED", "N_CPU", \
-                  "SHIPMENTS_REF", "SELECTED_LINKS", \
-                  "LABEL", \
-                  "MODULES"]
-     
     varDict = {}
-    for i in range(len(args)):
-        varDict[varStrings[i]] = args[i]
-        
+
+    varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
+    varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
+    varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
+    
+    varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
+    varDict['NODES'] = varDict['INPUTFOLDER'] + 'nodes_v5.shp'
+    varDict['ZONES'] = varDict['INPUTFOLDER'] + 'Zones_v5.shp'
+    varDict['SEGS']  = varDict['INPUTFOLDER'] + 'SEGS2016.csv'
+    varDict['COMMODITYMATRIX']    = varDict['INPUTFOLDER'] + 'CommodityMatrixNUTS3_2016.csv'
+    varDict['PARCELNODES']        = varDict['INPUTFOLDER'] + 'parcelNodes_v2.shp'
+    varDict['DISTRIBUTIECENTRA']  = varDict['INPUTFOLDER'] + 'distributieCentra.csv'
+    varDict['NSTR_TO_LS']         = varDict['INPUTFOLDER'] + 'nstrToLogisticSegment.csv'
+    varDict['MAKE_DISTRIBUTION']  = varDict['INPUTFOLDER'] + 'MakeDistribution.csv'
+    varDict['USE_DISTRIBUTION']   = varDict['INPUTFOLDER'] + 'UseDistribution.csv'
+    varDict['SUP_COORDINATES_ID'] = varDict['INPUTFOLDER'] + 'SupCoordinatesID.csv'
+    varDict['CORRECTIONS_TONNES'] = varDict['INPUTFOLDER'] + 'CorrectionsTonnes2016.csv'
+    varDict['DEPTIME_FREIGHT'] = varDict['INPUTFOLDER'] + 'departureTimePDF.csv'
+    varDict['DEPTIME_PARCELS'] = varDict['INPUTFOLDER'] + 'departureTimeParcelsCDF.csv'
+
+    varDict['COST_VEHTYPE']        = varDict['PARAMFOLDER'] + 'Cost_VehType_2016.csv'
+    varDict['COST_SOURCING']       = varDict['PARAMFOLDER'] + 'Cost_Sourcing_2016.csv'
+    varDict['MRDH_TO_NUTS3']       = varDict['PARAMFOLDER'] + 'MRDHtoNUTS32013.csv'
+    varDict['NUTS3_TO_MRDH']       = varDict['PARAMFOLDER'] + 'NUTS32013toMRDH.csv'
+    varDict['VEHICLE_CAPACITY']    = varDict['PARAMFOLDER'] + 'CarryingCapacity.csv'
+    varDict['LOGISTIC_FLOWTYPES']  = varDict['PARAMFOLDER'] + 'LogFlowtype_Shares.csv'
+    varDict['PARAMS_TOD']          = varDict['PARAMFOLDER'] + 'Params_TOD.csv'
+    varDict['PARAMS_SSVT']         = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
+    varDict['PARAMS_ET_FIRST']     = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
+    varDict['PARAMS_ET_LATER']     = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+
+    varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
+    varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
+    varDict['EMISSIONFACS_SNELWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_LEEG.csv'
+    varDict['EMISSIONFACS_SNELWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_VOL.csv'
+    varDict['EMISSIONFACS_STAD_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_LEEG.csv'
+    varDict['EMISSIONFACS_STAD_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_VOL.csv'
+
+    varDict['ZEZ_CONSOLIDATION'] = varDict['INPUTFOLDER'] + 'ConsolidationPotential.csv'
+    varDict['ZEZ_SCENARIO']      = varDict['INPUTFOLDER'] + 'ZEZscenario.csv'
+
+    varDict['YEARFACTOR'] = 209
+    
+    varDict['NUTSLEVEL_INPUT'] = 3
+    
+    varDict['PARCELS_PER_HH']	 = 0.112
+    varDict['PARCELS_PER_EMPL'] = 0.041
+    varDict['PARCELS_MAXLOAD']	 = 180
+    varDict['PARCELS_DROPTIME'] = 120
+    varDict['PARCELS_SUCCESS_B2C']   = 0.75
+    varDict['PARCELS_SUCCESS_B2B']   = 0.95
+    varDict['PARCELS_GROWTHFREIGHT'] = 1.0
+
+    varDict['MICROHUBS']    = varDict['INPUTFOLDER'] + 'Microhubs.csv'
+    varDict['VEHICLETYPES'] = varDict['INPUTFOLDER'] + 'Microhubs_vehicleTypes.csv'
+
+    varDict['SHIPMENTS_REF'] = ""
+    varDict['SELECTED_LINKS'] = ""
+    varDict['N_CPU'] = ""
+    
+    varDict['FAC_LS0'] = ""
+    varDict['FAC_LS1'] = ""
+    varDict['FAC_LS2'] = ""
+    varDict['FAC_LS3'] = ""
+    varDict['FAC_LS4'] = ""
+    varDict['FAC_LS5'] = ""
+    varDict['FAC_LS6'] = ""
+    varDict['FAC_LS7'] = ""
+    varDict['NEAREST_DC'] = ""
+
+    varDict['CROWDSHIPPING']    = False
+    varDict['CRW_PARCELSHARE']  = ""
+    varDict['CRW_MODEPARAMS']   = ""
+    varDict['CRW_PDEMAND_CAR']  = ""
+    varDict['CRW_PDEMAND_BIKE'] = ""
+    
+    varDict['SHIFT_FREIGHT_TO_COMB1'] = ""
+    
+    varDict['IMPEDANCE_SPEED'] = 'V_FR_OS'
+    
+    varDict['LABEL'] = 'REF'
+    
     # Run the module
     main(varDict)
-
 
 
 

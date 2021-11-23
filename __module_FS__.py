@@ -118,7 +118,7 @@ def actually_run_module(args):
         pathSegs   = varDict['SEGS']
         pathDC     = varDict['DISTRIBUTIECENTRA']
         
-        doValidationChecks = True
+        doValidationChecks = False
 
         maxZoneNumberZH    = 7400
         minEmplLevelOutput = 3

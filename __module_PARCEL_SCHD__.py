@@ -118,26 +118,13 @@ def actually_run_module(args):
         
         if root != '':
             root.progressBar['value'] = 0
-                
-        # Define folders relative to current datapath
-        datapathI = varDict['INPUTFOLDER']
-        datapathO = varDict['OUTPUTFOLDER']
-        datapathP = varDict['PARAMFOLDER']
-        zonesPath        = varDict['ZONES']
-        skimTravTimePath = varDict['SKIMTIME']
-        skimDistancePath = varDict['SKIMDISTANCE'] 
-        parcelNodesPath  = varDict['PARCELNODES']
-        segsPath         = varDict['SEGS']
-        label            = varDict['LABEL']
-        
-        dropOffTimeSec = varDict['PARCELS_DROPTIME']
-        maxVehicleLoad = varDict['PARCELS_MAXLOAD']
-        maxVehicleLoad = int(maxVehicleLoad)
+
+        maxVehicleLoad = int(varDict['PARCELS_MAXLOAD'])
         doCrowdShipping = (str(varDict['CROWDSHIPPING']).upper() == 'TRUE')
         
         exportTripMatrix = True
         
-        log_file = open(datapathO + "Logfile_ParcelScheduling.log", "w")
+        log_file = open(varDict['OUTPUTFOLDER'] + "Logfile_ParcelScheduling.log", "w")
         log_file.write("Start simulation at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
 
         if root != '':
@@ -146,9 +133,9 @@ def actually_run_module(args):
         
         # --------------------------- Import data----------------------------------
         print('Importing data...'), log_file.write('Importing data...\n')
-        parcels = pd.read_csv(datapathO + 'ParcelDemand_' + label + '.csv')
+        parcels = pd.read_csv(varDict['OUTPUTFOLDER'] + 'ParcelDemand_' + varDict['LABEL'] + '.csv')
         
-        parcelNodes, coords = read_shape(parcelNodesPath, returnGeometry=True)
+        parcelNodes, coords = read_shape(varDict['PARCELNODES'], returnGeometry=True)
         parcelNodes['X']    = [coords[i]['coordinates'][0] for i in range(len(coords))]
         parcelNodes['Y']    = [coords[i]['coordinates'][1] for i in range(len(coords))]
         parcelNodes['id'] = parcelNodes['id'].astype(int)
@@ -158,10 +145,10 @@ def actually_run_module(args):
         for i in parcelNodes.index:
             parcelNodesCEP[parcelNodes.at[i,'id']] = parcelNodes.at[i,'CEP']
         
-        zones = read_shape(zonesPath)
+        zones = read_shape(varDict['ZONES'])
         zones = zones.sort_values('AREANR')
         zones.index = zones['AREANR']
-        supCoordinates = pd.read_csv(datapathI + 'SupCoordinatesID.csv', sep=',')
+        supCoordinates = pd.read_csv(varDict['SUP_COORDINATES_ID'], sep=',')
         supCoordinates.index = supCoordinates['AREANR']
         
         zonesX = {}
@@ -192,10 +179,10 @@ def actually_run_module(args):
             root.progressBar['value'] = 0.3
             
         # System input for scheduling
-        parcelDepTime = np.array(pd.read_csv(f"{datapathI}departureTimeParcelsCDF.csv").iloc[:,1])        
-        dropOffTime   = dropOffTimeSec/3600    
-        skimTravTime  = read_mtx(skimTravTimePath)
-        skimDistance  = read_mtx(skimDistancePath)
+        parcelDepTime = np.array(pd.read_csv(varDict['DEPTIME_PARCELS']).iloc[:,1])        
+        dropOffTime   = varDict['PARCELS_DROPTIME'] / 3600    
+        skimTravTime  = read_mtx(varDict['SKIMTIME'])
+        skimDistance  = read_mtx(varDict['SKIMDISTANCE'])
         nZones        = int(len(skimTravTime)**0.5)
 
         if root != '':
@@ -259,7 +246,7 @@ def actually_run_module(args):
             zone_gemeente_dict = dict(np.transpose(np.vstack( (np.arange(1,nIntZones+1), zones['Gemeentena']) )))
             
             # Get retail jobs per zone from socio-economic data
-            segs       = pd.read_csv(segsPath)
+            segs       = pd.read_csv(varDict['SEGS'])
             segs.index = segs['zone']
             segsDetail = np.array(segs['6: detail'])
             
@@ -267,7 +254,7 @@ def actually_run_module(args):
             do_crowdshipping(parcels, zones, nIntZones, nZones, zoneDict, zonesX, zonesY, 
                              skimDistance, skimTravTime, 
                              nFirstZonesCS, parcelShareCRW, modes, zone_gemeente_dict, segsDetail,
-                             datapathO, label, log_file,
+                             varDict['OUTPUTFOLDER'], varDict['LABEL'], log_file,
                              root)
         
 
@@ -292,7 +279,7 @@ def actually_run_module(args):
 
         del skimEuclidean
         
-        if label == 'UCC':
+        if varDict['LABEL'] == 'UCC':
             
             # Divide parcels into the 4 tour types, namely:
             # 0: Depots to households
@@ -314,6 +301,7 @@ def actually_run_module(args):
                     startValueProgress = 2.0 +     i/3 * (55.0 - 2.0)
                     endValueProgress   = 2.0 + (i+1)/3 * (55.0 - 2.0)
                 print('\tTour type ' + str(i+1) + '...'), log_file.write('\tTour type ' + str(i+1) + '...\n')
+                parcelsUCC[i].index = np.arange(len(parcelsUCC[i]))
                 parcelsUCC[i] = cluster_parcels(parcelsUCC[i], maxVehicleLoad, skimClustering,
                                                 root, startValueProgress, endValueProgress)
 
@@ -348,7 +336,7 @@ def actually_run_module(args):
                     parcelsUCC[i]['Dest'   ] = [x[2] for x in parcelsUCC[i].index]
                 parcelsUCC[i].index = np.arange(len(parcelsUCC[i]))
                    
-        if label != 'UCC':
+        if varDict['LABEL'] != 'UCC':
             # Cluster parcels based on proximity and constrained by vehicle capacity
             startValueProgress = 56.0 if doCrowdShipping else 2.0
             endValueProgress   = 75.0 if doCrowdShipping else 60.0
@@ -373,7 +361,7 @@ def actually_run_module(args):
         
         # ----------- Scheduling of trips (UCC scenario) --------------------------
         
-        if label == 'UCC':
+        if varDict['LABEL'] == 'UCC':
                 
             # Depots to households
             print('Starting scheduling procedure for parcels from depots to households...')
@@ -383,7 +371,7 @@ def actually_run_module(args):
             endValueProgress   = 80.0
             tourType = 0
             deliveries = create_schedules(parcelsUCC[0], dropOffTime, skimTravTime, skimDistance, parcelNodesCEP, parcelDepTime, 
-                                          tourType, label, root, startValueProgress, endValueProgress) 
+                                          tourType, varDict['LABEL'], root, startValueProgress, endValueProgress) 
                
             # Depots to UCCs
             print('Starting scheduling procedure for parcels from depots to UCC...')
@@ -393,7 +381,7 @@ def actually_run_module(args):
             endValueProgress   = 83.0
             tourType = 1
             deliveries1 = create_schedules(parcelsUCC[1], dropOffTime, skimTravTime, skimDistance, parcelNodesCEP, parcelDepTime, 
-                                           tourType, label, root, startValueProgress, endValueProgress) 
+                                           tourType, varDict['LABEL'], root, startValueProgress, endValueProgress) 
                     
 
             # Depots to UCCs (van)
@@ -404,7 +392,7 @@ def actually_run_module(args):
             endValueProgress   = 86.0     
             tourType = 2
             deliveries2 = create_schedules(parcelsUCC[2], dropOffTime, skimTravTime, skimDistance, parcelNodesCEP, parcelDepTime, 
-                                           tourType, label, root, startValueProgress, endValueProgress) 
+                                           tourType, varDict['LABEL'], root, startValueProgress, endValueProgress) 
 
 
             # Depots to UCCs (LEVV)
@@ -415,7 +403,7 @@ def actually_run_module(args):
             endValueProgress   = 89.0
             tourType = 3            
             deliveries3 = create_schedules(parcelsUCC[3], dropOffTime, skimTravTime, skimDistance, parcelNodesCEP, parcelDepTime, 
-                                           tourType, label, root, startValueProgress, endValueProgress) 
+                                           tourType, varDict['LABEL'], root, startValueProgress, endValueProgress) 
 
             
             # Combine deliveries of all tour types
@@ -425,7 +413,7 @@ def actually_run_module(args):
                     
         # ----------- Scheduling of trips (REF scenario) ----------------------------
 
-        if label != 'UCC':                 
+        if varDict['LABEL'] != 'UCC':                 
             print('Starting scheduling procedure for parcels...'), log_file.write('Starting scheduling procedure for parcels...\n')    
             
             startValueProgress = 75.0 if doCrowdShipping else 60.0
@@ -433,7 +421,7 @@ def actually_run_module(args):
             tourType = 0
             
             deliveries = create_schedules(parcels, dropOffTime, skimTravTime, skimDistance, parcelNodesCEP, parcelDepTime, 
-                                          tourType, label, root, startValueProgress, endValueProgress)
+                                          tourType, varDict['LABEL'], root, startValueProgress, endValueProgress)
         
 
         # ------------------ Export output table to CSV and SHP -------------------
@@ -444,9 +432,9 @@ def actually_run_module(args):
         deliveries['TripDepTime'] = [round(deliveries['TripDepTime'][i], 3) for i in deliveries.index]
         deliveries['TripEndTime'] = [round(deliveries['TripEndTime'][i], 3) for i in deliveries.index]
         
-        print(f"Writing scheduled trips to {datapathO}ParcelSchedule_{label}.csv")
-        log_file.write(f"Writing scheduled trips to {datapathO}ParcelSchedule_{label}.csv\n")
-        deliveries.to_csv(f"{datapathO}ParcelSchedule_{label}.csv", index=False)  
+        print(f"Writing scheduled trips to {varDict['OUTPUTFOLDER']}ParcelSchedule_{varDict['LABEL']}.csv")
+        log_file.write(f"Writing scheduled trips to {varDict['OUTPUTFOLDER']}ParcelSchedule_{varDict['LABEL']}.csv\n")
+        deliveries.to_csv(f"{varDict['OUTPUTFOLDER']}ParcelSchedule_{varDict['LABEL']}.csv", index=False)  
 
         if root != '':
             root.progressBar['value'] = 91.0
@@ -501,7 +489,7 @@ def actually_run_module(args):
         By = np.array(By, dtype=str)
         nTrips = len(deliveries)
         
-        with open(datapathO + f"ParcelSchedule_{label}.geojson", 'w') as geoFile:
+        with open(varDict['OUTPUTFOLDER'] + f"ParcelSchedule_{varDict['LABEL']}.geojson", 'w') as geoFile:
             geoFile.write('{\n' + '"type": "FeatureCollection",\n' + '"features": [\n')
             for i in range(nTrips-1):
                 outputStr = ""
@@ -528,7 +516,8 @@ def actually_run_module(args):
             geoFile.write(']\n')
             geoFile.write('}')
         
-        print(f'Parcel schedules written to {datapathO}ParcelSchedule_{label}.geojson'), log_file.write(f'Parcel schedules written to {datapathO}ParcelSchedule_{label}.geojson\n')        
+        print(f"Parcel schedules written to {varDict['OUTPUTFOLDER']}ParcelSchedule_{varDict['LABEL']}.geojson")
+        log_file.write(f"Parcel schedules written to {varDict['OUTPUTFOLDER']}ParcelSchedule_{varDict['LABEL']}.geojson\n")        
 
         
         
@@ -565,8 +554,9 @@ def actually_run_module(args):
             pivotTable = pivotTable.append(intrazonalTripsDF)
             pivotTable = pivotTable.sort_values(['ORIG','DEST'])
             
-            pivotTable.to_csv(f"{datapathO}tripmatrix_parcels_{label}.txt", index=False, sep='\t')
-            print(f'Trip matrix written to {datapathO}tripmatrix_parcels_{label}.txt'), log_file.write(f'Trip matrix written to {datapathO}tripmatrix_{label}.txt\n')
+            pivotTable.to_csv(f"{varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}.txt", index=False, sep='\t')
+            print(f"Trip matrix written to {varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}.txt")
+            log_file.write(f"Trip matrix written to {varDict['OUTPUTFOLDER']}tripmatrix_{varDict['LABEL']}.txt\n")
     
             deliveries.loc[deliveries['TripDepTime']>=24,'TripDepTime'] -= 24
             deliveries.loc[deliveries['TripDepTime']>=24,'TripDepTime'] -= 24
@@ -606,7 +596,7 @@ def actually_run_module(args):
                 else:
                     pivotTable = pd.DataFrame(columns=cols)
                     
-                pivotTable.to_csv(f"{datapathO}tripmatrix_parcels_{label}_TOD{tod}.txt", index=False, sep='\t')
+                pivotTable.to_csv(f"{varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}_TOD{tod}.txt", index=False, sep='\t')
                 
     
             
@@ -650,6 +640,7 @@ def actually_run_module(args):
                 return root.returnInfo
         else:
             return [1, [sys.exc_info()[0], traceback.format_exc()]]
+
 
 
 
@@ -810,6 +801,7 @@ def cluster_parcels(parcels, maxVehicleLoad, skimDistance,
     Assign parcels to clusters based on spatial proximity with cluster size constraints.
     The cluster variable is added as extra column to the DataFrame.
     '''
+    parcels.index = np.arange(len(parcels))
     
     depotNumbers = np.unique(parcels['DepotNumber'])
     nParcels = len(parcels)
@@ -1291,86 +1283,95 @@ def do_crowdshipping(parcels, zones, nIntZones, nZones, zoneDict, zonesX, zonesY
 #%% For if you want to run the module from this script itself (instead of calling it from the GUI module)
         
 if __name__ == '__main__':
-    
-    INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
-    PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
-    
-    SKIMTIME            = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		        = INPUTFOLDER + 'links_v5.shp'
-    NODES               = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES               = INPUTFOLDER + 'Zones_v4.shp'
-    SEGS                = INPUTFOLDER + 'SEGS2016.csv'
-    COMMODITYMATRIX     = INPUTFOLDER + 'CommodityMatrixNUTS3_2016.csv'
-    PARCELNODES         = INPUTFOLDER + 'parcelNodes_v2.shp'
-    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
-    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
-    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
-    MRDH_TO_NUTS3       = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
-    NUTS3_TO_MRDH       = PARAMFOLDER + 'NUTS32013toMRDH.csv'
-    
-    YEARFACTOR = 209
-    
-    NUTSLEVEL_INPUT = 3
-    
-    PARCELS_PER_HH	 = 0.112
-    PARCELS_PER_EMPL = 0.041
-    PARCELS_MAXLOAD	 = 180
-    PARCELS_DROPTIME = 120
-    PARCELS_SUCCESS_B2C   = 0.75
-    PARCELS_SUCCESS_B2B   = 0.95
-    PARCELS_GROWTHFREIGHT = 1.0
-    
-    CROWDSHIPPING    = 'FALSE'
-    CRW_PARCELSHARE  = 0.06
-    CRW_MODEPARAMS   = PARAMFOLDER + 'Params_UseCase_CrowdShipping.csv'
-    CRW_PDEMAND_CAR  = INPUTFOLDER + 'MRDH_2016_Auto_Etmaal.mtx'
-    CRW_PDEMAND_BIKE = INPUTFOLDER + 'MRDH_2016_Fiets_Etmaal.mtx'
-    
-    SHIPMENTS_REF = ""
-    SELECTED_LINKS = ""
-    N_CPU = ""
-    
-    IMPEDANCE_SPEED_FREIGHT = 'V_FR_OS'
-    IMPEDANCE_SPEED_VAN     = 'V_PA_OS'
-    
-    LABEL = 'REF'
-    
-    MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
-    
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, \
-            LINKS, NODES, ZONES, SEGS, \
-            DISTRIBUTIECENTRA, COST_VEHTYPE,COST_SOURCING,\
-            COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
-            PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
-            PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
-            CROWDSHIPPING, CRW_PARCELSHARE, CRW_MODEPARAMS, CRW_PDEMAND_CAR, CRW_PDEMAND_BIKE, \
-            YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED_FREIGHT, IMPEDANCE_SPEED_VAN, N_CPU, \
-            SHIPMENTS_REF, SELECTED_LINKS,\
-            LABEL, \
-            MODULES]
-
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", \
-                  "LINKS", "NODES", "ZONES", "SEGS", \
-                  "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING", \
-                  "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
-                  "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                  "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
-                  "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE", \
-                  "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", "N_CPU", \
-                  "SHIPMENTS_REF", "SELECTED_LINKS", \
-                  "LABEL", \
-                  "MODULES"]
-     
     varDict = {}
-    for i in range(len(args)):
-        varDict[varStrings[i]] = args[i]
-        
-    # Run the module
-    root = ''
-    main(varDict)
 
+    varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
+    varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
+    varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
+    
+    varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
+    varDict['NODES'] = varDict['INPUTFOLDER'] + 'nodes_v5.shp'
+    varDict['ZONES'] = varDict['INPUTFOLDER'] + 'Zones_v5.shp'
+    varDict['SEGS']  = varDict['INPUTFOLDER'] + 'SEGS2016.csv'
+    varDict['COMMODITYMATRIX']    = varDict['INPUTFOLDER'] + 'CommodityMatrixNUTS3_2016.csv'
+    varDict['PARCELNODES']        = varDict['INPUTFOLDER'] + 'parcelNodes_v2.shp'
+    varDict['DISTRIBUTIECENTRA']  = varDict['INPUTFOLDER'] + 'distributieCentra.csv'
+    varDict['NSTR_TO_LS']         = varDict['INPUTFOLDER'] + 'nstrToLogisticSegment.csv'
+    varDict['MAKE_DISTRIBUTION']  = varDict['INPUTFOLDER'] + 'MakeDistribution.csv'
+    varDict['USE_DISTRIBUTION']   = varDict['INPUTFOLDER'] + 'UseDistribution.csv'
+    varDict['SUP_COORDINATES_ID'] = varDict['INPUTFOLDER'] + 'SupCoordinatesID.csv'
+    varDict['CORRECTIONS_TONNES'] = varDict['INPUTFOLDER'] + 'CorrectionsTonnes2016.csv'
+    varDict['DEPTIME_FREIGHT'] = varDict['INPUTFOLDER'] + 'departureTimePDF.csv'
+    varDict['DEPTIME_PARCELS'] = varDict['INPUTFOLDER'] + 'departureTimeParcelsCDF.csv'
+
+    varDict['COST_VEHTYPE']        = varDict['PARAMFOLDER'] + 'Cost_VehType_2016.csv'
+    varDict['COST_SOURCING']       = varDict['PARAMFOLDER'] + 'Cost_Sourcing_2016.csv'
+    varDict['MRDH_TO_NUTS3']       = varDict['PARAMFOLDER'] + 'MRDHtoNUTS32013.csv'
+    varDict['NUTS3_TO_MRDH']       = varDict['PARAMFOLDER'] + 'NUTS32013toMRDH.csv'
+    varDict['VEHICLE_CAPACITY']    = varDict['PARAMFOLDER'] + 'CarryingCapacity.csv'
+    varDict['LOGISTIC_FLOWTYPES']  = varDict['PARAMFOLDER'] + 'LogFlowtype_Shares.csv'
+    varDict['PARAMS_TOD']          = varDict['PARAMFOLDER'] + 'Params_TOD.csv'
+    varDict['PARAMS_SSVT']         = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
+    varDict['PARAMS_ET_FIRST']     = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
+    varDict['PARAMS_ET_LATER']     = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+
+    varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
+    varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
+    varDict['EMISSIONFACS_SNELWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_LEEG.csv'
+    varDict['EMISSIONFACS_SNELWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_VOL.csv'
+    varDict['EMISSIONFACS_STAD_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_LEEG.csv'
+    varDict['EMISSIONFACS_STAD_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_VOL.csv'
+
+    varDict['ZEZ_CONSOLIDATION'] = varDict['INPUTFOLDER'] + 'ConsolidationPotential.csv'
+    varDict['ZEZ_SCENARIO']      = varDict['INPUTFOLDER'] + 'ZEZscenario.csv'
+
+    varDict['YEARFACTOR'] = 209
+    
+    varDict['NUTSLEVEL_INPUT'] = 3
+    
+    varDict['PARCELS_PER_HH']	 = 0.112
+    varDict['PARCELS_PER_EMPL'] = 0.041
+    varDict['PARCELS_MAXLOAD']	 = 180
+    varDict['PARCELS_DROPTIME'] = 120
+    varDict['PARCELS_SUCCESS_B2C']   = 0.75
+    varDict['PARCELS_SUCCESS_B2B']   = 0.95
+    varDict['PARCELS_GROWTHFREIGHT'] = 1.0
+
+    varDict['MICROHUBS']    = varDict['INPUTFOLDER'] + 'Microhubs.csv'
+    varDict['VEHICLETYPES'] = varDict['INPUTFOLDER'] + 'Microhubs_vehicleTypes.csv'
+
+    varDict['SHIPMENTS_REF'] = ""
+    varDict['SELECTED_LINKS'] = ""
+    varDict['N_CPU'] = ""
+    
+    varDict['FAC_LS0'] = ""
+    varDict['FAC_LS1'] = ""
+    varDict['FAC_LS2'] = ""
+    varDict['FAC_LS3'] = ""
+    varDict['FAC_LS4'] = ""
+    varDict['FAC_LS5'] = ""
+    varDict['FAC_LS6'] = ""
+    varDict['FAC_LS7'] = ""
+    varDict['NEAREST_DC'] = ""
+
+    varDict['CROWDSHIPPING']    = False
+    varDict['CRW_PARCELSHARE']  = ""
+    varDict['CRW_MODEPARAMS']   = ""
+    varDict['CRW_PDEMAND_CAR']  = ""
+    varDict['CRW_PDEMAND_BIKE'] = ""
+    
+    varDict['SHIFT_FREIGHT_TO_COMB1'] = ""
+    
+    varDict['IMPEDANCE_SPEED'] = 'V_FR_OS'
+    
+    varDict['LABEL'] = 'REF'
+    # labels = [ 'MIC_individual_EB', 'MIC_individual_AR', 'MIC_individual_ET', 'MIC_individual_EQ', 'MIC_individual_EM', 
+    #               'MIC_individual_EDV', 'MIC_individual_LEV', 
+    #               'MIC_collab_EB', 'MIC_collab_AR', 'MIC_collab_ET', 'MIC_collab_EQ', 'MIC_collab_EM',
+    #               'MIC_collab_EDV', 'MIC_collab_LEV']
+
+    # Run the module
+    main(varDict)
     

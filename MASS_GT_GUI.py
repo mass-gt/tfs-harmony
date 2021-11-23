@@ -44,7 +44,12 @@ class Root:
         self.datapath = os.path.dirname(os.path.realpath(argv[0]))
         self.datapath = self.datapath.replace(os.sep, '/') + '/'
 
-        self.moduleNames = ['FS', 'SIF', 'SHIP','TOUR','PARCEL_DMND','PARCEL_SCHD','SERVICE','TRAF','OUTP']
+        self.moduleNames = ['FS', 'SIF', 
+                            'SHIP','TOUR',
+                            'PARCEL_DMND','PARCEL_SCHD',
+                            'SERVICE',
+                            'TRAF',
+                            'OUTP']
         
         # Set graphics parameters
         self.width  = 950
@@ -71,21 +76,39 @@ class Root:
         self.root.iconbitmap(bitmap=self.iconPath)
         
         # Create control file label and entry
-        self.labelControlFile = tk.Label(self.root, text='Control file:', width=20, height=1, anchor='w', bg=self.bg, fg=self.fg, font=(self.font,8))
+        self.labelControlFile = tk.Label(self.root, 
+                                         text='Control file:', 
+                                         width=20, height=1, 
+                                         anchor='w', 
+                                         bg=self.bg, fg=self.fg, 
+                                         font=(self.font,8))
         self.labelControlFile.place(x=5, y=9)        
-        self.controlFile = tk.StringVar(self.root, self.datapath)
-        self.entryControlFile= tk.Entry(self.root, textvariable=self.controlFile, width=120, font=(self.font,8))
+        self.controlFile = tk.StringVar(self.root, 
+                                        self.datapath)
+        self.entryControlFile= tk.Entry(self.root, 
+                                        textvariable=self.controlFile, 
+                                        width=120, 
+                                        font=(self.font,8))
         self.entryControlFile.place(x=80, y=10)
         
         # Create button to search for control file
-        self.searchButton = tk.Button(self.root, text="...", command=self.file_dialog, font=(self.font,5), width=2)
+        self.searchButton = tk.Button(self.root, 
+                                      text="...", 
+                                      command=self.file_dialog, 
+                                      width=2,
+                                      font=(self.font,5))
         self.searchButton.place(x=905, y=12)
 
         # Create button to run the main function
-        self.runButton = tk.Button(self.root, text="Run", width=15, height=3, command=self.run_main, font=(self.font,8))
+        self.runButton = tk.Button(self.root, 
+                                   text="Run", 
+                                   width=15, height=3, 
+                                   command=self.run_main, 
+                                   font=(self.font,8))
         self.runButton.place(x=425, y=35)
         
-        self.progressBar = Progressbar(self.root, length=int(self.width/2))
+        self.progressBar = Progressbar(self.root, 
+                                       length=int(self.width/2))
         self.progressBar.place(x=int(self.width/2), y=self.height-22)
         
         # If the control file is passed as an argument in a batch job or in the command line prompt
@@ -112,8 +135,10 @@ class Root:
         '''
         Open up a file dialog
         '''
-        self.filename = filedialog.askopenfilename(initialdir= "/", title="Select the .ini control file", filetype =
-        (("Control files (.ini)","*.ini"),("All files","*.*")) )
+        self.filename = filedialog.askopenfilename(initialdir= "/", 
+                                                   title="Select the .ini control file", 
+                                                   filetype=(("Control files (.ini)","*.ini"),
+                                                             ("All files","*.*")))
         self.controlFile.set(self.filename)
 
 
@@ -128,17 +153,53 @@ class Root:
         Run the actual emission calculation
         '''
         # De mogelijke sleutels in de control file
-        self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE",
-                           "LINKS", "NODES","ZONES","SEGS", "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING",
-                           "COMMODITYMATRIX", "PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
+        self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", 
+                           "SKIMTIME", "SKIMDISTANCE",
+                           "LINKS", 
+                           "NODES",
+                           "EMISSIONFACS_BUITENWEG_LEEG",
+                           "EMISSIONFACS_BUITENWEG_VOL",
+                           "EMISSIONFACS_SNELWEG_LEEG",
+                           "EMISSIONFACS_SNELWEG_VOL",
+                           "EMISSIONFACS_STAD_LEEG",
+                           "EMISSIONFACS_STAD_VOL",
+                           "ZONES", "SEGS", 
+                           "DISTRIBUTIECENTRA",
+                           "NSTR_TO_LS",
+                           "MAKE_DISTRIBUTION", "USE_DISTRIBUTION",
+                           "SUP_COORDINATES_ID",
+                           "DEPTIME_FREIGHT", "DEPTIME_PARCELS",
+                           "COST_VEHTYPE", "COST_SOURCING",
+                           "COMMODITYMATRIX", 
+                           "PARCELNODES", "CEP_SHARES", 
+                           "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
+                           "VEHICLE_CAPACITY",
+                           "LOGISTIC_FLOWTYPES",
                            "SERVICE_DISTANCEDECAY",
-                           "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
-                           "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT",
-                           "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
-                           "YEARFACTOR", "NUTSLEVEL_INPUT",
-                           "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", "N_CPU", "N_MULTIROUTE",
-                           "SHIPMENTS_REF", "SELECTED_LINKS", "CORRECTIONS_TONNES",
+                           "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
+                           "PARAMS_TOD", "PARAMS_SSVT",
+                           "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
+                           "PARCELS_PER_HH", "PARCELS_PER_EMPL", 
+                           "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
+                           "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", 
+                           "PARCELS_GROWTHFREIGHT",
+                           "CROWDSHIPPING", 
+                           "CRW_PARCELSHARE", "CRW_MODEPARAMS", 
+                           "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+                           "NEAREST_DC",
+                           "YEARFACTOR", 
+                           "NUTSLEVEL_INPUT",
+                           "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", 
+                           "N_CPU", 
+                           "N_MULTIROUTE",
+                           "SHIPMENTS_REF", 
+                           "SELECTED_LINKS", 
+                           "CORRECTIONS_TONNES",
                            "MICROHUBS", "VEHICLETYPES",
+                           "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3", 
+                           "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
+                           "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1", 
+                           "SHIFT_FREIGHT_TO_COMB2", 
                            "LABEL", 
                            "MODULES"]
         nVars = len(self.varStrings)
@@ -152,21 +213,63 @@ class Root:
         varValues = ["" for i in range(nVars)]
 
         # Welke waardes zijn numeriek of stellen een directory/filenaam voor
-        numericVars = ["PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
-                       "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", "PARCELS_GROWTHFREIGHT",
-                       "YEARFACTOR", "NUTSLEVEL_INPUT", "CRW_PARCELSHARE", "N_MULTIROUTE"]
+        numericVars = ["PARCELS_PER_HH", "PARCELS_PER_EMPL", 
+                       "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
+                       "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", 
+                       "PARCELS_GROWTHFREIGHT",
+                       "YEARFACTOR", 
+                       "NUTSLEVEL_INPUT", 
+                       "CRW_PARCELSHARE", 
+                       "N_MULTIROUTE",
+                       "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3", 
+                       "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
+                       "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1", 
+                       "SHIFT_FREIGHT_TO_COMB2"]
         dirVars     = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
         moduleVars  = ["MODULES"]
-        fileVars    = ["SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES","SEGS",
-                       "DISTRIBUTIECENTRA", "COST_VEHTYPE","COST_SOURCING",
-                       "COMMODITYMATRIX","PARCELNODES", "CEP_SHARES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
+        fileVars    = ["SKIMTIME", "SKIMDISTANCE", 
+                       "LINKS", 
+                       "NODES", 
+                       "EMISSIONFACS_BUITENWEG_LEEG",
+                       "EMISSIONFACS_BUITENWEG_VOL",
+                       "EMISSIONFACS_SNELWEG_LEEG",
+                       "EMISSIONFACS_SNELWEG_VOL",
+                       "EMISSIONFACS_STAD_LEEG",
+                       "EMISSIONFACS_STAD_VOL",
+                       "ZONES", "SEGS",
+                       "DISTRIBUTIECENTRA", 
+                       "NSTR_TO_LS",
+                       "MAKE_DISTRIBUTION", "USE_DISTRIBUTION",
+                       "SUP_COORDINATES_ID",
+                       "DEPTIME_FREIGHT", "DEPTIME_PARCELS",
+                       "COST_VEHTYPE","COST_SOURCING",
+                       "COMMODITYMATRIX",
+                       "PARCELNODES", "CEP_SHARES", 
+                       "MRDH_TO_NUTS3", "NUTS3_TO_MRDH",
+                       "VEHICLE_CAPACITY",
+                       "LOGISTIC_FLOWTYPES",
                        "SERVICE_DISTANCEDECAY",
-                       "SHIPMENTS_REF", "CORRECTIONS_TONNES",
+                       "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
+                       "PARAMS_TOD", "PARAMS_SSVT",
+                       "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
+                       "SHIPMENTS_REF", 
+                       "CORRECTIONS_TONNES",
                        "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
                        "MICROHUBS", "VEHICLETYPES"]
-        optionalVars = ["SHIPMENTS_REF", "CORRECTIONS_TONNES", "SELECTED_LINKS", "N_CPU", "N_MULTIROUTE",
-                        "CROWDSHIPPING", "CRW_PARCELSHARE", "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
-                        "MICROHUBS", "VEHICLETYPES"]
+        optionalVars = ["SHIPMENTS_REF", 
+                        "CORRECTIONS_TONNES", 
+                        "SELECTED_LINKS", 
+                        "N_CPU", 
+                        "N_MULTIROUTE",
+                        "CROWDSHIPPING", 
+                        "NEAREST_DC",
+                        "CRW_PARCELSHARE", "CRW_MODEPARAMS", 
+                        "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+                        "MICROHUBS", "VEHICLETYPES",
+                        "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3", 
+                        "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
+                        "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1", 
+                        "SHIFT_FREIGHT_TO_COMB2"]
         
         run = True          # Wel of niet runnen, wordt op False gezet als bijv. bestanden niet gevonden kunnen worden
         writeLog = True     # Wel of geen logfile schrijven, wordt op False gezet als de outputfolder niet bestaat
@@ -211,10 +314,10 @@ class Root:
                                         try:
                                             varValues[i] = float(value)
                                         except:
-                                            if value != "":
+                                            if not (value == ''  and value in optionalVars):
                                                 varValues[i] = value
                                                 errorMessage = errorMessage + 'Fill in a numeric value for ' + self.varStrings[i] + ', could not convert following value to a number: ' + value.replace("'", "").replace('"', "").replace('\n',"") + "\n"
-                                                run = False                                                
+                                                run = False
                                     
                                     # The argument which states which modules should be run
                                     elif self.varStrings[i] in moduleVars:
@@ -290,7 +393,7 @@ class Root:
             with open(self.logFileName, "w") as f:            
                 f.write('########################################################################################\n')
                 f.write('### Tactical Freight Simulator HARMONY                                               ###\n')
-                f.write('### Prototype version, June 2021                                                     ###\n')
+                f.write('### Prototype version, September 2021                                                ###\n')
                 f.write('########################################################################################\n')
                 f.write('\n')
     
@@ -318,16 +421,13 @@ class Root:
             self.statusBar.configure(text="")
             
             if result[0] == 1:
-                self.statusBar.configure(text="Error in calculation! (Tool will be closed automatically after 15 seconds.)")         
-                self.root.after(15000, lambda: self.root.destroy())
+                self.statusBar.configure(text="Error in calculation! (Tool will be closed automatically after 20 seconds.)")         
+                self.root.after(20000, lambda: self.root.destroy())
                     
             else:
                 self.statusBar.configure(text="Calculations finished.")
                 self.progressBar['value'] = 100
-                if len(varDict['MODULES'])==1 and varDict['MODULES'][0]=='INVOERCONTROLE':
-                    self.root.after(15000, lambda: self.root.destroy())
-                else:
-                    self.root.after(1000, lambda: self.root.destroy())
+                self.root.after(5000, lambda: self.root.destroy())
                 
         else:
             self.statusBar.configure(text="Run was not started. See error message. ")
