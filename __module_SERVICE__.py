@@ -102,22 +102,10 @@ def actually_run_module(args):
         
         root    = args[0]
         varDict = args[1]
-        
-        datapathI         = varDict['INPUTFOLDER']
-        datapathP         = varDict['PARAMFOLDER']    
-        datapathO         = varDict['OUTPUTFOLDER'] 
-        pathZones         = varDict['ZONES']
-        pathSegs          = varDict['SEGS']
-        pathParcelNodes   = varDict['PARCELNODES']
-        pathSkimTravTime  = varDict['SKIMTIME']
-        pathSkimDistance  = varDict['SKIMDISTANCE']
-        pathCostVehType   = varDict['COST_VEHTYPE'] 
-        pathDistanceDecay = varDict['SERVICE_DISTANCEDECAY']
-        yearFactor        = varDict['YEARFACTOR']
                 
         start_time = time.time()
         
-        log_file = open(datapathO + "Logfile_ServiceTrips.log", "w")
+        log_file = open(varDict['OUTPUTFOLDER'] + "Logfile_ServiceTrips.log", "w")
         log_file.write("Start simulation at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M")+"\n")
               
         nZones         = 6668
@@ -139,19 +127,19 @@ def actually_run_module(args):
             root.update_statusbar('Importing data...')
         
         # Import cost parameters
-        costParams  = pd.read_csv(pathCostVehType, index_col=0)
+        costParams  = pd.read_csv(varDict['COST_VEHTYPE'], index_col=0)
         costPerHour      = costParams.at['Van', 'CostPerH']
         costPerKilometer = costParams.at['Van', 'CostPerKm']
         
         # Import distance decay parameters
-        distanceDecay = pd.read_csv(pathDistanceDecay, index_col=0)
+        distanceDecay = pd.read_csv(varDict['SERVICE_DISTANCEDECAY'], index_col=0)
         alphaService = distanceDecay.at['Service', 'ALPHA']
         betaService  = distanceDecay.at['Service', 'BETA']
         alphaBouw = distanceDecay.at['Construction', 'ALPHA']
         betaBouw  = distanceDecay.at['Construction', 'BETA']
         
         # Import zone shapefile
-        zones = read_shape(pathZones)
+        zones = read_shape(varDict['ZONES'])
         zoneDict = {}
         for i in range(nInternalZones):
             zoneDict[i] = zones.at[i,'AREANR']
@@ -160,29 +148,29 @@ def actually_run_module(args):
         invZoneDict = dict((v, k) for k, v in zoneDict.items())
         
         # Import socio economic data
-        segs = pd.read_csv(pathSegs, sep=',')
+        segs = pd.read_csv(varDict['SEGS'], sep=',')
         segs = segs.sort_values('zone')
         segs.index = segs['zone']
         
         # Import regression coefficients
-        regrCoeffs = pd.read_csv(datapathP + 'Params_PA_SERVICE.csv', sep=',', index_col=[0])
+        regrCoeffs = pd.read_csv(varDict['SERVICE_PA'], sep=',', index_col=[0])
         
         # Which MRDH zones form which COROP region
         nCOROP = 40
-        MRDHtoCOROP = pd.read_csv(datapathP + 'MRDHtoCOROP.csv', sep=',')        
+        MRDHtoCOROP = pd.read_csv(varDict['MRDH_TO_COROP'], sep=',')        
         MRDHwithinCOROP = {}
         for i in range(1,1+nCOROP):
             MRDHwithinCOROP[i] = np.array(MRDHtoCOROP.loc[MRDHtoCOROP['COROP']==i,'AREANR'])
             
         # Parcel nodes
-        parcelNodes = read_shape(pathParcelNodes)    
+        parcelNodes = read_shape(varDict['PARCELNODES'])    
 
         if root != '':
             root.progressBar['value'] = 0.5
             
         # Skim with travel times and distances
-        skimTravTime = read_mtx(pathSkimTravTime)
-        skimDistance = read_mtx(pathSkimDistance)
+        skimTravTime = read_mtx(varDict['SKIMTIME'])
+        skimDistance = read_mtx(varDict['SKIMDISTANCE'])
 
         if root != '':
             root.progressBar['value'] = 2.0
@@ -390,8 +378,8 @@ def actually_run_module(args):
             matrixBouw[   nInternalZones+i, nInternalZones:] = 0
             
         # Van jaar naar dag brengen
-        matrixService = np.round(matrixService.flatten() / yearFactor, 3)
-        matrixBouw    = np.round(matrixBouw.flatten()    / yearFactor, 3)
+        matrixService = np.round(matrixService.flatten() / varDict['YEARFACTOR'], 3)
+        matrixBouw    = np.round(matrixBouw.flatten()    / varDict['YEARFACTOR'], 3)
         
         
         # ------------------------ Writing OD trip matrices -------------------------
@@ -400,12 +388,12 @@ def actually_run_module(args):
         if root != '':
             root.update_statusbar('Writing trip matrices...')
                     
-        write_mtx(datapathO + 'TripsVanService.mtx',      matrixService, nZones)
+        write_mtx(varDict['OUTPUTFOLDER'] + 'TripsVanService.mtx',      matrixService, nZones)
         
         if root != '':
             root.progressBar['value'] = 93.0
                 
-        write_mtx(datapathO + 'TripsVanConstruction.mtx', matrixBouw   , nZones)  
+        write_mtx(varDict['OUTPUTFOLDER'] + 'TripsVanConstruction.mtx', matrixBouw   , nZones)  
         
         if root != '':
             root.progressBar['value'] = 100.0
@@ -461,76 +449,102 @@ def actually_run_module(args):
         
 if __name__ == '__main__':
     
-    INPUTFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
-    OUTPUTFOLDER = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
-    PARAMFOLDER	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
-    
-    SKIMTIME        = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
-    SKIMDISTANCE    = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
-    LINKS		    = INPUTFOLDER + 'links_v5.shp'
-    NODES           = INPUTFOLDER + 'nodes_v5.shp'
-    ZONES           = INPUTFOLDER + 'Zones_v5.shp'
-    SEGS            = INPUTFOLDER + 'SEGS2016_verrijkt.csv'
-    COMMODITYMATRIX = INPUTFOLDER + 'CommodityMatrixNUTS2_2016.csv'
-    PARCELNODES     = INPUTFOLDER + 'parcelNodes_v2.shp'
-    MRDH_TO_NUTS3   = PARAMFOLDER + 'MRDHtoNUTS32013.csv'
-    NUTS3_TO_MRDH   = PARAMFOLDER + 'NUTS32013toMRDH.csv'
-    SERVICE_DISTANCEDECAY = PARAMFOLDER + 'Params_DistanceDecay_SERVICE.csv'
-    DISTRIBUTIECENTRA   = INPUTFOLDER + 'distributieCentra.csv'
-    COST_VEHTYPE        = PARAMFOLDER + 'Cost_VehType_2016.csv'
-    COST_SOURCING       = PARAMFOLDER + 'Cost_Sourcing_2016.csv'
-    
-    YEARFACTOR = 209
-    
-    NUTSLEVEL_INPUT = 3
-    
-    PARCELS_PER_HH	 = 0.195
-    PARCELS_PER_EMPL = 0.073
-    PARCELS_MAXLOAD	 = 180
-    PARCELS_DROPTIME = 120
-    PARCELS_SUCCESS_B2C   = 0.75
-    PARCELS_SUCCESS_B2B   = 0.95
-    PARCELS_GROWTHFREIGHT = 1.0
-    
-    SHIPMENTS_REF = ""
-    SELECTED_LINKS = ""
-    
-    IMPEDANCE_SPEED = 'V_FR_OS'
-    
-    LABEL = 'REF'
-    
-    MODULES = ['FS', 'SIF', 'SHIP', 'TOUR','PARCEL_DMND','PARCEL_SCHD','TRAF','OUTP']
-    
-    args = [INPUTFOLDER, OUTPUTFOLDER, PARAMFOLDER, SKIMTIME, SKIMDISTANCE, LINKS, NODES, ZONES, SEGS, \
-            COMMODITYMATRIX, PARCELNODES, MRDH_TO_NUTS3, NUTS3_TO_MRDH, \
-            DISTRIBUTIECENTRA, COST_VEHTYPE, COST_SOURCING, \
-            SERVICE_DISTANCEDECAY, \
-            PARCELS_PER_HH, PARCELS_PER_EMPL, PARCELS_MAXLOAD, PARCELS_DROPTIME, \
-            PARCELS_SUCCESS_B2C, PARCELS_SUCCESS_B2B, PARCELS_GROWTHFREIGHT, \
-            YEARFACTOR, NUTSLEVEL_INPUT, \
-            IMPEDANCE_SPEED, \
-            SHIPMENTS_REF, SELECTED_LINKS,\
-            LABEL, \
-            MODULES]
-
-    varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "SKIMTIME", "SKIMDISTANCE", "LINKS", "NODES", "ZONES", "SEGS", \
-                  "COMMODITYMATRIX", "PARCELNODES", "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", \
-                  "DISTRIBUTIECENTRA", "COST_VEHTYPE", "COST_SOURCING",\
-                  "SERVICE_DISTANCEDECAY", \
-                  "PARCELS_PER_HH", "PARCELS_PER_EMPL", "PARCELS_MAXLOAD", "PARCELS_DROPTIME", \
-                  "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",  "PARCELS_GROWTHFREIGHT", \
-                  "YEARFACTOR", "NUTSLEVEL_INPUT", \
-                  "IMPEDANCE_SPEED", \
-                  "SHIPMENTS_REF", "SELECTED_LINKS", \
-                  "LABEL", \
-                  "MODULES"]
-     
     varDict = {}
-    for i in range(len(args)):
-        varDict[varStrings[i]] = args[i]
-        
+
+    varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/2016/'
+    varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/output/RunREF2016/'
+    varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/parameters/'
+    
+    varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimTijd_REF.mtx'
+    varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v11/data/LOS/2016/skimAfstand_REF.mtx'
+    varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
+    varDict['NODES'] = varDict['INPUTFOLDER'] + 'nodes_v5.shp'
+    varDict['ZONES'] = varDict['INPUTFOLDER'] + 'Zones_v5.shp'
+    varDict['SEGS']  = varDict['INPUTFOLDER'] + 'SEGS2016_verrijkt.csv'
+    varDict['COMMODITYMATRIX']    = varDict['INPUTFOLDER'] + 'CommodityMatrixNUTS3_2016.csv'
+    varDict['PARCELNODES']        = varDict['INPUTFOLDER'] + 'parcelNodes_v2.shp'
+    varDict['DISTRIBUTIECENTRA']  = varDict['INPUTFOLDER'] + 'distributieCentra.csv'
+    varDict['DC_OPP_NUTS3']       = varDict['INPUTFOLDER'] + 'DC_OPP_NUTS3.csv'
+    varDict['NSTR_TO_LS']         = varDict['INPUTFOLDER'] + 'nstrToLogisticSegment.csv'
+    varDict['MAKE_DISTRIBUTION']  = varDict['INPUTFOLDER'] + 'MakeDistribution.csv'
+    varDict['USE_DISTRIBUTION']   = varDict['INPUTFOLDER'] + 'UseDistribution.csv'
+    varDict['SUP_COORDINATES_ID'] = varDict['INPUTFOLDER'] + 'SupCoordinatesID.csv'
+    varDict['CORRECTIONS_TONNES'] = varDict['INPUTFOLDER'] + 'CorrectionsTonnes2016.csv'
+    varDict['DEPTIME_FREIGHT'] = varDict['INPUTFOLDER'] + 'departureTimePDF.csv'
+    varDict['DEPTIME_PARCELS'] = varDict['INPUTFOLDER'] + 'departureTimeParcelsCDF.csv'
+    varDict['FIRMSIZE']    = varDict['INPUTFOLDER'] + 'FirmSizeDistributionPerSector_6cat.csv'
+    varDict['SBI_TO_SEGS'] = varDict['INPUTFOLDER'] + 'Koppeltabel_sectoren_SBI_SEGs.csv'
+
+    varDict['COST_VEHTYPE']        = varDict['PARAMFOLDER'] + 'Cost_VehType_2016.csv'
+    varDict['COST_SOURCING']       = varDict['PARAMFOLDER'] + 'Cost_Sourcing_2016.csv'
+    varDict['MRDH_TO_NUTS3']       = varDict['PARAMFOLDER'] + 'MRDHtoNUTS32013.csv'
+    varDict['MRDH_TO_COROP']       = varDict['PARAMFOLDER'] + 'MRDHtoCOROP.csv'
+    varDict['NUTS3_TO_MRDH']       = varDict['PARAMFOLDER'] + 'NUTS32013toMRDH.csv'
+    varDict['VEHICLE_CAPACITY']    = varDict['PARAMFOLDER'] + 'CarryingCapacity.csv'
+    varDict['LOGISTIC_FLOWTYPES']  = varDict['PARAMFOLDER'] + 'LogFlowtype_Shares.csv'
+    varDict['SERVICE_DISTANCEDECAY'] = varDict['PARAMFOLDER'] + 'Params_DistanceDecay_SERVICE.csv'
+    varDict['SERVICE_PA']            = varDict['PARAMFOLDER'] + 'Params_PA_SERVICE.csv'
+    varDict['PARAMS_TOD']     = varDict['PARAMFOLDER'] + 'Params_TOD.csv'
+    varDict['PARAMS_SSVT']     = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
+    varDict['PARAMS_ET_FIRST'] = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
+    varDict['PARAMS_ET_LATER'] = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+    varDict['PARAMS_SIF_PROD'] = varDict['PARAMFOLDER'] + 'Params_PA_PROD.csv'
+    varDict['PARAMS_SIF_ATTR'] = varDict['PARAMFOLDER'] + 'Params_PA_ATTR.csv'
+
+    varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
+    varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
+    varDict['EMISSIONFACS_SNELWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_LEEG.csv'
+    varDict['EMISSIONFACS_SNELWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_SNELWEG_VOL.csv'
+    varDict['EMISSIONFACS_STAD_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_LEEG.csv'
+    varDict['EMISSIONFACS_STAD_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_STAD_VOL.csv'
+
+    varDict['ZEZ_CONSOLIDATION'] = varDict['INPUTFOLDER'] + 'ConsolidationPotential.csv'
+    varDict['ZEZ_SCENARIO']      = varDict['INPUTFOLDER'] + 'ZEZscenario.csv'
+
+    varDict['YEARFACTOR'] = 209
+    
+    varDict['NUTSLEVEL_INPUT'] = 3
+    
+    varDict['PARCELS_PER_HH']	 = 0.112
+    varDict['PARCELS_PER_EMPL'] = 0.041
+    varDict['PARCELS_MAXLOAD']	 = 180
+    varDict['PARCELS_DROPTIME'] = 120
+    varDict['PARCELS_SUCCESS_B2C']   = 0.75
+    varDict['PARCELS_SUCCESS_B2B']   = 0.95
+    varDict['PARCELS_GROWTHFREIGHT'] = 1.0
+
+    varDict['MICROHUBS']    = varDict['INPUTFOLDER'] + 'Microhubs.csv'
+    varDict['VEHICLETYPES'] = varDict['INPUTFOLDER'] + 'Microhubs_vehicleTypes.csv'
+
+    varDict['SHIPMENTS_REF'] = ""
+    varDict['FIRMS_REF'] = ""
+    varDict['SELECTED_LINKS'] = ""
+    varDict['N_CPU'] = ""
+    
+    varDict['FAC_LS0'] = ""
+    varDict['FAC_LS1'] = ""
+    varDict['FAC_LS2'] = ""
+    varDict['FAC_LS3'] = ""
+    varDict['FAC_LS4'] = ""
+    varDict['FAC_LS5'] = ""
+    varDict['FAC_LS6'] = ""
+    varDict['FAC_LS7'] = ""
+    varDict['NEAREST_DC'] = ""
+
+    varDict['CROWDSHIPPING']    = False
+    varDict['CRW_PARCELSHARE']  = ""
+    varDict['CRW_MODEPARAMS']   = ""
+    varDict['CRW_PDEMAND_CAR']  = ""
+    varDict['CRW_PDEMAND_BIKE'] = ""
+    
+    varDict['SHIFT_FREIGHT_TO_COMB1'] = ""
+    
+    varDict['IMPEDANCE_SPEED'] = 'V_FR_OS'
+    
+    varDict['LABEL'] = 'REF'
+    
     # Run the module
-    # main(varDict)
+    main(varDict)
 
         
         
