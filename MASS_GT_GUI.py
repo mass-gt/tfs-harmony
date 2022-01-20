@@ -32,11 +32,10 @@ import traceback
 import datetime
 
 
-#%% Class and functions: Graphical User Interface
-        
+# Class and functions: Graphical User Interface
 class Root:
-    
-    def __init__(self):        
+
+    def __init__(self):
         '''
         Initialize a GUI object
         '''
@@ -44,377 +43,451 @@ class Root:
         self.datapath = os.path.dirname(os.path.realpath(argv[0]))
         self.datapath = self.datapath.replace(os.sep, '/') + '/'
 
-        self.moduleNames = ['FS', 'SIF', 
-                            'SHIP','TOUR',
-                            'PARCEL_DMND','PARCEL_SCHD',
-                            'SERVICE',
-                            'TRAF',
-                            'OUTP']
-        
+        self.moduleNames = [
+            'FS', 'SIF',
+            'SHIP', 'TOUR',
+            'PARCEL_DMND', 'PARCEL_SCHD',
+            'SERVICE',
+            'TRAF',
+            'OUTP']
+
         # Set graphics parameters
-        self.width  = 950
+        self.width = 950
         self.height = 120
-        self.bg     = 'black'
-        self.fg     = 'white'
-        self.font   = 'Verdana'
-        
+        self.bg = 'black'
+        self.fg = 'white'
+        self.font = 'Verdana'
+
         # Create a GUI window
         self.root = tk.Tk()
         self.root.title("Tactical Freight Simulator HARMONY")
         self.root.geometry(f'{self.width}x{self.height}+0+0')
         self.root.resizable(False, False)
-        self.canvas = tk.Canvas(self.root, width=self.width, height=self.height, bg=self.bg)
+        self.canvas = tk.Canvas(
+            self.root,
+            width=self.width,
+            height=self.height,
+            bg=self.bg)
         self.canvas.place(x=0, y=0)
-        self.statusBar = tk.Label(self.root, text="", anchor='w', borderwidth=0, fg='black')
-        self.statusBar.place(x=2, y=self.height-22, width=self.width, height=22)
-        
+        self.statusBar = tk.Label(
+            self.root,
+            text="",
+            anchor='w',
+            borderwidth=0,
+            fg='black')
+        self.statusBar.place(
+            x=2,
+            y=self.height - 22,
+            width=self.width,
+            height=22)
+
         # Remove the default tkinter icon from the window
-        icon = zlib.decompress(base64.b64decode('eJxjYGAEQgEBBiDJwZDBy''sAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
+        icon = zlib.decompress(base64.b64decode(
+            'eJxjYGAEQgEBBiDJwZDBy' +
+            'sAgxsDAoAHEQCEGBQaIOAg4sDIgACMUj4JRMApGwQgF/ykEAFXxQRc='))
         _, self.iconPath = tempfile.mkstemp()
         with open(self.iconPath, 'wb') as iconFile:
             iconFile.write(icon)
         self.root.iconbitmap(bitmap=self.iconPath)
-        
+
         # Create control file label and entry
-        self.labelControlFile = tk.Label(self.root, 
-                                         text='Control file:', 
-                                         width=20, height=1, 
-                                         anchor='w', 
-                                         bg=self.bg, fg=self.fg, 
-                                         font=(self.font,8))
-        self.labelControlFile.place(x=5, y=9)        
-        self.controlFile = tk.StringVar(self.root, 
-                                        self.datapath)
-        self.entryControlFile= tk.Entry(self.root, 
-                                        textvariable=self.controlFile, 
-                                        width=120, 
-                                        font=(self.font,8))
+        self.labelControlFile = tk.Label(
+            self.root,
+            text='Control file:',
+            width=20,
+            height=1,
+            anchor='w',
+            bg=self.bg,
+            fg=self.fg,
+            font=(self.font, 8))
+        self.labelControlFile.place(x=5, y=9)
+        self.controlFile = tk.StringVar(self.root, self.datapath)
+        self.entryControlFile = tk.Entry(
+            self.root,
+            textvariable=self.controlFile,
+            width=120,
+            font=(self.font, 8))
         self.entryControlFile.place(x=80, y=10)
-        
+
         # Create button to search for control file
-        self.searchButton = tk.Button(self.root, 
-                                      text="...", 
-                                      command=self.file_dialog, 
-                                      width=2,
-                                      font=(self.font,5))
+        self.searchButton = tk.Button(
+            self.root,
+            text="...",
+            command=self.file_dialog,
+            width=2,
+            font=(self.font, 5))
         self.searchButton.place(x=905, y=12)
 
         # Create button to run the main function
-        self.runButton = tk.Button(self.root, 
-                                   text="Run", 
-                                   width=15, height=3, 
-                                   command=self.run_main, 
-                                   font=(self.font,8))
+        self.runButton = tk.Button(
+            self.root,
+            text="Run",
+            width=15,
+            height=3,
+            command=self.run_main,
+            font=(self.font, 8))
         self.runButton.place(x=425, y=35)
-        
-        self.progressBar = Progressbar(self.root, 
-                                       length=int(self.width/2))
-        self.progressBar.place(x=int(self.width/2), y=self.height-22)
-        
-        # If the control file is passed as an argument in a batch job or in the command line prompt
+
+        self.progressBar = Progressbar(
+            self.root,
+            length=int(self.width / 2))
+        self.progressBar.place(x=int(self.width / 2), y=self.height - 22)
+
+        # If the control file is passed as an argument
+        # in a batch job or in the command line prompt
         if len(argv) > 1:
             self.controlFile.set(argv[1])
             self.run_main()
-            
-        # Keep GUI active until closed    
-        self.root.mainloop()  
 
-
+        # Keep GUI active until closed
+        self.root.mainloop()
 
     def update_statusbar(self, text):
         self.statusBar.configure(text=text)
 
-
-        
     def reset_statusbar(self, event=None):
-        self.statusBar.configure(text="")  
- 
+        self.statusBar.configure(text="")
 
-       
     def file_dialog(self):
         '''
         Open up a file dialog
         '''
-        self.filename = filedialog.askopenfilename(initialdir= "/", 
-                                                   title="Select the .ini control file", 
-                                                   filetype=(("Control files (.ini)","*.ini"),
-                                                             ("All files","*.*")))
+        self.filename = filedialog.askopenfilename(
+            initialdir="/",
+            title="Select the .ini control file",
+            filetype=(("Control files (.ini)", "*.ini"), ("All files", "*.*")))
         self.controlFile.set(self.filename)
-
-
 
     def run_main(self, event=None):
         Thread(target=self.actually_run_main, daemon=True).start()
-       
-        
-        
+
     def actually_run_main(self):
         '''
         Run the actual emission calculation
         '''
         # De mogelijke sleutels in de control file
-        self.varStrings = ["INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", 
-                           "SKIMTIME", "SKIMDISTANCE",
-                           "LINKS", 
-                           "NODES",
-                           "EMISSIONFACS_BUITENWEG_LEEG",
-                           "EMISSIONFACS_BUITENWEG_VOL",
-                           "EMISSIONFACS_SNELWEG_LEEG",
-                           "EMISSIONFACS_SNELWEG_VOL",
-                           "EMISSIONFACS_STAD_LEEG",
-                           "EMISSIONFACS_STAD_VOL",
-                           "ZONES", "SEGS", 
-                           "DISTRIBUTIECENTRA", "DC_OPP_NUTS3",
-                           "NSTR_TO_LS",
-                           "MAKE_DISTRIBUTION", "USE_DISTRIBUTION",
-                           "SUP_COORDINATES_ID",
-                           "DEPTIME_FREIGHT", "DEPTIME_PARCELS",
-                           "FIRMSIZE", "SBI_TO_SEGS",
-                           "COST_VEHTYPE", "COST_SOURCING",
-                           "COMMODITYMATRIX", 
-                           "PARCELNODES", "CEP_SHARES", 
-                           "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", "MRDH_TO_COROP",
-                           "VEHICLE_CAPACITY",
-                           "LOGISTIC_FLOWTYPES",
-                           "SERVICE_DISTANCEDECAY", "SERVICE_PA",
-                           "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
-                           "PARAMS_TOD", "PARAMS_SSVT",
-                           "PARAMS_SIF_PROD", "PARAMS_SIF_ATTR",
-                           "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
-                           "PARCELS_PER_HH", "PARCELS_PER_EMPL", 
-                           "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
-                           "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", 
-                           "PARCELS_GROWTHFREIGHT",
-                           "CROWDSHIPPING", 
-                           "CRW_PARCELSHARE", "CRW_MODEPARAMS", 
-                           "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
-                           "NEAREST_DC",
-                           "YEARFACTOR", 
-                           "NUTSLEVEL_INPUT",
-                           "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN", 
-                           "N_CPU", 
-                           "N_MULTIROUTE",
-                           "SHIPMENTS_REF", "FIRMS_REF",
-                           "SELECTED_LINKS", 
-                           "CORRECTIONS_TONNES",
-                           "MICROHUBS", "VEHICLETYPES",
-                           "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3", 
-                           "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
-                           "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1", 
-                           "SHIFT_FREIGHT_TO_COMB2", 
-                           "LABEL", 
-                           "MODULES"]
+        self.varStrings = [
+            "INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER",
+            "SKIMTIME", "SKIMDISTANCE",
+            "LINKS", "NODES",
+            "EMISSIONFACS_BUITENWEG_LEEG", "EMISSIONFACS_BUITENWEG_VOL",
+            "EMISSIONFACS_SNELWEG_LEEG", "EMISSIONFACS_SNELWEG_VOL",
+            "EMISSIONFACS_STAD_LEEG", "EMISSIONFACS_STAD_VOL",
+            "ZONES", "SEGS", "SUP_COORDINATES_ID",
+            "DISTRIBUTIECENTRA", "DC_OPP_NUTS3",
+            "NSTR_TO_LS",
+            "MAKE_DISTRIBUTION", "USE_DISTRIBUTION",
+            "DEPTIME_FREIGHT", "DEPTIME_PARCELS",
+            "FIRMSIZE", "SBI_TO_SEGS",
+            "COST_VEHTYPE", "COST_SOURCING",
+            "COMMODITYMATRIX",
+            "PARCELNODES", "CEP_SHARES",
+            "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", "MRDH_TO_COROP",
+            "VEHICLE_CAPACITY",
+            "LOGISTIC_FLOWTYPES",
+            "PARAMS_SIF_PROD", "PARAMS_SIF_ATTR",
+            "PARAMS_TOD", "PARAMS_SSVT",
+            "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
+            "SERVICE_DISTANCEDECAY", "SERVICE_PA",
+            "PARCELS_PER_HH", "PARCELS_PER_EMPL",
+            "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
+            "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",
+            "PARCELS_GROWTHFREIGHT",
+            "CROWDSHIPPING",
+            "CRW_PARCELSHARE", "CRW_MODEPARAMS",
+            "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+            "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
+            "NEAREST_DC",
+            "NUTSLEVEL_INPUT",
+            "YEARFACTOR",
+            "IMPEDANCE_SPEED_FREIGHT", "IMPEDANCE_SPEED_VAN",
+            "N_CPU", "N_MULTIROUTE",
+            "SHIPMENTS_REF", "FIRMS_REF",
+            "SELECTED_LINKS",
+            "CORRECTIONS_TONNES",
+            "MICROHUBS", "VEHICLETYPES",
+            "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3",
+            "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
+            "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1",
+            "SHIFT_FREIGHT_TO_COMB2",
+            "LABEL",
+            "MODULES"]
         nVars = len(self.varStrings)
-        
+
         # Op welke index staat de OUTPUTFOLDER sleutel
-        whereOutputFolder = [i for i in range(nVars) if self.varStrings[i]=="OUTPUTFOLDER"][0]
-        whereInputFolder  = [i for i in range(nVars) if self.varStrings[i]=="INPUTFOLDER" ][0]
-        whereParamFolder  = [i for i in range(nVars) if self.varStrings[i]=="PARAMFOLDER" ][0]
-        
+        whereOutputFolder, whereInputFolder, whereParamFolder = (
+            None, None, None)
+        for i in range(nVars):
+            if self.varStrings[i] == "OUTPUTFOLDER":
+                whereOutputFolder = i
+            elif self.varStrings[i] == "INPUTFOLDER":
+                whereInputFolder = i
+            elif self.varStrings[i] == "PARAMFOLDER":
+                whereParamFolder = i
+
         # Hier stoppen we de waardes behorende bij de sleutels
         varValues = ["" for i in range(nVars)]
 
         # Welke waardes zijn numeriek of stellen een directory/filenaam voor
-        numericVars = ["PARCELS_PER_HH", "PARCELS_PER_EMPL", 
-                       "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
-                       "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B", 
-                       "PARCELS_GROWTHFREIGHT",
-                       "YEARFACTOR", 
-                       "NUTSLEVEL_INPUT", 
-                       "CRW_PARCELSHARE", 
-                       "N_MULTIROUTE",
-                       "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3", 
-                       "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
-                       "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1", 
-                       "SHIFT_FREIGHT_TO_COMB2"]
-        dirVars     = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
-        moduleVars  = ["MODULES"]
-        fileVars    = ["SKIMTIME", "SKIMDISTANCE", 
-                       "LINKS", 
-                       "NODES", 
-                       "EMISSIONFACS_BUITENWEG_LEEG",
-                       "EMISSIONFACS_BUITENWEG_VOL",
-                       "EMISSIONFACS_SNELWEG_LEEG",
-                       "EMISSIONFACS_SNELWEG_VOL",
-                       "EMISSIONFACS_STAD_LEEG",
-                       "EMISSIONFACS_STAD_VOL",
-                       "ZONES", "SEGS",
-                       "DISTRIBUTIECENTRA", "DC_OPP_NUTS3",
-                       "NSTR_TO_LS",
-                       "MAKE_DISTRIBUTION", "USE_DISTRIBUTION",
-                       "SUP_COORDINATES_ID",
-                       "DEPTIME_FREIGHT", "DEPTIME_PARCELS",
-                       "FIRMSIZE", "SBI_TO_SEGS",
-                       "COST_VEHTYPE","COST_SOURCING",
-                       "COMMODITYMATRIX",
-                       "PARCELNODES", "CEP_SHARES", 
-                       "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", "MRDH_TO_COROP",
-                       "VEHICLE_CAPACITY",
-                       "LOGISTIC_FLOWTYPES",
-                       "SERVICE_DISTANCEDECAY", "SERVICE_PA",
-                       "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
-                       "PARAMS_TOD", "PARAMS_SSVT",
-                       "PARAMS_SIF_PROD", "PARAMS_SIF_ATTR",
-                       "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
-                       "SHIPMENTS_REF", "FIRMS_REF",
-                       "CORRECTIONS_TONNES",
-                       "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
-                       "MICROHUBS", "VEHICLETYPES"]
-        optionalVars = ["SHIPMENTS_REF", "FIRMS_REF",
-                        "CORRECTIONS_TONNES", 
-                        "SELECTED_LINKS", 
-                        "N_CPU", 
-                        "N_MULTIROUTE",
-                        "CROWDSHIPPING", 
-                        "NEAREST_DC",
-                        "CRW_PARCELSHARE", "CRW_MODEPARAMS", 
-                        "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
-                        "MICROHUBS", "VEHICLETYPES",
-                        "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3", 
-                        "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
-                        "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1", 
-                        "SHIFT_FREIGHT_TO_COMB2"]
-        
-        run = True          # Wel of niet runnen, wordt op False gezet als bijv. bestanden niet gevonden kunnen worden
-        writeLog = True     # Wel of geen logfile schrijven, wordt op False gezet als de outputfolder niet bestaat
-        errorMessage = ""   # Hier verzamelen we alle foutmeldingen in
-        
+        numericVars = [
+            "PARCELS_PER_HH", "PARCELS_PER_EMPL",
+            "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
+            "PARCELS_SUCCESS_B2C", "PARCELS_SUCCESS_B2B",
+            "PARCELS_GROWTHFREIGHT",
+            "YEARFACTOR",
+            "NUTSLEVEL_INPUT",
+            "CRW_PARCELSHARE",
+            "N_MULTIROUTE",
+            "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3",
+            "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
+            "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1",
+            "SHIFT_FREIGHT_TO_COMB2"]
+        dirVars = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
+        moduleVars = ["MODULES"]
+        fileVars = [
+            "SKIMTIME", "SKIMDISTANCE",
+            "LINKS", "NODES",
+            "EMISSIONFACS_BUITENWEG_LEEG", "EMISSIONFACS_BUITENWEG_VOL",
+            "EMISSIONFACS_SNELWEG_LEEG", "EMISSIONFACS_SNELWEG_VOL",
+            "EMISSIONFACS_STAD_LEEG", "EMISSIONFACS_STAD_VOL",
+            "ZONES", "SEGS", "SUP_COORDINATES_ID",
+            "DISTRIBUTIECENTRA", "DC_OPP_NUTS3",
+            "NSTR_TO_LS",
+            "MAKE_DISTRIBUTION", "USE_DISTRIBUTION",
+            "DEPTIME_FREIGHT", "DEPTIME_PARCELS",
+            "FIRMSIZE", "SBI_TO_SEGS",
+            "COST_VEHTYPE", "COST_SOURCING",
+            "COMMODITYMATRIX",
+            "PARCELNODES", "CEP_SHARES",
+            "MRDH_TO_NUTS3", "NUTS3_TO_MRDH", "MRDH_TO_COROP",
+            "VEHICLE_CAPACITY",
+            "LOGISTIC_FLOWTYPES",
+            "PARAMS_SIF_PROD", "PARAMS_SIF_ATTR",
+            "PARAMS_TOD", "PARAMS_SSVT",
+            "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
+            "SERVICE_DISTANCEDECAY", "SERVICE_PA",
+            "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
+            "SHIPMENTS_REF", "FIRMS_REF",
+            "CORRECTIONS_TONNES",
+            "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+            "MICROHUBS", "VEHICLETYPES"]
+        optionalVars = [
+            "DEPTIME_FREIGHT",
+            "SHIPMENTS_REF", "FIRMS_REF",
+            "CORRECTIONS_TONNES",
+            "SELECTED_LINKS",
+            "N_CPU",
+            "N_MULTIROUTE",
+            "CROWDSHIPPING",
+            "NEAREST_DC",
+            "CRW_PARCELSHARE", "CRW_MODEPARAMS",
+            "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
+            "MICROHUBS", "VEHICLETYPES",
+            "FAC_LS0", "FAC_LS1", "FAC_LS2", "FAC_LS3",
+            "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
+            "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1",
+            "SHIFT_FREIGHT_TO_COMB2"]
+
+        # Run the modules or not, is set to False if, for example,
+        # an input file could not be found
+        run = True
+
+        # Write a log file or not, is set to False if the specified
+        # outputfolder does not exist
+        writeLog = True
+
+        # In this string we collect the error messages
+        errorMessage = ""
+
         try:
-           
+
             with open(self.controlFile.get(), 'r') as f:
                 lines = f.readlines()
-                
+
                 for line in lines:
-                    
+
                     if len(line.split('=')) > 1:
-                        
+
                         if line[0] != '#':
-                        
-                            key   = line.split('=')[0]
+
+                            key = line.split('=')[0]
                             value = line.split('=')[1]
-                            
-                            # Sta spaties en tabs voor/na de sleutel/waarde toe
+
+                            # Allow spaces and tabs before/after the key
+                            # and the value
                             while key[0] == ' ' or key[0] == '\t':
                                 key = key[1:]
-                                
+
                             while key[-1] == ' ' or key[-1] == '\t':
                                 key = key[0:-1]
-                                
+
                             while value[0] == ' ' or value[0] == '\t':
                                 value = value[1:]
-    
+
                             while value[-1] == ' ' or value[-1] == '\t':
                                 value = value[0:-1]
-                                
-                            print(key + ' = ' + value.replace('\n',""))
-                            
+
+                            print(key + ' = ' + value.replace('\n', ""))
+
                             # Read the arguments in the control file
-                            for i in range(nVars):                                
+                            for i in range(nVars):
                                 if key.upper() == self.varStrings[i]:
-                                    
-                                    # For numeric arguments, check if they can be converted from string to float
+
+                                    # For numeric arguments, check if they
+                                    # can be converted from string to float
                                     if self.varStrings[i] in numericVars:
-                                        value = value.replace("'", "").replace('"', "").replace('\n',"")
+                                        value = value.replace("'", "")
+                                        value = value.replace('"', "")
+                                        value = value.replace('\n', "")
+
                                         try:
                                             varValues[i] = float(value)
-                                        except:
-                                            if not (value == ''  and value in optionalVars):
+                                        except ValueError:
+                                            if not (value == '' and value in optionalVars):
                                                 varValues[i] = value
-                                                errorMessage = errorMessage + 'Fill in a numeric value for ' + self.varStrings[i] + ', could not convert following value to a number: ' + value.replace("'", "").replace('"', "").replace('\n',"") + "\n"
+                                                errorMessage = (
+                                                    errorMessage +
+                                                    'Fill in a numeric value for ' +
+                                                    self.varStrings[i] +
+                                                    ', could not convert following value to a number: ' +
+                                                    value +
+                                                    "\n")
                                                 run = False
-                                    
-                                    # The argument which states which modules should be run
+
+                                    # The argument which states which
+                                    # modules should be run
                                     elif self.varStrings[i] in moduleVars:
-                                        varValues[i] = value.replace(os.sep, '/').replace("'", "").replace('"', "").replace('\n',"").replace(' ','')
+                                        value = value.replace("'", "")
+                                        value = value.replace('"', "")
+                                        value = value.replace('\n', "")
+                                        value = value.replace(' ', '')
+                                        varValues[i] = value
                                         varValues[i] = varValues[i].split(',')
                                         for j in range(len(varValues[i])):
                                             if varValues[i][j] not in self.moduleNames:
-                                                errorMessage = errorMessage + 'Module ' + varValues[i][j] + ' does not exist.' + '\n'
+                                                errorMessage = (
+                                                    errorMessage +
+                                                    'Module ' +
+                                                    varValues[i][j] +
+                                                    ' does not exist.' +
+                                                    '\n')
                                                 run = False
-                
-                                    # For string arguments, also replace possible '\' by '/'
+
+                                    # For string arguments, also replace
+                                    # possible '\' by '/'
                                     else:
-                                        varValues[i] = value.replace(os.sep, '/').replace("'", "").replace('"', "").replace('\n',"")
+                                        value = value.replace(os.sep, '/')
+                                        value = value.replace("'", "")
+                                        value = value.replace('"', "")
+                                        value = value.replace('\n', "")
+                                        varValues[i] = value
 
                                         if self.varStrings[i] in dirVars:
                                             if varValues[i][-1] != '/':
                                                 varValues[i] = varValues[i] + '/'
-                                        
+
                                         if self.varStrings[i] in dirVars or self.varStrings[i] in fileVars:
-                                            if self.varStrings[i] not in ['INPUTFOLDER','OUTPUTFOLDER','PARAMFOLDER']:
-                                                temp = varValues[i].split("<<")
-                                                if len(temp) > 1:
-                                                    temp = temp[1].split(">>")
-                                                    
-                                                    if temp[0] == 'OUTPUTFOLDER':
-                                                        varValues[i] = varValues[whereOutputFolder] + temp[1]
-                                                    if temp[0] == 'INPUTFOLDER':
-                                                        varValues[i] = varValues[whereInputFolder] + temp[1]                               
-                                                    if temp[0] == 'PARAMFOLDER':
-                                                        varValues[i] = varValues[whereParamFolder] + temp[1] 
-                                        
-                                            
+                                            if self.varStrings[i] not in ['INPUTFOLDER', 'OUTPUTFOLDER', 'PARAMFOLDER']:
+                                                tmp = varValues[i].split("<<")
+                                                if len(tmp) > 1:
+                                                    tmp = tmp[1].split(">>")
+
+                                                    if tmp[0] == 'OUTPUTFOLDER':
+                                                        varValues[i] = varValues[whereOutputFolder] + tmp[1]
+                                                    if tmp[0] == 'INPUTFOLDER':
+                                                        varValues[i] = varValues[whereInputFolder] + tmp[1]
+                                                    if tmp[0] == 'PARAMFOLDER':
+                                                        varValues[i] = varValues[whereParamFolder] + tmp[1] 
+
                             # Warning for unknown argument in control file
                             if key.upper() not in self.varStrings:
-                                errorMessage = errorMessage + 'Unknown parameter in control file: ' + key + "\n"
+                                errorMessage = (
+                                    errorMessage +
+                                    'Unknown parameter in control file: ' +
+                                    key +
+                                    "\n")
                                 run = False
-                                    
-                            
-            for i in range(nVars):                   
+
+            for i in range(nVars):
                 # Warnings for non-existing directories
                 if self.varStrings[i] in dirVars:
                     if not os.path.isdir(varValues[i]) and varValues[i] != "":
-                        errorMessage = errorMessage + 'The folder for parameter ' + self.varStrings[i] + ' does not exist: ' + "'" + varValues[i] + "'" + "\n"
-                        run = False                                                
+                        errorMessage = (
+                            errorMessage +
+                            'The folder for parameter ' +
+                            self.varStrings[i] +
+                            ' does not exist: ' +
+                            "'" + varValues[i] + "'" +
+                            "\n")
+                        run = False
 
-                        # Als de opgegeven outputfolder niet bestaat, dan kunnen we er ook geen logfile in schrijven
+                        # Can't write a logfile if the outputfolder
+                        # does not exist
                         if self.varStrings[i] == "OUTPUTFOLDER":
                             writeLog = False
-                            
+
                 # Warnings for non-existing files
                 if self.varStrings[i] in fileVars:
                     if not os.path.isfile(varValues[i]) and varValues[i] != "":
-                        errorMessage = errorMessage + 'The file for parameter ' + self.varStrings[i] + ' does not exist: ' + "'" + varValues[i] + "'" + "\n"
-                        run = False   
-                            
+                        errorMessage = (
+                            errorMessage +
+                            'The file for parameter ' +
+                            self.varStrings[i] +
+                            ' does not exist: ' +
+                            "'" + varValues[i] + "'" +
+                            "\n")
+                        run = False
+
             # Warnings for omitted arguments in control file
             for i in range(nVars):
                 if varValues[i] == "" and self.varStrings[i] not in optionalVars:
-                    errorMessage = errorMessage + 'Warning, no value given for parameter ' + self.varStrings[i] + ' in the controle file.' + "\n"
-                    run = False                    
-                
-        except:
-            errorMessage = 'Could not find or read the following control file: ' + "'" + self.controlFile.get() + "'"
-            errorMessage = errorMessage + '\n\n' + str(sys.exc_info()[0])
-            errorMessage = errorMessage + '\n\n' + str(traceback.format_exc())
-            run = False
-            writeLog = False                
+                    errorMessage = (
+                        errorMessage +
+                        'Warning, no value given for parameter ' +
+                        self.varStrings[i] +
+                        ' in the controle file.' +
+                        "\n")
+                    run = False
 
-        # Open de logfile en schrijf de header, de opgegeven argumenten en eventuele foutmeldingen
+        except Exception:
+            errorMessage = (
+                'Could not find or read the following control file: ' +
+                "'" + self.controlFile.get() + "'" +
+                '\n\n' + str(sys.exc_info()[0]) +
+                '\n\n' + str(traceback.format_exc()))
+            run = False
+            writeLog = False
+
+        # Open the logfile and write the header, specified arguments and
+        # possible error messages
         if writeLog:
-            self.logFileName = varValues[whereOutputFolder] + "Logfile_20" + datetime.datetime.now().strftime("%y%m%d_%H%M%S") + ".log"
-            
-            with open(self.logFileName, "w") as f:            
-                f.write('########################################################################################\n')
-                f.write('### Tactical Freight Simulator HARMONY                                               ###\n')
-                f.write('### Prototype version, November 2021                                                ###\n')
-                f.write('########################################################################################\n')
+            self.logFileName = (
+                varValues[whereOutputFolder] +
+                "Logfile_20" +
+                datetime.datetime.now().strftime("%y%m%d_%H%M%S") +
+                ".log")
+
+            with open(self.logFileName, "w") as f:
+                f.write('##################################################\n')
+                f.write('### Tactical Freight Simulator HARMONY         ###\n')
+                f.write('### Prototype version, November 2021           ###\n')
+                f.write('##################################################\n')
                 f.write('\n')
-    
-                f.write('########################################################################################\n')
-                f.write('### Settings                                                                         ###\n')
-                f.write('########################################################################################\n')
+
+                f.write('##################################################\n')
+                f.write('### Settings                                   ###\n')
+                f.write('##################################################\n')
                 f.write('Control file: ' + self.controlFile.get() + '\n')
                 for i in range(len(varValues)):
                     f.write(self.varStrings[i] + ' = ' + str(varValues[i]) + '\n')
                 f.write('\n')
-                
+
                 if not run:
-                    f.write('########################################################################################\n')
-                    f.write('### Errors while reading control file                                                ###\n')
-                    f.write('########################################################################################\n')
+                    f.write('###################################################\n')
+                    f.write('### Errors while reading control file           ###\n')
+                    f.write('###################################################\n')
                     f.write(errorMessage)
-                    
+
         if run:
             varDict = {}
             for i in range(nVars):
@@ -423,24 +496,28 @@ class Root:
             self.statusBar.configure(text="Start calculations...")
             result = self.main(varDict)
             self.statusBar.configure(text="")
-            
+
             if result[0] == 1:
-                self.statusBar.configure(text="Error in calculation! (Tool will be closed automatically after 20 seconds.)")         
+                self.statusBar.configure(text=(
+                    "Error in calculation! " +
+                    "(Tool will be closed automatically after 20 seconds.)"))
                 self.root.after(20000, lambda: self.root.destroy())
-                    
+
             else:
                 self.statusBar.configure(text="Calculations finished.")
                 self.progressBar['value'] = 100
                 self.root.after(5000, lambda: self.root.destroy())
-                
+
         else:
-            self.statusBar.configure(text="Run was not started. See error message. ")
-            errorMessage = "Could not start the run for the following reasons: \n\n" + errorMessage
-            self.error_screen(text=errorMessage, size=[950,150])
-          
-                    
-            
-    def error_screen(self, text='', event=None, size=[950,350], title='Foutmelding'):
+            self.statusBar.configure(text=(
+                "Run was not started. See error message. "))
+            errorMessage = (
+                "Could not start the run for the following reasons: \n\n" +
+                errorMessage)
+            self.error_screen(text=errorMessage, size=[950, 150])
+
+    def error_screen(self, text='', event=None,
+                     size=[950, 350], title='Foutmelding'):
         '''
         Pop up a window with an error message
         '''
@@ -449,235 +526,376 @@ class Root:
         windowError.geometry(f'{size[0]}x{size[1]}+0+{self.height+50}')
         windowError.minsize(width=size[0], height=size[1])
         windowError.iconbitmap(bitmap=self.iconPath)
-        labelError = tk.Label(windowError, text=text, anchor='w', justify='left')
+        labelError = tk.Label(
+            windowError,
+            text=text,
+            anchor='w',
+            justify='left')
         labelError.place(x=10, y=10)
-        
-        
+
     def main(self, varDict):
-        
+
         run = True
         result = [0, 0]
-        
-        with open(self.logFileName, "a") as f:        
 
-            f.write('########################################################################################\n')
-            f.write('### Progress                                                                         ###\n')
-            f.write('########################################################################################\n')
+        with open(self.logFileName, "a") as f:
+
+            f.write('###################################################\n')
+            f.write('### Progress                                    ###\n')
+            f.write('###################################################\n')
 
             args = [self, varDict]
 
             if run and 'FS' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('------------------------- Firm Synthesis ----------------------------------------')
-                print('---------------------------------------------------------------------------------')
+                print('')
+                print('---------------------------------------------------')
+                print('--------------- Firm Synthesis --------------------')
+                print('---------------------------------------------------')
                 f.write("Firm Synthesis" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                
-                self.statusBar.configure(text='Running Firm Synthesis...')
-                                         
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Firm Synthesis...')
+
                 result = __module_FS__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in Firm Synthesis module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Firm Synthesis module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
-                    
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
+
             if run and 'SIF' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('------------------- Spatial Interaction Freight ---------------------------------')
-                print('---------------------------------------------------------------------------------')
+                print('')
+                print('---------------------------------------------------')
+                print('--------- Spatial Interaction Freight -------------')
+                print('---------------------------------------------------')
                 f.write("Spatial Interaction Freight" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                
-                self.statusBar.configure(text='Running Spatial Interaction Freight...')
-                                         
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Spatial Interaction Freight...')
+
                 result = __module_SIF__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in Spatial Interaction Freight module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Spatial Interaction Freight module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
-                    
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
+
             if run and 'SHIP' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('----------------------- Shipment synthesizer ------------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Shipment synthesizer" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                
-                self.statusBar.configure(text='Running Shipment Synthesizer...')
-                                         
+                print('\n')
+                print('---------------------------------------------------')
+                print('------------- Shipment Synthesizer ----------------')
+                print('---------------------------------------------------')
+                f.write("Shipment Synthesizer" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Shipment Synthesizer...')
+
                 result = __module_SHIP__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in shipment synthesizer module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Shipment Synthesizer module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
-                
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
+
             if run and 'TOUR' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('------------------------- Tour Formation ----------------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Tour formation" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-    
-                self.statusBar.configure(text='Running Tour Formation...')
-                
+                print('\n')
+                print('---------------------------------------------------')
+                print('---------------- Tour Formation -------------------')
+                print('---------------------------------------------------')
+                f.write("Tour Formation" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Tour Formation...')
+
                 result = __module_TOUR__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in tour formation module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Tour Formation module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
 
             if run and 'PARCEL_DMND' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('------------------------- Parcel Demand -----------------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Parcel demand" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                
-                self.statusBar.configure(text='Running Parcel Demand...')
-                
+                print('\n')
+                print('---------------------------------------------------')
+                print('---------------- Parcel Demand --------------------')
+                print('---------------------------------------------------')
+                f.write("Parcel Demand" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Parcel Demand...')
+
                 result = __module_PARCEL_DMND__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in parcel demand module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Parcel Demand module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
 
             if run and 'PARCEL_SCHD' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('----------------------- Parcel Scheduling ---------------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Parcel scheduling" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                    
-                self.statusBar.configure(text='Running Parcel Scheduling...')
-                
+                print('\n')
+                print('---------------------------------------------------')
+                print('-------------- Parcel Scheduling ------------------')
+                print('---------------------------------------------------')
+                f.write("Parcel Scheduling" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Parcel Scheduling...')
+
                 result = __module_PARCEL_SCHD__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in parcel scheduling module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Parcel Scheduling module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
 
             if run and 'SERVICE' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('-------------------- Vans service/construction ----------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Vans service/construction" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                    
-                self.statusBar.configure(text='Running Vans service/construction...')
-                
+                print('\n')
+                print('---------------------------------------------------')
+                print('---------- Vans Service/Construction --------------')
+                print('---------------------------------------------------')
+                f.write("Vans Service/Construction" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Vans Service/Construction...')
+
                 result = __module_SERVICE__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in service vans module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Vans Service/Construction module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
-                    
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
+
             if run and 'TRAF' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('----------------------- Traffic Assignment --------------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Traffic assignment" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                
-                self.statusBar.configure(text='Running Traffic Assignment...')
-                
+                print('\n')
+                print('---------------------------------------------------')
+                print('-------------- Traffic Assignment -----------------')
+                print('---------------------------------------------------')
+                f.write("Traffic Assignment" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Traffic Assignment...')
+
                 result = __module_TRAF__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in traffic assignment module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Traffic Assignment module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
 
             if run and 'OUTP' in varDict['MODULES']:
-                print('---------------------------------------------------------------------------------')
-                print('----------------------- Output Indicators ---------------------------------------')
-                print('---------------------------------------------------------------------------------')
-                f.write("Output indicators" + '\n')
-                f.write("\tStarted at:    " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n")
-                
-                self.statusBar.configure(text='Running Output Indicators...')
-                
+                print('\n')
+                print('---------------------------------------------------')
+                print('--------------- Output Indicators -----------------')
+                print('---------------------------------------------------')
+                f.write("Output Indicators" + '\n')
+                f.write(
+                    "\tStarted at:    " +
+                    datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                    "\n")
+
+                self.statusBar.configure(
+                    text='Running Output Indicators...')
+
                 result = __module_OUTP__.actually_run_module(args)
-                
-                if result[0] == 1:   
+
+                if result[0] == 1:
                     errorMessage = []
-                    errorMessage.append('\nError in output indicator module!\n\n' )
-                    errorMessage.append('See the log-file: ' + str(self.logFileName).split('/')[-1] + '\n\n')
-                    errorMessage.append(str(result[1][0]) + '\n' + str(result[1][1]) + '\n\n')
-                    self.error_screen(text=errorMessage[0] + errorMessage[1] + errorMessage[2])
+                    errorMessage.append(
+                        '\nError in Output Indicators module!\n\n')
+                    errorMessage.append(
+                        'See the log-file: ' +
+                        str(self.logFileName).split('/')[-1] + '\n\n')
+                    errorMessage.append(
+                        str(result[1][0]) + '\n' +
+                        str(result[1][1]) + '\n\n')
+                    self.error_screen(text=(
+                        errorMessage[0] +
+                        errorMessage[1] +
+                        errorMessage[2]))
                     run = False
-                    f.write(errorMessage[0] + errorMessage[2])    
+                    f.write(errorMessage[0] + errorMessage[2])
                 else:
-                    f.write("\tFinished at: " + datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")+"\n\n")
-                    
+                    f.write(
+                        "\tFinished at: " +
+                        datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S") +
+                        "\n\n")
+
             if run:
                 f.write('Finished all calculations.')
                 self.statusBar.configure(text='Finished all calculations.')
-            
-        return result 
-        
-        
-        
-#%% Run the script
-        
+
+        return result
+
+
+# Run the script
 if __name__ == '__main__':
     mp.freeze_support()
     root = Root()
-    
-    
-    
-    

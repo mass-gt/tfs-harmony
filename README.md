@@ -68,7 +68,6 @@ MAKE_DISTRIBUTION  = <<INPUTFOLDER>>MakeDistribution.csv
 USE_DISTRIBUTION   = <<INPUTFOLDER>>UseDistribution.csv
 SUP_COORDINATES_ID = <<INPUTFOLDER>>SupCoordinatesID.csv
 CORRECTIONS_TONNES = <<INPUTFOLDER>>CorrectionsTonnes2016.csv
-DEPTIME_FREIGHT = <<INPUTFOLDER>>departureTimePDF.csv
 DEPTIME_PARCELS = <<INPUTFOLDER>>departureTimeParcelsCDF.csv
 FIRMSIZE        = <<INPUTFOLDER>>FirmSizeDistributionPerSector_6cat.csv
 SBI_TO_SEGS     = <<INPUTFOLDER>>Koppeltabel_sectoren_SBI_SEGs.csv
