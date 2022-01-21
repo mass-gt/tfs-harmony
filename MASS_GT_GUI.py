@@ -165,7 +165,7 @@ class Root:
         '''
         Run the actual emission calculation
         '''
-        # De mogelijke sleutels in de control file
+        # All the allowed keys in the control file
         self.varStrings = [
             "INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER",
             "SKIMTIME", "SKIMDISTANCE",
@@ -188,6 +188,7 @@ class Root:
             "PARAMS_SIF_PROD", "PARAMS_SIF_ATTR",
             "PARAMS_TOD", "PARAMS_SSVT",
             "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
+            "PARAMS_ECOMMERCE",
             "SERVICE_DISTANCEDECAY", "SERVICE_PA",
             "PARCELS_PER_HH", "PARCELS_PER_EMPL",
             "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
@@ -214,7 +215,7 @@ class Root:
             "MODULES"]
         nVars = len(self.varStrings)
 
-        # Op welke index staat de OUTPUTFOLDER sleutel
+        # At which index car the output, input and parameter folder be found
         whereOutputFolder, whereInputFolder, whereParamFolder = (
             None, None, None)
         for i in range(nVars):
@@ -225,10 +226,10 @@ class Root:
             elif self.varStrings[i] == "PARAMFOLDER":
                 whereParamFolder = i
 
-        # Hier stoppen we de waardes behorende bij de sleutels
+        # A list for the values belonging to each key in the control file
         varValues = ["" for i in range(nVars)]
 
-        # Welke waardes zijn numeriek of stellen een directory/filenaam voor
+        # Which variables are of numeric nature
         numericVars = [
             "PARCELS_PER_HH", "PARCELS_PER_EMPL",
             "PARCELS_MAXLOAD", "PARCELS_DROPTIME",
@@ -242,8 +243,16 @@ class Root:
             "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
             "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1",
             "SHIFT_FREIGHT_TO_COMB2"]
-        dirVars = ["INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
-        moduleVars = ["MODULES"]
+        
+        # Which variables refer to a directory path
+        dirVars = [
+            "INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
+
+        # Which variables refer to the modules that need to be run
+        moduleVars = [
+            "MODULES"]
+
+        # Which variables refer to a file path
         fileVars = [
             "SKIMTIME", "SKIMDISTANCE",
             "LINKS", "NODES",
@@ -265,14 +274,23 @@ class Root:
             "PARAMS_SIF_PROD", "PARAMS_SIF_ATTR",
             "PARAMS_TOD", "PARAMS_SSVT",
             "PARAMS_ET_FIRST", "PARAMS_ET_LATER",
+            "PARAMS_ECOMMERCE",
             "SERVICE_DISTANCEDECAY", "SERVICE_PA",
             "ZEZ_CONSOLIDATION", "ZEZ_SCENARIO",
             "SHIPMENTS_REF", "FIRMS_REF",
             "CORRECTIONS_TONNES",
             "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
             "MICROHUBS", "VEHICLETYPES"]
-        optionalVars = [
+
+        # Variables that became obsolete due to changes in the modules
+        # keep these in here to prevent errors on older ini files with these
+        # arguments still in there
+        obsoleteVars = [
             "DEPTIME_FREIGHT",
+            "PARCELS_PER_HH"]
+
+        # Variables for which a value in the control file is not obligatory
+        optionalVars = [
             "SHIPMENTS_REF", "FIRMS_REF",
             "CORRECTIONS_TONNES",
             "SELECTED_LINKS",
@@ -287,6 +305,7 @@ class Root:
             "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
             "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1",
             "SHIFT_FREIGHT_TO_COMB2"]
+        optionalVars = optionalVars + obsoleteVars
 
         # Run the modules or not, is set to False if, for example,
         # an input file could not be found
@@ -409,6 +428,7 @@ class Root:
                                 run = False
 
             for i in range(nVars):
+
                 # Warnings for non-existing directories
                 if self.varStrings[i] in dirVars:
                     if not os.path.isdir(varValues[i]) and varValues[i] != "":
@@ -470,7 +490,7 @@ class Root:
             with open(self.logFileName, "w") as f:
                 f.write('##################################################\n')
                 f.write('### Tactical Freight Simulator HARMONY         ###\n')
-                f.write('### Prototype version, November 2021           ###\n')
+                f.write('### Prototype version, January 2022            ###\n')
                 f.write('##################################################\n')
                 f.write('\n')
 
