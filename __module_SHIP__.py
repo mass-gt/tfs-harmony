@@ -153,6 +153,9 @@ def actually_run_module(args):
 
         chooseNearestDC = (varDict['NEAREST_DC'].upper() == 'TRUE')
 
+        # Create shipments to/from external areas or not
+        doExtArea = True
+
         # ----------------------- Import data --------------------------------
 
         print("Importing and preparing data...")
@@ -163,8 +166,31 @@ def actually_run_module(args):
                 "Shipment Synthesizer: Importing and preparing data")
             root.progressBar['value'] = 0
 
-        nNSTR = 10
-        nLogSeg  = 8
+        dimNSTR = pd.read_csv(
+            varDict['DIMFOLDER'] + 'nstr.txt',
+            sep='\t')
+        dimLS = pd.read_csv(
+            varDict['DIMFOLDER'] + 'logistic_segment.txt',
+            sep='\t')
+        dimShipSize = pd.read_csv(
+            varDict['DIMFOLDER'] + 'shipment_size.txt',
+            sep='\t')
+        dimVT = pd.read_csv(
+            varDict['DIMFOLDER'] + 'vehicle_type.txt',
+            sep='\t')
+        dimFT = pd.read_csv(
+            varDict['DIMFOLDER'] + 'flow_type.txt',
+            sep='\t')
+
+        nNSTR = len(dimNSTR) - 1
+        nLS = len(dimLS) - 1
+        nShipSize = len(dimShipSize)
+        nVT = np.sum(dimVT['IsRefTypeFreight'] == 1)
+
+        nFlowTypesInternal = np.sum(dimFT['IsExternal'] == 0)
+        nFlowTypesExternal = np.sum(dimFT['IsExternal'] == 1)
+        
+        absoluteShipmentSizes = np.array(dimShipSize['Median'])
 
         # Distance decay parameters
         alpha = -6.172
@@ -172,26 +198,26 @@ def actually_run_module(args):
 
         # Factors for increasing or decreasing total flow of certain
         # logistics segments
-        facLS = [1 for ls in range(nLogSeg)]
-        for ls in range(nLogSeg):
+        facLS = [1.0 for ls in range(nLS)]
+        for ls in range(nLS):
             if varDict[f'FAC_LS{ls}'] != '':
                 facLS[ls] = float(varDict[f'FAC_LS{ls}'])
 
         # Which NSTR belongs to which Logistic Segments
-        nstrToLogSeg = np.array(pd.read_csv(
+        nstrToLS = np.array(pd.read_csv(
             varDict['NSTR_TO_LS'],
             header=None), dtype=float)
         for nstr in range(nNSTR):
-            nstrToLogSeg[nstr, :] = (
-                nstrToLogSeg[nstr, :] / np.sum(nstrToLogSeg[nstr, :]))
+            nstrToLS[nstr, :] = (
+                nstrToLS[nstr, :] / np.sum(nstrToLS[nstr, :]))
 
         # Which Logistic Segment belongs to which NSTRs
-        logSegToNstr = np.array(pd.read_csv(
+        lsToNstr = np.array(pd.read_csv(
             varDict['NSTR_TO_LS'],
             header=None), dtype=float)
-        for ls in range(nLogSeg):
-            logSegToNstr[:, ls] = (
-                logSegToNstr[:, ls] / np.sum(logSegToNstr[:, ls]))
+        for ls in range(nLS):
+            lsToNstr[:, ls] = (
+                lsToNstr[:, ls] / np.sum(lsToNstr[:, ls]))
 
         if root != '':
             root.progressBar['value'] = 0.2
@@ -233,18 +259,18 @@ def actually_run_module(args):
 
         # Convert demand from NSTR to logistic segments
         if varDict['SHIPMENTS_REF'] == "":
-            nRows = (nSuperZones + 1) * (nSuperZones + 1) * nLogSeg
+            nRows = (nSuperZones + 1) * (nSuperZones + 1) * nLS
 
             superComMat = np.zeros((nRows, 4))
             superComMat[:, 0] = (
-                np.floor(np.arange(nRows) / (nSuperZones + 1) / nLogSeg))
+                np.floor(np.arange(nRows) / (nSuperZones + 1) / nLS))
             superComMat[:, 1] = (
-                np.floor(np.arange(nRows) / nLogSeg) -
+                np.floor(np.arange(nRows) / nLS) -
                 superComMat[:, 0] * (nSuperZones + 1))
 
-            for logSeg in range(nLogSeg):
+            for ls in range(nLS):
                 superComMat[
-                    np.arange(logSeg, nRows, nLogSeg), 2] = logSeg
+                    np.arange(ls, nRows, nLS), 2] = ls
 
             zonesWithKnownNUTS3 = set(list(AREANRtoNUTS3.keys()))
 
@@ -270,27 +296,27 @@ def actually_run_module(args):
 
                                 if weightDayNSTR[nstr] > 0:
 
-                                    for logSeg in range(nLogSeg):
+                                    for ls in range(nLS):
                                         row = (
-                                            i * (nSuperZones + 1) * nLogSeg +
-                                            j * nLogSeg + logSeg)
+                                            i * (nSuperZones + 1) * nLS +
+                                            j * nLS + ls)
                                         superComMat[row, 3] += (
-                                            nstrToLogSeg[nstr, logSeg] *
+                                            nstrToLS[nstr, ls] *
                                             float(weightDayNSTR[nstr]))
 
                                         # Apply growth to parcel market
-                                        if logSeg == 6:
+                                        if ls == 6:
                                             growth = float(varDict[
                                                 'PARCELS_GROWTHFREIGHT'])
                                             superComMat[row, 3] *= growth
 
                                         # Apply increase/decrease factor
                                         # for logistics segment
-                                        superComMat[row, 3] *= facLS[logSeg]
+                                        superComMat[row, 3] *= facLS[ls]
 
             superComMat = pd.DataFrame(
                 superComMat,
-                columns=['From', 'To', 'LogSeg', 'WeightDay'])
+                columns=['From', 'To', 'LS', 'WeightDay'])
             superComMat.loc[
                 (superComMat['From'] != 0) & (superComMat['To'] != 0),
                 'WeightDay'] = 0
@@ -481,7 +507,7 @@ def actually_run_module(args):
                 paramsTimeOfDay.index,
                 [try_float(x, varDict['PARAMS_TOD'])
                  for x in paramsTimeOfDay.loc[:, str(ls + 1)]]))
-            for ls in range(nLogSeg)]
+            for ls in range(nLS)]
             
         nTimeIntervals = len([
             x for x in paramsTimeOfDay[0].keys()
@@ -489,8 +515,8 @@ def actually_run_module(args):
 
         timeIntervals = []
         timeIntervalsDur = []
-        nTimeIntervalsLS = [0 for ls in range(nLogSeg)]
-        for ls in range(nLogSeg):
+        nTimeIntervalsLS = [0 for ls in range(nLS)]
+        for ls in range(nLS):
             tmp = [
                 paramsTimeOfDay[ls][f'Interval_{t+1}'].split('_')
                 for t in range(nTimeIntervals)]
@@ -535,8 +561,8 @@ def actually_run_module(args):
         sharesUCC = np.array(sharesUCC)[:-1, :-1]
 
         # Only vehicle shares (summed up combustion types)
-        sharesVehUCC = np.zeros((nLogSeg - 1, len(vtNamesUCC)))
-        for ls in range(nLogSeg - 1):
+        sharesVehUCC = np.zeros((nLS, len(vtNamesUCC)))
+        for ls in range(nLS - 1):
             sharesVehUCC[ls, 0] = np.sum(sharesUCC[ls, 0:5])
             sharesVehUCC[ls, 1] = np.sum(sharesUCC[ls, 5:10])
             sharesVehUCC[ls, 2] = np.sum(sharesUCC[ls, 10:15])
@@ -607,20 +633,12 @@ def actually_run_module(args):
             np.array(zonesShape['Y'][[zoneDict[x] for x in cepDepotZones[i]]])
             for i in range(len(cepList))]
 
-        if root != '':
-            root.progressBar['value'] = 2.8
-
-        # -------------------- Set parameters ---------------------------------
-
-        nFlowTypesInternal = 9
-        nFlowTypesExternal = 3
-        nShipSizes = 6
-        nVehTypes = 7
         truckCapacities = np.array(pd.read_csv(
             varDict['VEHICLE_CAPACITY'],
             index_col=0))[:, 0] / 1000
-        absoluteShipmentSizes = [1.5, 4.5, 8.0, 15.0, 25.0, 35.0]
-        ExtArea = True
+
+        if root != '':
+            root.progressBar['value'] = 2.8
 
         # ----------- Cumulative probability functions for allocation ---------
 
@@ -665,24 +683,24 @@ def actually_run_module(args):
         if varDict['SHIPMENTS_REF'] == "":
             # Split demand by internal/export/import and goods type
             demandInternal = np.array(
-                superComMat['WeightDay'][:nLogSeg],
+                superComMat['WeightDay'][:nLS],
                 dtype=float)
-            demandExport = np.zeros((nSuperZones, nLogSeg), dtype=float)
-            demandImport = np.zeros((nSuperZones, nLogSeg), dtype=float)
+            demandExport = np.zeros((nSuperZones, nLS), dtype=float)
+            demandImport = np.zeros((nSuperZones, nLS), dtype=float)
 
             for superZone in range(nSuperZones):
-                for logSeg in range(nLogSeg):
+                for ls in range(nLS):
 
                     exportIndex = (
-                        (superZone + 1) * (nSuperZones + 1) * nLogSeg +
-                        logSeg)
-                    demandExport[superZone][logSeg] = (
+                        (superZone + 1) * (nSuperZones + 1) * nLS +
+                        ls)
+                    demandExport[superZone][ls] = (
                         superComMat['WeightDay'][exportIndex])
 
                     importIndex = (
-                        (superZone + 1) * nLogSeg +
-                        logSeg)
-                    demandImport[superZone][logSeg] = (
+                        (superZone + 1) * nLS +
+                        ls)
+                    demandImport[superZone][ls] = (
                         superComMat['WeightDay'][importIndex])
 
             # Then split demand by flowtype
@@ -744,23 +762,23 @@ def actually_run_module(args):
                 for ft in range(nFlowTypesInternal)])
             allocatedWeightInternal = 0
 
-            for logSeg in range(nLogSeg):
+            for ls in range(nLS):
 
                 for nstr in range(nNSTR):
 
-                    if logSegToNstr[nstr, logSeg] > 0:
+                    if lsToNstr[nstr, ls] > 0:
 
                         print(
-                            f"\tFor logistic segment {logSeg} (NSTR{nstr})",
+                            f"\tFor logistic segment {ls} (NSTR{nstr})",
                             end='\r')
                         log_file.write(
-                            f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")
+                            f"\tFor logistic segment {ls} (NSTR{nstr})\n")
 
                         if root != '':
                             root.update_statusbar(
                                 "Shipment Synthesizer: " +
                                 "Synthesizing shipments within study area " +
-                                "(LS " + str(logSeg) +
+                                "(LS " + str(ls) +
                                 " and NSTR " + str(nstr) + ")")
 
                         # Selecting the logit parameters for this NSTR group
@@ -775,14 +793,14 @@ def actually_run_module(args):
                             tmpParams['B_LongHaul_TractorTrailer'])
                         ASC_VT = [
                             tmpParams[f'ASC_VT_{i+1}']
-                            for i in range(nVehTypes)]
+                            for i in range(nVT)]
 
                         for ft in range(nFlowTypesInternal):
 
                             allocatedWeight = 0
                             totalWeight = (
-                                demandInternalByFT[ft][logSeg] *
-                                logSegToNstr[nstr, logSeg])
+                                demandInternalByFT[ft][ls] *
+                                lsToNstr[nstr, ls])
 
                             # While the weight of all synthesized shipment
                             # for this segment so far does not exceed the
@@ -790,10 +808,10 @@ def actually_run_module(args):
                             while allocatedWeight < totalWeight:
                                 flowType[count] = ft + 1
                                 goodsType[count] = nstr
-                                logisticSegment[count] = logSeg
+                                logisticSegment[count] = ls
 
                                 # Flows between parcel depots
-                                if logSeg == 6:
+                                if ls == 6:
                                     cep = draw_choice(cepSharesInternal)
                                     depot = draw_choice(cepDepotShares[cep])
                                     toFirm[count] = 0
@@ -852,7 +870,7 @@ def actually_run_module(args):
 
                                 distanceDecay /= np.sum(distanceDecay)
 
-                                if logSeg == 6:
+                                if ls == 6:
                                     origDepot = draw_choice(
                                         cepDepotShares[cep])
 
@@ -928,10 +946,10 @@ def actually_run_module(args):
 
                                 # Determine the utility and probability
                                 # for each alternative
-                                utilities = np.zeros(nVehTypes * nShipSizes)
+                                utilities = np.zeros(nVT * nShipSize)
 
-                                for ss in range(nShipSizes):
-                                    for vt in range(nVehTypes):
+                                for ss in range(nShipSize):
+                                    for vt in range(nVT):
                                         transportCosts = (
                                             costPerHour[vt] * travTime +
                                             costPerKm[vt] * distance)
@@ -943,7 +961,7 @@ def actually_run_module(args):
                                             truckCapacities[vt])
 
                                         # Utility function
-                                        index = ss * nVehTypes + vt
+                                        index = ss * nVT + vt
                                         utilities[index] = (
                                             B_TransportCosts * transportCosts +
                                             B_InventoryCosts * inventoryCosts[ss] +
@@ -963,7 +981,7 @@ def actually_run_module(args):
                                 ssvt = draw_choice(cumProbabilities)
 
                                 # The chosen shipment size category
-                                ssChosen = int(np.floor(ssvt / nVehTypes))
+                                ssChosen = int(np.floor(ssvt / nVT))
                                 shipmentSizeCat[count] = ssChosen
                                 shipmentSize[count] = min(
                                     absoluteShipmentSizes[ssChosen],
@@ -971,7 +989,7 @@ def actually_run_module(args):
 
                                 # The chosen vehicle type
                                 vehicleType[count] = (
-                                    ssvt - ssChosen * nVehTypes)
+                                    ssvt - ssChosen * nVT)
 
                                 # Update weight and counter
                                 allocatedWeight += shipmentSize[count]
@@ -985,7 +1003,7 @@ def actually_run_module(args):
                                             (percEnd - percStart) *
                                             (allocatedWeightInternal / totalWeightInternal))
 
-            if ExtArea:
+            if doExtArea:
 
                 print("Synthesizing shipments leaving study area...")
                 log_file.write("Synthesizing shipments leaving study area...\n")
@@ -1005,22 +1023,22 @@ def actually_run_module(args):
                     for ft in range(nFlowTypesExternal)])
                 allocatedWeightExport = 0
 
-                for logSeg in range(nLogSeg):
+                for ls in range(nLS):
 
                     for nstr in range(nNSTR):
 
-                        if logSegToNstr[nstr, logSeg] > 0:
+                        if lsToNstr[nstr, ls] > 0:
                             print(
-                                f"\tFor logistic segment {logSeg} (NSTR{nstr})",
+                                f"\tFor logistic segment {ls} (NSTR{nstr})",
                                 end='\r')
                             log_file.write(
-                                f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")
+                                f"\tFor logistic segment {ls} (NSTR{nstr})\n")
 
                             if root != '':
                                 root.update_statusbar(
                                     "Shipment Synthesizer: " +
                                     "Synthesizing shipments leaving study area" +
-                                    " (LS " + str(logSeg) +
+                                    " (LS " + str(ls) +
                                     " and NSTR " + str(nstr) + ")")
 
                             # Selecting the logit parameter for this NSTR group
@@ -1035,15 +1053,15 @@ def actually_run_module(args):
                                 tmpParams['B_LongHaul_TractorTrailer'])
                             ASC_VT = [
                                 tmpParams[f'ASC_VT_{i+1}']
-                                for i in range(nVehTypes)]
+                                for i in range(nVT)]
 
                             for ft in range(nFlowTypesExternal):
 
                                 for dest in range(nSuperZones):
                                     allocatedWeight = 0
                                     totalWeight = (
-                                        demandExportByFT[ft][dest, logSeg] *
-                                        logSegToNstr[nstr, logSeg])
+                                        demandExportByFT[ft][dest, ls] *
+                                        lsToNstr[nstr, ls])
 
                                     tmpCostTime = (
                                         costPerHourSourcing *
@@ -1070,14 +1088,14 @@ def actually_run_module(args):
 
                                     while allocatedWeight < totalWeight:
                                         flowType[count] = ft + 1 + nFlowTypesInternal
-                                        logisticSegment[count] = logSeg
+                                        logisticSegment[count] = ls
                                         goodsType[count] = nstr
                                         toFirm[count] = 0
                                         destZone[count] = nInternalZones + dest
                                         destX[count] = superZoneX[dest]
                                         destY[count] = superZoneY[dest]
 
-                                        if logSeg == 6:
+                                        if ls == 6:
                                             cep = draw_choice(cepSharesTotal)
                                             depot = draw_choice(
                                                 cepDepotShares[cep])
@@ -1136,10 +1154,10 @@ def actually_run_module(args):
 
                                         # Determine the utility and probability
                                         # for each alternative
-                                        utilities = np.zeros(nVehTypes * nShipSizes)
+                                        utilities = np.zeros(nVT * nShipSize)
 
-                                        for ss in range(nShipSizes):
-                                            for vt in range(nVehTypes):
+                                        for ss in range(nShipSize):
+                                            for vt in range(nVT):
                                                 transportCosts = (
                                                     costPerHour[vt] * travTime +
                                                     costPerKm[vt] * distance)
@@ -1147,7 +1165,7 @@ def actually_run_module(args):
                                                     absoluteShipmentSizes[ss] /
                                                     truckCapacities[vt])
 
-                                                index = ss * nVehTypes + vt
+                                                index = ss * nVT + vt
                                                 utilities[index] = (
                                                     B_TransportCosts * transportCosts +
                                                     B_InventoryCosts * inventoryCosts[ss] +
@@ -1168,7 +1186,7 @@ def actually_run_module(args):
 
                                         # The chosen shipment size category
                                         ssChosen = int(np.floor(
-                                            ssvt / nVehTypes))
+                                            ssvt / nVT))
                                         shipmentSizeCat[count] = ssChosen
                                         shipmentSize[count] = min(
                                             absoluteShipmentSizes[ssChosen],
@@ -1176,7 +1194,7 @@ def actually_run_module(args):
 
                                         # The chosen vehicle type
                                         vehicleType[count] = (
-                                            ssvt - ssChosen * nVehTypes)
+                                            ssvt - ssChosen * nVT)
 
                                         # Update weight and counter
                                         allocatedWeight += shipmentSize[count]
@@ -1209,22 +1227,22 @@ def actually_run_module(args):
                     for ft in range(nFlowTypesExternal)])
                 allocatedWeightImport  = 0
 
-                for logSeg in range(nLogSeg):
+                for ls in range(nLS):
 
                     for nstr in range(nNSTR):
 
-                        if logSegToNstr[nstr,logSeg] > 0:
+                        if lsToNstr[nstr, ls] > 0:
                             print(
-                                f"\tFor logistic segment {logSeg} (NSTR{nstr})",
+                                f"\tFor logistic segment {ls} (NSTR{nstr})",
                                 end='\r')
                             log_file.write(
-                                f"\tFor logistic segment {logSeg} (NSTR{nstr})\n")
+                                f"\tFor logistic segment {ls} (NSTR{nstr})\n")
 
                             if root != '':
                                 root.update_statusbar(
                                     "Shipment Synthesizer: " +
                                     "Synthesizing shipments entering study area" +
-                                    " (LS " + str(logSeg) +
+                                    " (LS " + str(ls) +
                                     " and NSTR " + str(nstr) + ")")
 
                             # Selecting the logit parameter for this NSTR group
@@ -1239,15 +1257,15 @@ def actually_run_module(args):
                                 tmpParams['B_LongHaul_TractorTrailer'])
                             ASC_VT = [
                                 tmpParams[f'ASC_VT_{i+1}']
-                                for i in range(nVehTypes)]
+                                for i in range(nVT)]
 
                             for ft in range(nFlowTypesExternal):
 
                                 for orig in range(nSuperZones):
                                     allocatedWeight = 0
                                     totalWeight = (
-                                        demandImportByFT[ft][orig, logSeg] *
-                                        logSegToNstr[nstr, logSeg])
+                                        demandImportByFT[ft][orig, ls] *
+                                        lsToNstr[nstr, ls])
 
                                     tmpCostTime = (
                                         costPerHourSourcing *
@@ -1274,14 +1292,14 @@ def actually_run_module(args):
 
                                     while allocatedWeight < totalWeight:
                                         flowType[count] = ft + 1 + nFlowTypesInternal
-                                        logisticSegment[count] = logSeg
+                                        logisticSegment[count] = ls
                                         goodsType[count] = nstr
                                         fromFirm[count] = 0
                                         origZone[count] = nInternalZones + orig
                                         origX[count] = superZoneX[orig]
                                         origY[count] = superZoneY[orig]
 
-                                        if logSeg == 6:
+                                        if ls == 6:
                                             cep = draw_choice(cepSharesTotal)
                                             depot = draw_choice(
                                                 cepDepotShares[cep])
@@ -1340,10 +1358,10 @@ def actually_run_module(args):
 
                                         # Determine the utility and
                                         # probability for each alternative
-                                        utilities = np.zeros(nVehTypes * nShipSizes)
+                                        utilities = np.zeros(nVT * nShipSize)
 
-                                        for ss in range(nShipSizes):
-                                            for vt in range(nVehTypes):
+                                        for ss in range(nShipSize):
+                                            for vt in range(nVT):
                                                 transportCosts = (
                                                     costPerHour[vt] * travTime +
                                                     costPerKm[vt] * distance)
@@ -1351,7 +1369,7 @@ def actually_run_module(args):
                                                     absoluteShipmentSizes[ss] /
                                                     truckCapacities[vt])
 
-                                                index = ss * nVehTypes + vt
+                                                index = ss * nVT + vt
                                                 utilities[index] = (
                                                     B_TransportCosts * transportCosts +
                                                     B_InventoryCosts * inventoryCosts[ss] +
@@ -1371,7 +1389,7 @@ def actually_run_module(args):
                                         ssvt = draw_choice(cumProbabilities)
 
                                         # The chosen shipment size category
-                                        ssChosen = int(np.floor(ssvt / nVehTypes))
+                                        ssChosen = int(np.floor(ssvt / nVT))
                                         shipmentSizeCat[count] = ssChosen
                                         shipmentSize[count] = min(
                                             absoluteShipmentSizes[ssChosen],
@@ -1379,7 +1397,7 @@ def actually_run_module(args):
 
                                         # The chosen vehicle type
                                         vehicleType[count] = (
-                                            ssvt - ssChosen * nVehTypes)
+                                            ssvt - ssChosen * nVT)
 
                                         # Update weight and counter
                                         allocatedWeight += shipmentSize[count]
@@ -1420,13 +1438,13 @@ def actually_run_module(args):
                             "Shipment Synthesizer: " +
                             "Synthesizing additional shipments (corrections)")
 
-                    for logSeg in range(nLogSeg - 1):
+                    for ls in range(nLS):
 
-                        if corrections.at[cor, f'LS{logSeg}'] > 0:
+                        if corrections.at[cor, f'LS{ls}'] > 0:
 
                             for nstr in range(nNSTR):
 
-                                if logSegToNstr[nstr, logSeg] > 0:
+                                if lsToNstr[nstr, ls] > 0:
 
                                     # Selecting the logit parameters for
                                     # this NSTR group
@@ -1441,11 +1459,11 @@ def actually_run_module(args):
                                         tmpParams['B_LongHaul_TractorTrailer'])
                                     ASC_VT = [
                                         tmpParams[f'ASC_VT_{i+1}']
-                                        for i in range(nVehTypes)]
+                                        for i in range(nVT)]
 
                                     totalWeight = (
-                                        corrections.at[cor, f'LS{logSeg}'] *
-                                        logSegToNstr[nstr, logSeg])
+                                        corrections.at[cor, f'LS{ls}'] *
+                                        lsToNstr[nstr, ls])
                                     allocatedWeight = 0
 
                                     # While the weight of all synthesized
@@ -1455,7 +1473,7 @@ def actually_run_module(args):
                                     while allocatedWeight < totalWeight:
                                         flowType[count] = 1
                                         goodsType[count] = nstr
-                                        logisticSegment[count] = logSeg
+                                        logisticSegment[count] = ls
 
                                         # Determine receiving firm
                                         if dest == -1:
@@ -1520,10 +1538,10 @@ def actually_run_module(args):
                                         longHaul = (distance > 100)
 
                                         # Determine the utility and probability for each alternative
-                                        utilities = np.zeros(nVehTypes * nShipSizes)
+                                        utilities = np.zeros(nVT * nShipSize)
 
-                                        for ss in range(nShipSizes):
-                                            for vt in range(nVehTypes):
+                                        for ss in range(nShipSize):
+                                            for vt in range(nVT):
                                                 transportCosts = (
                                                     costPerHour[vt] * travTime +
                                                     costPerKm[vt] * distance)
@@ -1534,7 +1552,7 @@ def actually_run_module(args):
                                                     truckCapacities[vt])
 
                                                 # Utility function
-                                                index = ss * nVehTypes + vt
+                                                index = ss * nVT + vt
                                                 utilities[index] = (
                                                     B_TransportCosts * transportCosts +
                                                     B_InventoryCosts * inventoryCosts[ss] +
@@ -1554,7 +1572,7 @@ def actually_run_module(args):
                                         ssvt = draw_choice(cumProbabilities)
 
                                         # The chosen shipment size category
-                                        ssChosen = int(np.floor(ssvt / nVehTypes))
+                                        ssChosen = int(np.floor(ssvt / nVT))
                                         shipmentSizeCat[count] = ssChosen
                                         shipmentSize[count] = min(
                                             absoluteShipmentSizes[ssChosen],
@@ -1562,7 +1580,7 @@ def actually_run_module(args):
 
                                         # The chosen vehicle type
                                         vehicleType[count] = (
-                                            ssvt - ssChosen * nVehTypes)
+                                            ssvt - ssChosen * nVT)
 
                                         # Update weight and counter
                                         allocatedWeight += shipmentSize[count]
@@ -1666,7 +1684,7 @@ def actually_run_module(args):
                 "ORIG", "DEST",
                 "NSTR",
                 "WEIGHT", "WEIGHT_CAT", 
-                "FLOWTYPE", "LOGSEG", 
+                "FLOWTYPE", "LS", 
                 "VEHTYPE",
                 "SEND_FIRM", "RECEIVE_FIRM",
                 "SEND_DC", "RECEIVE_DC",
@@ -1683,7 +1701,7 @@ def actually_run_module(args):
             shipments['WEIGHT'      ] = shipmentSize
             shipments['WEIGHT_CAT'  ] = shipmentSizeCat
             shipments['FLOWTYPE'    ] = flowType
-            shipments['LOGSEG'      ] = logisticSegment
+            shipments['LS'          ] = logisticSegment
             shipments['VEHTYPE'     ] = vehicleType
             shipments['SEND_FIRM'   ] = [firmID[x] if x != -99999 else -99999 for x in fromFirm]
             shipments['RECEIVE_FIRM'] = [firmID[x] if x != -99999 else -99999 for x in   toFirm]
@@ -1744,7 +1762,7 @@ def actually_run_module(args):
             "NSTR",
             "WEIGHT_CAT",
             "FLOWTYPE",
-            "LOGSEG", 
+            "LS", 
             "VEHTYPE",
             "SEND_FIRM", "RECEIVE_FIRM",
             "SEND_DC", "RECEIVE_DC",
@@ -1786,10 +1804,10 @@ def actually_run_module(args):
 
             whereOrigZEZ = np.array([
                 i for i in shipments[shipments['ORIG'] < 99999900].index
-                if zonesShape['ZEZ'][shipments['ORIG'][i]] == 1], dtype=int)
+                if zonesShape['ZEZ'][shipments['ORIG'][i]] >= 1], dtype=int)
             whereDestZEZ = np.array([
                 i for i in shipments[shipments['DEST'] < 99999900].index
-                if zonesShape['ZEZ'][shipments['DEST'][i]] == 1], dtype=int)
+                if zonesShape['ZEZ'][shipments['DEST'][i]] >= 1], dtype=int)
             setWhereOrigZEZ = set(whereOrigZEZ)
             setWhereDestZEZ = set(whereDestZEZ)
 
@@ -1807,7 +1825,7 @@ def actually_run_module(args):
             for i in whereOrigZEZ:
 
                 if i not in setWhereDestZEZ:
-                    ls = int(shipments['LOGSEG'][i])
+                    ls = int(shipments['LS'][i])
 
                     if probConsolidation[ls][0] > np.random.rand():
                         trueOrigin = int(shipments['ORIG'][i])
@@ -1839,7 +1857,7 @@ def actually_run_module(args):
             for i in whereDestZEZ:
 
                 if i not in setWhereOrigZEZ:
-                    ls = int(shipments['LOGSEG'][i])
+                    ls = int(shipments['LS'][i])
 
                     if probConsolidation[ls][0] > np.random.rand():
                         trueDest = int(shipments['DEST'][i])
@@ -1871,7 +1889,7 @@ def actually_run_module(args):
             # Also change vehicle type and rerouting
             # for shipments that go from a ZEZ area to a ZEZ area
             for i in whereBothZEZ:
-                ls = int(shipments['LOGSEG'][i])
+                ls = int(shipments['LS'][i])
 
                 # Als het binnen dezelfde gemeente (i.e. dezelfde ZEZ) blijft,
                 # dan hoeven we alleen maar het voertuigtype aan te passen
@@ -1966,7 +1984,7 @@ def actually_run_module(args):
             'WEIGHT': float,
             'WEIGHT_CAT': int,
             'FLOWTYPE': int,
-            'LOGSEG': int,
+            'LS': int,
             'VEHTYPE': int,
             'SEND_FIRM': int,
             'RECEIVE_FIRM': int,
@@ -1983,7 +2001,7 @@ def actually_run_module(args):
         if varDict['SHIPMENTS_REF'] == "":
 
             # ---------------- Zonal productions and attractions --------------
-            print("Writing zonal productions/attractions...\n")
+            print("Writing zonal productions/attractions...")
             log_file.write("Writing zonal productions/attractions...\n")
 
             if root != '':
@@ -1995,15 +2013,15 @@ def actually_run_module(args):
             prodWeight = pd.pivot_table(
                 shipments,
                 values=['WEIGHT'],
-                index=['ORIG', 'LOGSEG'],
+                index=['ORIG', 'LS'],
                 aggfunc=np.sum)
             attrWeight = pd.pivot_table(
                 shipments,
                 values=['WEIGHT'],
-                index=['DEST', 'LOGSEG'],
+                index=['DEST', 'LS'],
                 aggfunc=np.sum)
             nRows = nInternalZones + nSuperZones
-            nCols = nLogSeg
+            nCols = nLS
             zonalProductions = np.zeros((nRows, nCols))
             zonalAttractions = np.zeros((nRows, nCols))
 
@@ -2068,7 +2086,7 @@ def actually_run_module(args):
             w.field('WEIGHT',       'N', size=4, decimal=2)
             w.field('WEIGHT_CAT',   'N', size=2, decimal=0)
             w.field('FLOWTYPE',     'N', size=2, decimal=0)
-            w.field('LOGSEG',       'N', size=2, decimal=0)
+            w.field('LS',           'N', size=2, decimal=0)
             w.field('VEHTYPE',      'N', size=2, decimal=0)
             w.field('SEND_FIRM',    'N', size=8, decimal=0)
             w.field('RECEIVE_FIRM', 'N', size=8, decimal=0)
@@ -2092,9 +2110,9 @@ def actually_run_module(args):
                 # Add data fields
                 w.record(*dbfData[i, :])
                                 
-                if i % int(round(nShips / 10)) == 0:
+                if i % int(round(nShips / 20)) == 0:
                     print(
-                        '\t' + str(int(round((i / nShips) * 100))) + '%',
+                        '\t' + str(round(i / nShips * 100, 1)) + '%',
                         end='\r')
 
                     if root != '':
@@ -2107,6 +2125,7 @@ def actually_run_module(args):
         # ------------------------- End of module -----------------------------
             
         totaltime = round(time.time() - start_time, 2)
+        print('Finished. Run time: ' + str(totaltime) + ' seconds')
         log_file.write("Total runtime: %s seconds\n" % (totaltime))
         log_file.write(
             "End simulation at: " +
@@ -2128,9 +2147,9 @@ def actually_run_module(args):
         
     except BaseException:
         import sys
-        log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
+        log_file.write(str(sys.exc_info()[0]) + "\n")
         import traceback        
-        log_file.write(str(traceback.format_exc())), log_file.write("\n")
+        log_file.write(str(traceback.format_exc()) + "\n")
         log_file.write("Execution failed!")
         log_file.close()        
         print(sys.exc_info()[0])
@@ -2149,7 +2168,7 @@ def actually_run_module(args):
                     str(root.returnInfo[1][0]) +
                     '\n\n' +
                     str(root.returnInfo[1][1]))
-                root.error_screen(text=errorMessage, size=[900,350])
+                root.error_screen(text=errorMessage, size=[900, 350])
             
             else:
                 return root.returnInfo
@@ -2167,7 +2186,8 @@ if __name__ == '__main__':
     varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/2016/'
     varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/output/RunREF2016/'
     varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/parameters/'
-    
+    varDict['DIMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/dimensions/'
+
     varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimTijd_REF.mtx'
     varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimAfstand_REF.mtx'
     varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
@@ -2204,6 +2224,7 @@ if __name__ == '__main__':
     varDict['PARAMS_ET_LATER'] = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
     varDict['PARAMS_SIF_PROD'] = varDict['PARAMFOLDER'] + 'Params_PA_PROD.csv'
     varDict['PARAMS_SIF_ATTR'] = varDict['PARAMFOLDER'] + 'Params_PA_ATTR.csv'
+    varDict['PARAMS_ECOMMERCE']    = varDict['PARAMFOLDER'] + 'Params_EcommerceDemand.csv'
 
     varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
     varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
@@ -2258,4 +2279,5 @@ if __name__ == '__main__':
     varDict['LABEL'] = 'REF'
     
     # Run the module
+    root = ''
     main(varDict)

@@ -689,7 +689,7 @@ def actually_run_module(args):
             # Write the REF parcel demand
             print("Writing REF parcels to ParcelDemand_REF.csv")
             log_file.write(
-                '[' + datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")+ ']\t'+
+                '[' + datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S") + ']\t'+
                 f"Writing REF parcels to ParcelDemand_{tier}_{mode}_.csv\n")
             parcels.to_csv(
                 f"{varDict['OUTPUTFOLDER']}ParcelDemand_REF.csv",
@@ -697,7 +697,7 @@ def actually_run_module(args):
 
             print('Redirecting parcels through microhubs...')
             log_file.write(
-                '[' + datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S")+ ']\t'+
+                '[' + datetime.datetime.now().strftime("%d-%m-%y %H:%M:%S") + ']\t'+
                 'Redirecting parcels through microhubs\n')
 
             parcels['FROM_MH'] = 0
@@ -817,9 +817,12 @@ def actually_run_module(args):
                 'WasteCollection',
                 'SpecialConstruction']
 
-            nLogSeg = 8
-            
-            # Logistic segment is 6: parcels
+            dimLS = pd.read_csv(
+                varDict['DIMFOLDER'] + 'logistic_segment.txt',
+                sep='\t')
+            nLS = len(dimLS) - 1
+
+            # Logistic segment for determining UCC vehicle types is 6: parcels
             ls = 6
 
             # Write the REF parcel demand
@@ -842,8 +845,8 @@ def actually_run_module(args):
             sharesUCC = np.array(sharesUCC)[:-1, :-1]
 
             # Only vehicle shares (summed up combustion types)
-            sharesVehUCC = np.zeros((nLogSeg - 1, len(vtNamesUCC)))
-            for ls in range(nLogSeg - 1):
+            sharesVehUCC = np.zeros((nLS, len(vtNamesUCC)))
+            for ls in range(nLS - 1):
                 sharesVehUCC[ls, 0] = np.sum(sharesUCC[ls, 0:5])
                 sharesVehUCC[ls, 1] = np.sum(sharesUCC[ls, 5:10])
                 sharesVehUCC[ls, 2] = np.sum(sharesUCC[ls, 10:15])
@@ -1138,7 +1141,7 @@ def actually_run_module(args):
                 geoFile.write(outputStr)
 
                 if i % int(nRecords / 10) == 0:
-                    print('\t' + str(round(i / nRecords * 100), 1) + '%',
+                    print('\t' + str(round(i / nRecords * 100, 1)) + '%',
                           end='\r')
 
             # Bij de laatste feature moet er geen komma aan het einde
@@ -1173,11 +1176,14 @@ def actually_run_module(args):
 
     except Exception:
         import sys
-        log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
+        log_file.write(str(sys.exc_info()[0]) + "\n")
         import traceback
-        log_file.write(str(traceback.format_exc())), log_file.write("\n")
+        log_file.write(str(traceback.format_exc()) + "\n")
         log_file.write("Execution failed!")
         log_file.close()
+        print(sys.exc_info()[0])
+        print(traceback.format_exc())
+        print("Execution failed!")
 
         if root != '':
             # Use this information to display as error message in GUI
@@ -1205,6 +1211,7 @@ if __name__ == '__main__':
     varDict['INPUTFOLDER']   = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/2016/'
     varDict['OUTPUTFOLDER']  = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/output/RunREF2016/'
     varDict['PARAMFOLDER']   = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/parameters/'
+    varDict['DIMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/dimensions/'
 
     varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimTijd_REF.mtx'
     varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimAfstand_REF.mtx'
@@ -1234,6 +1241,8 @@ if __name__ == '__main__':
     varDict['PARAMS_SSVT']         = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
     varDict['PARAMS_ET_FIRST']     = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
     varDict['PARAMS_ET_LATER']     = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+    varDict['PARAMS_SIF_PROD'] = varDict['PARAMFOLDER'] + 'Params_PA_PROD.csv'
+    varDict['PARAMS_SIF_ATTR'] = varDict['PARAMFOLDER'] + 'Params_PA_ATTR.csv'
     varDict['PARAMS_ECOMMERCE']    = varDict['PARAMFOLDER'] + 'Params_EcommerceDemand.csv'
 
     varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'

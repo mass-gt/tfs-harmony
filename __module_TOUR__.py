@@ -143,6 +143,24 @@ def actually_run_module(args):
         doShiftToElectric = (shiftFreightToComb1 != "")
         doShiftToHydrogen = (shiftFreightToComb2 != "")
 
+        dimNSTR = pd.read_csv(
+            varDict['DIMFOLDER'] + 'nstr.txt',
+            sep='\t')
+        dimLS = pd.read_csv(
+            varDict['DIMFOLDER'] + 'logistic_segment.txt',
+            sep='\t')
+        dimVT = pd.read_csv(
+            varDict['DIMFOLDER'] + 'vehicle_type.txt',
+            sep='\t')
+        dimCombType = pd.read_csv(
+            varDict['DIMFOLDER'] + 'combustion_type.txt',
+            sep='\t')
+
+        nNSTR = len(dimNSTR) - 1
+        nLS = len(dimLS) - 1
+        nVT = len(dimVT)
+        nCombType = len(dimCombType)
+
         maxCPU = 16
         if varDict['N_CPU'] not in ['', '""', "''"]:
             try:
@@ -190,9 +208,6 @@ def actually_run_module(args):
 
         # Average dwell time at a stop (in hours)
         avgDwellTime = 0.25
-
-        nLogSeg = 8  # Number of logistic segments
-        nVT = 10     # Number of vehicle types
 
         if root != '':
             root.progressBar['value'] = 0.1
@@ -278,8 +293,6 @@ def actually_run_module(args):
             sharesUCC = pd.read_csv(
                 varDict['ZEZ_SCENARIO'],
                 index_col='Segment')
-            combTypes = ['Fuel', 'Electric', 'Hydrogen',
-                         'Hybrid (electric)', 'Biofuel']
 
             # Assume no consolidation potential and vehicle type switch
             # for dangerous goods
@@ -287,17 +300,17 @@ def actually_run_module(args):
 
             # Combustion type shares per vehicle type and logistic segment
             cumProbCombustion = [
-                np.zeros((nLogSeg - 1, len(combTypes)), dtype=float)
+                np.zeros((nLS, nCombType), dtype=float)
                 for vt in range(nVT)]
 
-            for ls in range(nLogSeg - 1):
+            for ls in range(nLS - 1):
 
                 # Truck_Small, Truck_Medium, Truck_Large
                 # TruckTrailer_Small, TruckTrailer_Large
                 if np.all(sharesUCC[ls, 15:20] == 0):
                     for vt in range(5):
                         cumProbCombustion[vt][ls] = (
-                            np.ones((1, len(combTypes))))
+                            np.ones((1, nCombType)))
                 else:
                     for vt in range(5):
                         cumProbCombustion[vt][ls] = (
@@ -306,7 +319,7 @@ def actually_run_module(args):
 
                 # TractorTrailer
                 if np.all(sharesUCC[ls, 20:25] == 0):
-                    cumProbCombustion[5][ls] = np.ones((1, len(combTypes)))
+                    cumProbCombustion[5][ls] = np.ones((1, nCombType))
                 else:
                     cumProbCombustion[5][ls] = (
                         np.cumsum(sharesUCC[ls, 20:25]) /
@@ -314,7 +327,7 @@ def actually_run_module(args):
 
                 # SpecialVehicle
                 if np.all(sharesUCC[ls, 30:35] == 0):
-                    cumProbCombustion[6][ls] = np.ones((1, len(combTypes)))
+                    cumProbCombustion[6][ls] = np.ones((1, nCombType))
                 else:
                     cumProbCombustion[6][ls] = (
                         np.cumsum(sharesUCC[ls, 30:35]) /
@@ -322,7 +335,7 @@ def actually_run_module(args):
 
                 # Van
                 if np.all(sharesUCC[ls, 10:15] == 0):
-                    cumProbCombustion[7][ls] = np.ones((1, len(combTypes)))
+                    cumProbCombustion[7][ls] = np.ones((1, nCombType))
                 else:
                     cumProbCombustion[7][ls] = (
                         np.cumsum(sharesUCC[ls, 10:15]) /
@@ -330,7 +343,7 @@ def actually_run_module(args):
 
                 # LEVV
                 if np.all(sharesUCC[ls, 0:5] == 0):
-                    cumProbCombustion[8][ls] = np.ones((1, len(combTypes)))
+                    cumProbCombustion[8][ls] = np.ones((1, nCombType))
                 else:
                     cumProbCombustion[8][ls] = (
                         np.cumsum(sharesUCC[ls, 0:5]) /
@@ -338,7 +351,7 @@ def actually_run_module(args):
 
                 # Moped
                 if np.all(sharesUCC[ls, 5:10] == 0):
-                    cumProbCombustion[9][ls] = np.ones((1, len(combTypes)))
+                    cumProbCombustion[9][ls] = np.ones((1, nCombType))
                 else:
                     cumProbCombustion[9][ls] = (
                         np.cumsum(sharesUCC[ls, 5:10]) /
@@ -410,7 +423,7 @@ def actually_run_module(args):
             whereToUCC = np.where(shipments['TO_UCC'] == 1)[0]
             whereFromUCC = np.where(shipments['FROM_UCC'] == 1)[0]
 
-            ZEZzones = set(zones[zones[:, 5] == 1, 0])
+            ZEZzones = set(zones[zones[:, 5] >= 1, 0])
 
             for i in whereToUCC:
                 if zoneDict[shipments['ORIG'][i]] in ZEZzones:
@@ -431,7 +444,7 @@ def actually_run_module(args):
         shipments = shipments[['SHIP_ID', 'ORIG', 'DEST', 'CARRIER',
                                'VEHTYPE', 'NSTR', 'WEIGHT',
                                'LOGNODE_LOADING', 'LOGNODE_UNLOADING',
-                               'URBAN', 'LOGSEG',
+                               'URBAN', 'LS',
                                'SEND_FIRM', 'RECEIVE_FIRM',
                                'TOD_PERIOD', 'TOD_LOWER', 'TOD_UPPER']]
         shipments = np.array(shipments)
@@ -586,6 +599,7 @@ def actually_run_module(args):
             nShipmentsPerCarrier,
             nCarriers,
             nTOD,
+            nNSTR,
             logitParams_ETfirst,
             logitParams_ETlater), chunks)
 
@@ -825,7 +839,7 @@ def actually_run_module(args):
             for car in range(nCarriers)]
 
         if varDict['LABEL'] == 'UCC':
-            ZEZzones = set(zones[zones[:, 5] == 1, 0])
+            ZEZzones = set(zones[zones[:, 5] >= 1, 0])
 
             for car in range(nCarriers):
                 for tour in range(nTours[car]):
@@ -920,7 +934,8 @@ def actually_run_module(args):
                     # Dominant NSTR goods type (by weight)
                     outputTours[tripcount][10] = max_nstr(
                         tours[car][tour],
-                        shipments)
+                        shipments,
+                        nNSTR)
 
                     # Number of shipments transported in tour
                     outputTours[tripcount][11] = nShipmentsPerTour[car][tour]
@@ -973,7 +988,7 @@ def actually_run_module(args):
             "DC_ID",
             "TOUR_WEIGHT", "TRIP_WEIGHT",
             "TOUR_DEPTIME", "TRIP_DEPTIME", "TRIP_ARRTIME",
-            "LOG_SEG",
+            "LS",
             "COMBTYPE"]
         dTypes = [
             str, str, str,
@@ -1029,7 +1044,7 @@ def actually_run_module(args):
             'WEIGHT',
             'LOGNODE_LOADING', 'LOGNODE_UNLOADING',
             'URBAN',
-            'LOGSEG',
+            'LS',
             'SEND_FIRM', 'RECEIVE_FIRM',
             'TOD_PERIOD', 'TOD_LOWER', 'TOD_UPPER']
 
@@ -1048,7 +1063,7 @@ def actually_run_module(args):
             'VEHTYPE',
             'NSTR',
             'WEIGHT',
-            'LOGSEG',
+            'LS',
             'TOUR_ID',
             'SEND_FIRM', 'RECEIVE_FIRM',
             'TOD_PERIOD']
@@ -1098,11 +1113,13 @@ def actually_run_module(args):
         w.field('TOUR_DEPTIME', 'N', size=4, decimal=2)
         w.field('TRIP_DEPTIME', 'N', size=5, decimal=2)
         w.field('TRIP_ARRTIME', 'N', size=5, decimal=2)
-        w.field('LOGSEG',       'N', size=2, decimal=0)
+        w.field('LS',           'N', size=2, decimal=0)
         w.field('COMBTYPE',     'N', size=2, decimal=0)
 
         dbfData = np.array(
-            outputTours.drop(columns=['X_ORIG', 'Y_ORIG', 'X_DEST', 'Y_DEST']),
+            outputTours.drop(columns=[
+                'X_ORIG', 'Y_ORIG',
+                'X_DEST', 'Y_DEST']),
             dtype=object)
 
         for i in range(nTripsTotal):
@@ -1115,9 +1132,8 @@ def actually_run_module(args):
             w.record(*dbfData[i, :])
 
             if i % 500 == 0:
-                print(
-                    '\t' + str(int(round((i / nTripsTotal) * 100, 0))) + '%',
-                    end='\r')
+                print('\t' + str(round(i / nTripsTotal * 100, 1)) + '%',
+                      end='\r')
 
                 if root != '':
                     root.progressBar['value'] = (
@@ -1149,9 +1165,9 @@ def actually_run_module(args):
 
         # Maak dummies in tours variabele per logistiek segment,
         # voertuigtype en N_TOT (altijd 1 hier)
-        for ls in range(nLogSeg):
+        for ls in range(nLS):
             outputTours['N_LS' + str(ls)] = (
-                outputTours['LOG_SEG'] == ls).astype(int)
+                outputTours['LS'] == ls).astype(int)
         for vt in range(nVT):
             outputTours['N_VEH' + str(vt)] = (
                 outputTours['VEHTYPE'] == vt).astype(int)
@@ -1202,9 +1218,9 @@ def actually_run_module(args):
 
             # Maak dummies in tours variabele
             # per logistiek segment, voertuigtypeen N_TOT (altijd 1 hier)
-            for ls in range(nLogSeg):
+            for ls in range(nLS):
                 output['N_LS' + str(ls)] = (
-                    output['LOG_SEG'] == ls).astype(int)
+                    output['LS'] == ls).astype(int)
             for vt in range(nVT):
                 output['N_VEH' + str(vt)] = (
                     output['VEHTYPE'] == vt).astype(int)
@@ -1238,6 +1254,7 @@ def actually_run_module(args):
         # ------------------------- End of module -----------------------------
 
         totaltime = round(time.time() - start_time, 2)
+        print('Finished. Run time: ' + str(totaltime) + ' seconds')
         log_file.write("Total runtime: %s seconds\n" % (totaltime))
         log_file.write(
             "End simulation at: " +
@@ -1258,11 +1275,14 @@ def actually_run_module(args):
 
     except BaseException:
         import sys
-        log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
+        log_file.write(str(sys.exc_info()[0]) + "\n")
         import traceback
-        log_file.write(str(traceback.format_exc())), log_file.write("\n")
+        log_file.write(str(traceback.format_exc()) + "\n")
         log_file.write("Execution failed!")
         log_file.close()
+        print(sys.exc_info()[0])
+        print(traceback.format_exc())
+        print("Execution failed!")
 
         if root != '':
             # Use this information to display as error message in GUI
@@ -1633,17 +1653,16 @@ def is_concrete():
     return False
 
 
-def max_nstr(tour, shipments):
+def max_nstr(tour, shipments, nNSTR):
     '''
     Returns the NSTR goods type (0-9) of which the highest weight is
     transported in the tour (so far)
 
     tour = array with the IDs of all shipments in the tour
     '''
-    nNSTR = 10
     nstrWeight = np.zeros(nNSTR)
 
-    for i in range(0, len(tour)):
+    for i in range(len(tour)):
         shipNSTR = shipments[tour[i], 5]
         shipWeight = shipments[tour[i], 6]
         nstrWeight[shipNSTR] += shipWeight
@@ -1668,7 +1687,7 @@ def sum_weight(tour, shipments):
     return sumWeight
 
 
-def endtour_first(tourDuration, capUt, tour, params, shipments):
+def endtour_first(tourDuration, capUt, tour, params, shipments, nNSTR):
     '''
     Returns True if we decide to end the tour, False if we decide
     to add another shipment
@@ -1676,7 +1695,7 @@ def endtour_first(tourDuration, capUt, tour, params, shipments):
     # Calculate explanatory variables
     vehicleTypeIs0 = (shipments[tour[0], 4] == 0) * 1
     vehicleTypeIs1 = (shipments[tour[0], 4] == 1) * 1
-    maxNSTR = max_nstr(tour, shipments)
+    maxNSTR = max_nstr(tour, shipments, nNSTR)
     nstrIs0 = (maxNSTR == 0) * 1
     nstrIs1 = (maxNSTR == 1) * 1
     nstrIs2to5 = (maxNSTR in [2, 3, 4, 5]) * 1
@@ -1709,7 +1728,7 @@ def endtour_first(tourDuration, capUt, tour, params, shipments):
 
 
 def endtour_later(tour, tourlocs, tourSequence, universal, skim,
-                  nZones, carryingCapacity, params, shipments):
+                  nZones, carryingCapacity, params, shipments, nNSTR):
     '''
     Returns True if we decide to end the tour, False if we decide
     to add another shipment
@@ -1731,7 +1750,7 @@ def endtour_later(tour, tourlocs, tourSequence, universal, skim,
     numberOfStops = len(np.unique(tourlocs))
     vehicleTypeIs0 = (shipments[tour[0], 4] == 0) * 1
     vehicleTypeIs1 = (shipments[tour[0], 4] == 1) * 1
-    maxNSTR = max_nstr(tour, shipments)
+    maxNSTR = max_nstr(tour, shipments, nNSTR)
     nstrIs0 = (maxNSTR == 0) * 1
     nstrIs1 = (maxNSTR == 1) * 1
     nstrIs6 = (maxNSTR == 6) * 1
@@ -1847,7 +1866,7 @@ def selectshipment(tour, tourlocs, universal, skim,
 
 def tourformation(carMarkers, shipments, skim, nZones, maxNumShips,
                   carryingCapacity, dcZones,
-                  nShipmentsPerCarrier, nCarriers, nTOD,
+                  nShipmentsPerCarrier, nCarriers, nTOD, nNSTR,
                   logitParams_ETfirst, logitParams_ETlater,
                   cars):
     '''
@@ -1962,7 +1981,8 @@ def tourformation(carMarkers, shipments, skim, nZones, maxNumShips,
                         capUt,
                         tour,
                         logitParams_ETfirst,
-                        shipments)
+                        shipments,
+                        nNSTR)
 
                     while (not etChoice) and len(universalChoiceSet) != 0:
                         # Current tour, tourlocations and toursequence
@@ -2051,7 +2071,8 @@ def tourformation(carMarkers, shipments, skim, nZones, maxNumShips,
                                         nZones,
                                         carryingCapacity,
                                         logitParams_ETlater,
-                                        shipments)
+                                        shipments,
+                                        nNSTR)
 
                                 else:
                                     tourCount += 1
@@ -2080,6 +2101,7 @@ if __name__ == '__main__':
     varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/2016/'
     varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/output/RunREF2016/'
     varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/parameters/'
+    varDict['DIMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/dimensions/'
 
     varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimTijd_REF.mtx'
     varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimAfstand_REF.mtx'
@@ -2116,6 +2138,7 @@ if __name__ == '__main__':
     varDict['PARAMS_ET_LATER'] = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
     varDict['PARAMS_SIF_PROD'] = varDict['PARAMFOLDER'] + 'Params_PA_PROD.csv'
     varDict['PARAMS_SIF_ATTR'] = varDict['PARAMFOLDER'] + 'Params_PA_ATTR.csv'
+    varDict['PARAMS_ECOMMERCE']    = varDict['PARAMFOLDER'] + 'Params_EcommerceDemand.csv'
 
     varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
     varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
@@ -2170,5 +2193,6 @@ if __name__ == '__main__':
     varDict['LABEL'] = 'REF'
 
     # Run the module
+    root = ''
     main(varDict)
 

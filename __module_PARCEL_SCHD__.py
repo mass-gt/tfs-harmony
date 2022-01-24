@@ -864,11 +864,14 @@ def actually_run_module(args):
 
     except Exception:
         import sys
-        log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
+        log_file.write(str(sys.exc_info()[0]) + "\n")
         import traceback
-        log_file.write(str(traceback.format_exc())), log_file.write("\n")
+        log_file.write(str(traceback.format_exc()) + "\n")
         log_file.write("Execution failed!")
         log_file.close()
+        print(sys.exc_info()[0])
+        print(traceback.format_exc())
+        print("Execution failed!")
 
         if root != '':
             # Use this information to display as error message in GUI
@@ -1817,7 +1820,8 @@ if __name__ == '__main__':
     varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/2016/'
     varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/output/RunREF2016/'
     varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/parameters/'
-    
+    varDict['DIMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/dimensions/'
+
     varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimTijd_REF.mtx'
     varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimAfstand_REF.mtx'
     varDict['LINKS'] = varDict['INPUTFOLDER'] + 'links_v5.shp'
@@ -1845,6 +1849,9 @@ if __name__ == '__main__':
     varDict['PARAMS_SSVT']         = varDict['PARAMFOLDER'] + 'Params_ShipSize_VehType.csv'
     varDict['PARAMS_ET_FIRST']     = varDict['PARAMFOLDER'] + 'Params_EndTourFirst.csv'
     varDict['PARAMS_ET_LATER']     = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
+    varDict['PARAMS_SIF_PROD'] = varDict['PARAMFOLDER'] + 'Params_PA_PROD.csv'
+    varDict['PARAMS_SIF_ATTR'] = varDict['PARAMFOLDER'] + 'Params_PA_ATTR.csv'
+    varDict['PARAMS_ECOMMERCE']    = varDict['PARAMFOLDER'] + 'Params_EcommerceDemand.csv'
 
     varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
     varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'

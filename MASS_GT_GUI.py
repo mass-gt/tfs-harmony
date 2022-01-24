@@ -167,7 +167,7 @@ class Root:
         '''
         # All the allowed keys in the control file
         self.varStrings = [
-            "INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER",
+            "INPUTFOLDER", "OUTPUTFOLDER", "PARAMFOLDER", "DIMFOLDER",
             "SKIMTIME", "SKIMDISTANCE",
             "LINKS", "NODES",
             "EMISSIONFACS_BUITENWEG_LEEG", "EMISSIONFACS_BUITENWEG_VOL",
@@ -216,8 +216,8 @@ class Root:
         nVars = len(self.varStrings)
 
         # At which index car the output, input and parameter folder be found
-        whereOutputFolder, whereInputFolder, whereParamFolder = (
-            None, None, None)
+        whereOutputFolder, whereInputFolder, whereParamFolder, whereDimFolder = (
+            None, None, None, None)
         for i in range(nVars):
             if self.varStrings[i] == "OUTPUTFOLDER":
                 whereOutputFolder = i
@@ -225,6 +225,8 @@ class Root:
                 whereInputFolder = i
             elif self.varStrings[i] == "PARAMFOLDER":
                 whereParamFolder = i
+            elif self.varStrings[i] == "DIMFOLDER":
+                whereDimFolder = i
 
         # A list for the values belonging to each key in the control file
         varValues = ["" for i in range(nVars)]
@@ -246,7 +248,10 @@ class Root:
         
         # Which variables refer to a directory path
         dirVars = [
-            "INPUTFOLDER", "OUTPUTFOLDER", "OUTPUTFOLDER"]
+            "INPUTFOLDER",
+            "OUTPUTFOLDER",
+            "PARAMFOLDER",
+            "DIMFOLDER"]
 
         # Which variables refer to the modules that need to be run
         moduleVars = [
@@ -382,7 +387,10 @@ class Root:
                                         value = value.replace(' ', '')
                                         varValues[i] = value
                                         varValues[i] = varValues[i].split(',')
+
                                         for j in range(len(varValues[i])):
+                                            varValues[i][j] = varValues[i][j].upper()
+
                                             if varValues[i][j] not in self.moduleNames:
                                                 errorMessage = (
                                                     errorMessage +
@@ -406,8 +414,9 @@ class Root:
                                                 varValues[i] = varValues[i] + '/'
 
                                         if self.varStrings[i] in dirVars or self.varStrings[i] in fileVars:
-                                            if self.varStrings[i] not in ['INPUTFOLDER', 'OUTPUTFOLDER', 'PARAMFOLDER']:
+                                            if self.varStrings[i] not in dirVars:
                                                 tmp = varValues[i].split("<<")
+
                                                 if len(tmp) > 1:
                                                     tmp = tmp[1].split(">>")
 
@@ -417,6 +426,8 @@ class Root:
                                                         varValues[i] = varValues[whereInputFolder] + tmp[1]
                                                     if tmp[0] == 'PARAMFOLDER':
                                                         varValues[i] = varValues[whereParamFolder] + tmp[1] 
+                                                    if tmp[0] == 'DIMFOLDER':
+                                                        varValues[i] = varValues[whereDimFolder] + tmp[1] 
 
                             # Warning for unknown argument in control file
                             if key.upper() not in self.varStrings:
@@ -479,13 +490,12 @@ class Root:
             writeLog = False
 
         # Make a dictionary of the input arguments
-        if run:
-            varDict = {}
-            for i in range(nVars):
-                varDict[self.varStrings[i]] = varValues[i]
+        varDict = {}
+        for i in range(nVars):
+            varDict[self.varStrings[i]] = varValues[i]
 
         # Check for outputfolder files when not all modules are run
-        if run and writeLog:
+        if os.path.isdir(varDict['OUTPUTFOLDER']):
             outFileChecks = [
                 ["SHIP",
                  "SIF",
@@ -546,6 +556,26 @@ class Root:
                                 ' in the OUTPUTFOLDER, but it is not found: "' +
                                 outfileToCheck + '".\n')
 
+        # Check on text files with dimensions / categories
+        if os.path.isdir(varDict['DIMFOLDER']):
+            dimFilenames = [
+                'combustion_type.txt',
+                'emission_type.txt',
+                'employment_sector.txt',
+                'flow_type.txt',
+                'logistic_segment.txt',
+                'municipality.txt',
+                'nstr.txt',
+                'shipment_size.txt',
+                'vehicle_type.txt']
+            for filename in dimFilenames:
+                if not os.path.isfile(varDict['DIMFOLDER'] + filename):
+                    run = False
+                    errorMessage = errorMessage + (
+                        'Expected a text file called ' +
+                        '"' + filename + '"' +
+                        ' in DIMFOLDER, but could not find it.')
+            
         # Open the logfile and write the header, specified arguments and
         # possible error messages
         if writeLog:
@@ -639,7 +669,7 @@ class Root:
             args = [self, varDict]
 
             if run and 'FS' in varDict['MODULES']:
-                print('')
+                print('\n')
                 print('---------------------------------------------------')
                 print('--------------- Firm Synthesis --------------------')
                 print('---------------------------------------------------')
@@ -677,7 +707,7 @@ class Root:
                         "\n\n")
 
             if run and 'SIF' in varDict['MODULES']:
-                print('')
+                print('\n')
                 print('---------------------------------------------------')
                 print('--------- Spatial Interaction Freight -------------')
                 print('---------------------------------------------------')

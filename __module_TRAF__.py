@@ -156,17 +156,29 @@ def actually_run_module(args):
             "Start simulation at: " +
             datetime.datetime.now().strftime("%y-%m-%d %H:%M") + "\n")
 
+        dimLS = pd.read_csv(
+            varDict['DIMFOLDER'] + 'logistic_segment.txt',
+            sep='\t')
+        dimVT = pd.read_csv(
+            varDict['DIMFOLDER'] + 'vehicle_type.txt',
+            sep='\t')
+        dimET = pd.read_csv(
+            varDict['DIMFOLDER'] + 'emission_type.txt',
+            sep='\t')
+
+        nLS = len(dimLS)  # Number of logistic segments
+        nET = len(dimET)  # Number of emission types
+        nVT = len(dimVT)  # Number of vehicle types
+
         # To convert emissions to kilograms
         emissionDivFac = [1000, 1000000, 1000000, 1000]
-        etDict = {0: 'CO2', 1: 'SO2', 2: 'PM', 3: 'NOX'}
-        etInvDict = {'CO2': 0, 'SO2': 1, 'PM': 2, 'NOX': 3}
-
-        nLS = 8 + 1  # Number of logistic segments (+ parcel module)
-        nET = 4      # Number of emission types
-        nVT = 10
+        etDict = dict(
+            (dimET.at[i, 'ID'], dimET.at[i, 'Comment']) for i in dimET.index)
+        etInvDict = dict((v, k) for k, v in etDict.items())
 
         # Which vehicle type can be used in the parcel module
-        vehTypesParcels = [7, 8]
+        vehTypesParcels = np.array(
+            dimVT.loc[dimVT['IsAvailableInParcelModule'] == 1, 'ID'])
 
         # Enumerate the different time periods (i.e. hours) of the day
         nHours = 24
@@ -261,7 +273,7 @@ def actually_run_module(args):
         zones = zones.sort_values('AREANR')
         areaNumbers = np.array(zones['AREANR'], dtype=int)
         nIntZones = len(zones)
-        nSupZones = 43
+        nSupZones = len(pd.read_csv(varDict['SUP_COORDINATES_ID']))
         nZones = nIntZones + nSupZones
 
         ZEZzones = set(np.where(zones['ZEZ'] >= 1)[0])
@@ -290,7 +302,7 @@ def actually_run_module(args):
                 else:
                     shapelyZones.append(Polygon(x['coordinates'][0]))
             shapelyZonesZEZ = np.array(
-                shapelyZones, dtype=object)[np.where(zones['ZEZ'] == 1)[0]]
+                shapelyZones, dtype=object)[np.where(zones['ZEZ'] >= 1)[0]]
 
             # Check if links are in ZEZ
             zezLinks = np.zeros((len(MRDHlinks)), dtype=int)
@@ -317,8 +329,8 @@ def actually_run_module(args):
                             break
 
                 if i % int(nLinksToCheck / 20) == 0:
-                    progress = int(round((i / nLinksToCheck) * 100))
-                    print('\t' + str(progress) + '%')
+                    progress = round(i / nLinksToCheck * 100, 1)
+                    print('\t' + str(progress) + '%', end='\r')
 
             print('\tFound ' + str(np.sum(zezLinks)) + ' links located in ZEZ.')
 
@@ -461,7 +473,7 @@ def actually_run_module(args):
         # Set travel times on links in ZEZ Rotterdam high so these
         # are only used to go to UCC and not for through traffic
         if varDict['LABEL'] == 'UCC':
-            MRDHlinks.loc[MRDHlinks['ZEZ'] == 1, 'COST_FREIGHT'] += 10000
+            MRDHlinks.loc[MRDHlinks['ZEZ'] >= 1, 'COST_FREIGHT'] += 10000
 
         # Initialize empty fields with emissions and traffic intensity
         # per link (also save list with all field names)
@@ -619,7 +631,7 @@ def actually_run_module(args):
         allParcelTrips['CAP_UT'] = 0.5
         allParcelTrips['VEHTYPE'] = [
             {'Van': 7, 'LEVV': 8}[vt] for vt in allParcelTrips['VehType']]
-        allParcelTrips['LOG_SEG' ] = 6
+        allParcelTrips['LS' ] = 6
         allParcelTrips['INDEX'   ] = allParcelTrips.index
 
         # Trips coming from UCC to ZEZ use electric
@@ -689,7 +701,7 @@ def actually_run_module(args):
         roadtypeArray[whereBuitenweg] = 2
         roadtypeArray[whereSnelweg] = 3
         distArray = np.array(MRDHlinks['LENGTH'])
-        ZEZarray = np.array(MRDHlinks['ZEZ'] == 1, dtype=int)
+        ZEZarray = np.array(MRDHlinks['ZEZ'] >= 1, dtype=int)
 
         # Bring ORIG and DEST to the front of the list of column names
         newColOrder = volCols.copy()
@@ -885,7 +897,7 @@ def actually_run_module(args):
                 'ORIG', 'DEST',
                 'VEHTYPE',
                 'CAP_UT',
-                'LOG_SEG',
+                'LS',
                 'COMBTYPE',
                 'INDEX']])
 
@@ -1262,7 +1274,7 @@ def actually_run_module(args):
                         'ORIG', 'DEST',
                         'VEHTYPE',
                         'CAP_UT',
-                        'LOG_SEG',
+                        'LS',
                         'COMBTYPE',
                         'INDEX']])
 
@@ -1816,7 +1828,7 @@ def actually_run_module(args):
                             routeSnelweg, colNOX] += snelwegNOX
 
             if i % int(round(nOrigSelection / 20)) == 0:
-                progress = int(round((i / nOrigSelection) * 100))
+                progress = round(i / nOrigSelection * 100, 1)
                 print('\t\t\t' + str(progress) + '%', end='\r')
 
             if root != '':
@@ -2049,9 +2061,11 @@ def actually_run_module(args):
 
             try:
                 import sys
-                print(sys.exc_info()[0]), log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
+                print(sys.exc_info()[0])
+                log_file.write(str(sys.exc_info()[0]) + "\n")
                 import traceback
-                print(traceback.format_exc()), log_file.write(str(traceback.format_exc())), log_file.write("\n")
+                print(traceback.format_exc())
+                log_file.write(str(traceback.format_exc()) + "\n")
             except Exception:
                 pass
 
@@ -2136,7 +2150,7 @@ def actually_run_module(args):
                 w.record(*dbfData[i, :])
 
                 if i % int(round(nLinks / 20)) == 0:
-                    progress = int(round((i / nLinks) * 100))
+                    progress = round(i / nLinks * 100, 1)
                     print('\t' + str(progress) + '%', end='\r')
 
                     if root != '':
@@ -2149,6 +2163,7 @@ def actually_run_module(args):
         # --------------------------- End of module ---------------------------
 
         totaltime = round(time.time() - start_time, 2)
+        print('Finished. Run time: ' + str(totaltime) + ' seconds')
         log_file.write("Total runtime: %s seconds\n" % (totaltime))
         log_file.write(
             "End simulation at: " +
@@ -2169,11 +2184,14 @@ def actually_run_module(args):
 
     except BaseException:
         import sys
-        log_file.write(str(sys.exc_info()[0])), log_file.write("\n")
+        log_file.write(str(sys.exc_info()[0]) + "\n")
         import traceback
-        log_file.write(str(traceback.format_exc())), log_file.write("\n")
+        log_file.write(str(traceback.format_exc()) + "\n")
         log_file.write("Execution failed!")
         log_file.close()
+        print(sys.exc_info()[0])
+        print(traceback.format_exc())
+        print("Execution failed!")
 
         if root != '':
             # Use this information to display as error message in GUI
@@ -2215,7 +2233,7 @@ def get_prev(csgraph, nNodes, indices):
 
         if whichCPU == 0:
             if i % int(round(nOrigSelection / 20)) == 0:
-                progress = int(round((i / nOrigSelection) * 100))
+                progress = round(i / nOrigSelection * 100, 1)
                 print('\t\t' + str(progress) + '%', end='\r')
 
     del csgraph
@@ -2284,6 +2302,7 @@ if __name__ == '__main__':
     varDict['INPUTFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/2016/'
     varDict['OUTPUTFOLDER'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/output/RunREF2016/'
     varDict['PARAMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/parameters/'
+    varDict['DIMFOLDER']	 = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/dimensions/'
 
     varDict['SKIMTIME']     = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimTijd_REF.mtx'
     varDict['SKIMDISTANCE'] = 'P:/Projects_Active/18007 EC HARMONY/Work/WP6/MassGT_v12/data/LOS/2016/skimAfstand_REF.mtx'
@@ -2320,6 +2339,7 @@ if __name__ == '__main__':
     varDict['PARAMS_ET_LATER'] = varDict['PARAMFOLDER'] + 'Params_EndTourLater.csv'
     varDict['PARAMS_SIF_PROD'] = varDict['PARAMFOLDER'] + 'Params_PA_PROD.csv'
     varDict['PARAMS_SIF_ATTR'] = varDict['PARAMFOLDER'] + 'Params_PA_ATTR.csv'
+    varDict['PARAMS_ECOMMERCE']    = varDict['PARAMFOLDER'] + 'Params_EcommerceDemand.csv'
 
     varDict['EMISSIONFACS_BUITENWEG_LEEG'] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_LEEG.csv'
     varDict['EMISSIONFACS_BUITENWEG_VOL' ] = varDict['INPUTFOLDER'] + 'EmissieFactoren_BUITENWEG_VOL.csv'
@@ -2375,4 +2395,5 @@ if __name__ == '__main__':
     varDict['LABEL'] = 'REF'
 
     # Run the module
+    root = ''
     main(varDict)

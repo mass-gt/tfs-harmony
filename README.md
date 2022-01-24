@@ -50,6 +50,7 @@ LABEL = REF
 INPUTFOLDER  = C:\...\data\2016\
 PARAMFOLDER  = C:\...\parameters\
 OUTPUTFOLDER = C:\...\RunREF2016\
+DIMFOLDER = C:\...\dimensions\
 
 # ------------------- Input files ------------------------------------------------
 SKIMTIME     = C:\...\data\LOS\2016\skimTijd_REF.mtx
