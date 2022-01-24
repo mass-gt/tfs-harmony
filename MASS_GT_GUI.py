@@ -467,7 +467,7 @@ class Root:
                         self.varStrings[i] +
                         ' in the controle file.' +
                         "\n")
-                    run = False
+                    run = False                    
 
         except Exception:
             errorMessage = (
@@ -477,6 +477,74 @@ class Root:
                 '\n\n' + str(traceback.format_exc()))
             run = False
             writeLog = False
+
+        # Make a dictionary of the input arguments
+        if run:
+            varDict = {}
+            for i in range(nVars):
+                varDict[self.varStrings[i]] = varValues[i]
+
+        # Check for outputfolder files when not all modules are run
+        if run and writeLog:
+            outFileChecks = [
+                ["SHIP",
+                 "SIF",
+                 "CommodityMatrixNUTS3.csv"],
+                ["TOUR",
+                 "SHIP",
+                 "Shipments_" + varDict['LABEL'] + ".csv"],
+                ["PARCEL_SCHD",
+                 "PARCEL_DMND",
+                 "ParcelDemand_" + varDict['LABEL'] + ".csv"],
+                ["TRAF",
+                 "TOUR",
+                 "Tours_" + varDict['LABEL'] + ".csv"],
+                ["TRAF",
+                 "TOUR",
+                 "tripmatrix_" + varDict['LABEL'] + ".txt"],
+                ["TRAF",
+                 "TOUR",
+                 "tripmatrix_" + varDict['LABEL'] + "_TOD0" + ".txt"],
+                ["TRAF",
+                 "PARCEL_SCHD",
+                 "ParcelSchedule_" + varDict['LABEL'] + ".csv"],
+                ["TRAF",
+                 "PARCEL_SCHD",
+                 "tripmatrix_parcels_" + varDict['LABEL'] + ".txt"],
+                ["TRAF",
+                 "PARCEL_SCHD",
+                 "tripmatrix_parcels_" + varDict['LABEL'] + "_TOD0" + ".txt"],
+                ["TRAF",
+                 "SERVICE",
+                 "TripsVanService.mtx"],
+                ["TRAF",
+                 "SERVICE",
+                 "TripsVanConstruction.mtx"]]
+
+            if varDict['FIRMS_REF'] == '':
+                outFileChecks.append([
+                    "SHIP",
+                    "FS",
+                    "Firms.csv"])
+
+            for x in outFileChecks:
+                moduleWhichIsRun = x[0]
+                moduleWhichIsNotRun = x[1]
+                outfileToCheck = x[2]
+
+                if moduleWhichIsRun in varDict['MODULES']:
+                    if moduleWhichIsNotRun not in varDict['MODULES']:
+                        if not os.path.isfile(varDict['OUTPUTFOLDER'] + outfileToCheck):
+                            run = False
+                            errorMessage = errorMessage + (
+                                'Module ' +
+                                moduleWhichIsRun +
+                                ' is run but preceding module ' +
+                                moduleWhichIsNotRun +
+                                ' is not run. ' +
+                                'In that case the following file is expected' +
+                                ' in the OUTPUTFOLDER, but it is not found: "' +
+                                outfileToCheck + '".\n')
 
         # Open the logfile and write the header, specified arguments and
         # possible error messages
@@ -497,9 +565,17 @@ class Root:
                 f.write('##################################################\n')
                 f.write('### Settings                                   ###\n')
                 f.write('##################################################\n')
+
                 f.write('Control file: ' + self.controlFile.get() + '\n')
                 for i in range(len(varValues)):
                     f.write(self.varStrings[i] + ' = ' + str(varValues[i]) + '\n')
+
+                    if self.varStrings[i] in obsoleteVars and self.varStrings[i] != '':
+                        f.write(
+                            '\t(Note that variable ' +
+                            self.varStrings[i] +
+                            ' has become obsolete.' +
+                            ' It is not used in any of the modules anymore.)\n')
                 f.write('\n')
 
                 if not run:
@@ -509,10 +585,6 @@ class Root:
                     f.write(errorMessage)
 
         if run:
-            varDict = {}
-            for i in range(nVars):
-                varDict[self.varStrings[i]] = varValues[i]
-
             self.statusBar.configure(text="Start calculations...")
             result = self.main(varDict)
             self.statusBar.configure(text="")
@@ -537,7 +609,7 @@ class Root:
             self.error_screen(text=errorMessage, size=[950, 150])
 
     def error_screen(self, text='', event=None,
-                     size=[950, 350], title='Foutmelding'):
+                     size=[950, 350], title='Error message'):
         '''
         Pop up a window with an error message
         '''
