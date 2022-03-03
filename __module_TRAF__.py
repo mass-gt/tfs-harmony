@@ -458,6 +458,9 @@ def actually_run_module(args):
             costPerKmVan * MRDHlinks['LENGTH'] +
             costPerHourVan * MRDHlinks['T0_VAN'])
 
+        costFreightHybrid = MRDHlinks['COST_FREIGHT'].copy()
+        costVanHybrid = MRDHlinks['COST_VAN'].copy()
+
         # Set connector travel times high so these are not chosen
         # other than for entering/leaving network
         isConnector = (MRDHlinks['WEGTYPE'] == 'voedingslink')
@@ -490,7 +493,7 @@ def actually_run_module(args):
         intensityFieldsGeojson = []
 
         for et in etDict.values():
-            MRDHlinks[et] = 0
+            MRDHlinks[et] = 0.0
             intensityFields.append(et)
             intensityFieldsGeojson.append(et)
 
@@ -764,6 +767,13 @@ def actually_run_module(args):
         tripsCO2 = {}
         parcelTripsCO2 = {}
 
+        # Whether a separate route search needs to be done for hybrid vehicles
+        # or not
+        doHybridRoutes = (
+            np.any(allTrips.loc[:, 'COMBTYPE'] == 3) or
+            np.any(allParcelTrips.loc[:, 'COMBTYPE'] == 3) or
+            varDict['LABEL'] == 'UCC')
+
         # From which nodes do we need to perform the shortest path algoritm
         indices = np.array(
             [zoneToCentroid[x] for x in origSelection],
@@ -867,16 +877,100 @@ def actually_run_module(args):
         # Make some space available on the RAM
         del csgraphFreight
 
+        if doHybridRoutes:
+            prevFreightHybrid = []
+
+            # Route search freight (hybrid combustion)
+            if nCPU > 1:
+
+                for r in range(varDict['N_MULTIROUTE']):
+
+                    message = (
+                        "\tRoute search " +
+                        f"(freight - hybrid combustion - multirouting part {r+1})...")
+                    print(message)
+                    log_file.write(message + "\n")
+
+                    # The network with costs between nodes (freight)
+                    csgraphFreightHybrid = lil_matrix((nNodes, nNodes))
+                    csgraphFreightHybrid[
+                        np.array(MRDHlinks['A']),
+                        np.array(MRDHlinks['B'])] = costFreightHybrid
+
+                    if varDict['N_MULTIROUTE'] > 1:
+                        csgraphFreightHybrid[
+                            np.array(MRDHlinks['A']),
+                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+
+                    # Initialize a pool object that spreads tasks
+                    # over different CPUs
+                    p = mp.Pool(nCPU)
+
+                    # Execute the Dijkstra route search
+                    prevFreightHybridPerCPU = p.map(functools.partial(
+                        get_prev,
+                        csgraphFreightHybrid,
+                        nNodes), indicesPerCPU)
+
+                    # Wait for completion of processes
+                    p.close()
+                    p.join()
+
+                    # Combine the results from the different CPUs
+                    prevFreightHybrid.append(np.zeros(
+                        (nOrigSelection ,nNodes),
+                        dtype=int))
+                    for cpu in range(nCPU):
+                        for i in range(len(indicesPerCPU[cpu][0])):
+                            prevFreightHybrid[r][origSelectionPerCPU[cpu][i], :] = prevFreightHybridPerCPU[cpu][i, :]
+
+                    # Make some space available on the RAM
+                    del prevFreightHybridPerCPU
+
+                    if root != '':
+                        root.progressBar['value'] = (
+                            5.0 +
+                            (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
+
+            else:
+                for r in range(varDict['N_MULTIROUTE']):
+                    message = (
+                        "\tRoute search " +
+                        f"(freight - hybrid combustion - multirouting part {r+1})...")
+
+                    print(message)
+                    log_file.write(message + "\n")
+
+                    # The network with costs between nodes (freight)
+                    csgraphFreightHybrid = lil_matrix((nNodes, nNodes))
+                    csgraphFreightHybrid[
+                        np.array(MRDHlinks['A']),
+                        np.array(MRDHlinks['B'])] = costFreightHybrid
+
+                    if varDict['N_MULTIROUTE'] > 1:
+                        csgraphFreightHybrid[
+                            np.array(MRDHlinks['A']),
+                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+
+                    # Execute the Dijkstra route search
+                    prevFreightHybrid.append(get_prev(
+                        csgraphFreightHybrid,
+                        nNodes,
+                        [indices, 0]))
+
+                    if root != '':
+                        root.progressBar['value'] = (
+                            5.0 +
+                            (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
+
+            # Make some space available on the RAM
+            del csgraphFreightHybrid
+
         # --------------- Emissions and intensities (freight) -----------------
 
         print("\tCalculating emissions and traffic intensities (freight)")
         log_file.write(
             "\tCalculating emissions and traffic intensities (freight)\n")
-
-        colCO2 = etInvDict['CO2']
-        colSO2 = etInvDict['SO2']
-        colNOX = etInvDict['NOX']
-        colPM = etInvDict['PM']
 
         for tod in timeOfDays:
 
@@ -922,12 +1016,20 @@ def actually_run_module(args):
                     destZoneIndex = np.where(tripMatrix[:, 0] == origZone)[0]
                     destZones = tripMatrix[destZoneIndex, 1]
 
-                    routes = []
-                    for r in range(varDict['N_MULTIROUTE']):
-                        routes.append([get_route(
+                    routes = [
+                        [get_route(
                             i, zoneToCentroid[j],
                             prevFreight[r],
-                            linkDict) for j in destZones])
+                            linkDict) for j in destZones]
+                        for r in range(varDict['N_MULTIROUTE'])]
+                            
+                    if doHybridRoutes:
+                        hybridRoutes = [
+                            [get_route(
+                                i, zoneToCentroid[j],
+                                prevFreightHybrid[r],
+                                linkDict) for j in destZones]
+                            for r in range(varDict['N_MULTIROUTE'])]
 
                     # Schrijf de volumes op de links
                     for j in range(len(destZones)):
@@ -956,6 +1058,29 @@ def actually_run_module(args):
                                 ZEZarray[routesBuitenweg[r]] == 1)
                             ZEZSsnelweg.append(
                                 ZEZarray[routesSnelweg[r]] == 1)
+
+                        if doHybridRoutes:
+                            hybridRoutesStad = []
+                            hybridRoutesBuitenweg = []
+                            hybridRoutesSnelweg = []
+                            hybridZEZSstad = []
+                            hybridZEZSbuitenweg = []
+                            hybridZEZSsnelweg = []
+    
+                            for r in range(varDict['N_MULTIROUTE']):
+                                hybridRoute = hybridRoutes[r][j]
+                                hybridRoutesStad.append(
+                                    hybridRoute[roadtypeArray[hybridRoute] == 1])
+                                hybridRoutesBuitenweg.append(
+                                    hybridRoute[roadtypeArray[hybridRoute] == 2])
+                                hybridRoutesSnelweg.append(
+                                    hybridRoute[roadtypeArray[hybridRoute] == 3])
+                                hybridZEZSstad.append(
+                                    ZEZarray[hybridRoutesStad[r]] == 1)
+                                hybridZEZSbuitenweg.append(
+                                    ZEZarray[hybridRoutesBuitenweg[r]] == 1)
+                                hybridZEZSsnelweg.append(
+                                    ZEZarray[hybridRoutesSnelweg[r]] == 1)
 
                         # Bereken en schrijf de intensiteiten/emissies
                         # op de links
@@ -989,6 +1114,19 @@ def actually_run_module(args):
                                 ZEZbuitenweg = ZEZSbuitenweg[whichMultiRoute]
                                 ZEZsnelweg = ZEZSsnelweg[whichMultiRoute]
 
+                                if doHybridRoutes:
+                                    hybridRoute = hybridRoutes[whichMultiRoute][j]
+                                    hybridRouteStad = hybridRoutesStad[
+                                        whichMultiRoute]
+                                    hybridRouteBuitenweg = hybridRoutesBuitenweg[
+                                        whichMultiRoute]
+                                    hybridRouteSnelweg = hybridRoutesSnelweg[
+                                        whichMultiRoute]
+    
+                                    hybridZEZstad = hybridZEZSstad[whichMultiRoute]
+                                    hybridZEZbuitenweg = hybridZEZSbuitenweg[whichMultiRoute]
+                                    hybridZEZsnelweg = hybridZEZSsnelweg[whichMultiRoute]
+
                                 # Keep track of links being used on the route
                                 linkTripsArray[tod][route, ls] += 1
                                 linkTripsArray[tod][route, nLS + 2 + vt] += 1
@@ -999,150 +1137,85 @@ def actually_run_module(args):
                                             selectedLinkTripsArray[
                                                 route, link] += 1
 
-                                # If combustion type is fuel, hybrid or
-                                # bio-fuel
-                                if ct in [0, 3, 4]:
+                                # If combustion type is fuel or bio-fuel
+                                if ct in [0, 4]:
+                                    for et in range(nET):
+                                        stadEmissions = (
+                                            distArray[routeStad] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsStadLeeg,
+                                                emissionsStadVol))
+    
+                                        buitenwegEmissions  = (
+                                            distArray[routeBuitenweg] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsBuitenwegLeeg,
+                                                emissionsBuitenwegVol))
+    
+                                        snelwegEmissions  = (
+                                            distArray[routeSnelweg] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsSnelwegLeeg,
+                                                emissionsSnelwegVol))
+    
+                                        linkEmissionsArray[ls][tod][
+                                            routeStad, et] += stadEmissions
+                                        linkEmissionsArray[ls][tod][
+                                            routeBuitenweg, et] += buitenwegEmissions 
+                                        linkEmissionsArray[ls][tod][
+                                            routeSnelweg, et] += snelwegEmissions 
 
-                                    # CO2
-                                    stadCO2 = (
-                                        distArray[routeStad] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colCO2, capUt,
-                                            emissionsStadLeeg,
-                                            emissionsStadVol))
+                                        # Total CO2 of the trip
+                                        if etDict[et] == 'CO2':
+                                            tripsCO2[currentTrips[trip, -1]] = (
+                                                np.sum(stadEmissions) +
+                                                np.sum(buitenwegEmissions) +
+                                                np.sum(snelwegEmissions))
 
-                                    buitenwegCO2 = (
-                                        distArray[routeBuitenweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colCO2, capUt,
-                                            emissionsBuitenwegLeeg,
-                                            emissionsBuitenwegVol))
+                                # If combustion type is hybrid
+                                elif ct == 3:
+                                    for et in range(nET):
+                                        stadEmissions = (
+                                            distArray[hybridRouteStad] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsStadLeeg,
+                                                emissionsStadVol))
+    
+                                        buitenwegEmissions  = (
+                                            distArray[hybridRouteBuitenweg] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsBuitenwegLeeg,
+                                                emissionsBuitenwegVol))
+    
+                                        snelwegEmissions  = (
+                                            distArray[hybridRouteSnelweg] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsSnelwegLeeg,
+                                                emissionsSnelwegVol))
 
-                                    snelwegCO2 = (
-                                        distArray[routeSnelweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colCO2, capUt,
-                                            emissionsSnelwegLeeg,
-                                            emissionsSnelwegVol))
+                                        stadEmissions[hybridZEZstad] = 0.0
+                                        buitenwegEmissions[hybridZEZbuitenweg] = 0.0
+                                        snelwegEmissions[hybridZEZsnelweg] = 0.0
 
-                                    if ct == 3:
-                                        stadCO2[ZEZstad] = 0
-                                        buitenwegCO2[ZEZbuitenweg] = 0
-                                        snelwegCO2[ZEZsnelweg] = 0
+                                        linkEmissionsArray[ls][tod][
+                                            hybridRouteStad, et] += stadEmissions
+                                        linkEmissionsArray[ls][tod][
+                                            hybridRouteBuitenweg, et] += buitenwegEmissions 
+                                        linkEmissionsArray[ls][tod][
+                                            hybridRouteSnelweg, et] += snelwegEmissions 
 
-                                    linkEmissionsArray[ls][tod][
-                                        routeStad, colCO2] = stadCO2
-                                    linkEmissionsArray[ls][tod][
-                                        routeBuitenweg, colCO2] += buitenwegCO2
-                                    linkEmissionsArray[ls][tod][
-                                        routeSnelweg, colCO2] += snelwegCO2
-
-                                    # SO2
-                                    stadSO2 = (
-                                        distArray[routeStad] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colSO2, capUt,
-                                            emissionsStadLeeg,
-                                            emissionsStadVol))
-
-                                    buitenwegSO2 = (
-                                        distArray[routeBuitenweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colSO2, capUt,
-                                            emissionsBuitenwegLeeg,
-                                            emissionsBuitenwegVol))
-
-                                    snelwegSO2 = (
-                                        distArray[routeSnelweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colSO2, capUt,
-                                            emissionsSnelwegLeeg,
-                                            emissionsSnelwegVol))
-
-                                    if ct == 3:
-                                        stadSO2[ZEZstad] = 0
-                                        buitenwegSO2[ZEZbuitenweg] = 0
-                                        snelwegSO2[ZEZsnelweg] = 0
-
-                                    linkEmissionsArray[ls][tod][
-                                        routeStad, colSO2] = stadSO2
-                                    linkEmissionsArray[ls][tod][
-                                        routeBuitenweg, colSO2] += buitenwegSO2
-                                    linkEmissionsArray[ls][tod][
-                                        routeSnelweg, colSO2] += snelwegSO2
-
-                                    # PM
-                                    stadPM = (
-                                        distArray[routeStad] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colPM, capUt,
-                                            emissionsStadLeeg,
-                                            emissionsStadVol))
-
-                                    buitenwegPM = (
-                                        distArray[routeBuitenweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colPM, capUt,
-                                            emissionsBuitenwegLeeg,
-                                            emissionsBuitenwegVol))
-                                    snelwegPM = (
-                                        distArray[routeSnelweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colPM, capUt,
-                                            emissionsSnelwegLeeg,
-                                            emissionsSnelwegVol))
-
-                                    if ct == 3:
-                                        stadPM[ZEZstad] = 0
-                                        buitenwegPM[ZEZbuitenweg] = 0
-                                        snelwegPM[ZEZsnelweg] = 0
-
-                                    linkEmissionsArray[ls][tod][
-                                        routeStad, colPM] = stadPM
-                                    linkEmissionsArray[ls][tod][
-                                        routeBuitenweg, colPM] += buitenwegPM
-                                    linkEmissionsArray[ls][tod][
-                                        routeSnelweg, colPM] += snelwegPM
-
-                                    # NOX
-                                    stadNOX = (
-                                        distArray[routeStad] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colNOX, capUt,
-                                            emissionsStadLeeg,
-                                            emissionsStadVol))
-
-                                    buitenwegNOX = (
-                                        distArray[routeBuitenweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colNOX, capUt,
-                                            emissionsBuitenwegLeeg,
-                                            emissionsBuitenwegVol))
-
-                                    snelwegNOX = (
-                                        distArray[routeSnelweg] *
-                                        get_applicable_emission_fac(
-                                            vtDict[vt], colNOX, capUt,
-                                            emissionsSnelwegLeeg,
-                                            emissionsSnelwegVol))
-
-                                    if ct == 3:
-                                        stadNOX[ZEZstad] = 0
-                                        buitenwegNOX[ZEZbuitenweg] = 0
-                                        snelwegNOX[ZEZsnelweg] = 0
-
-                                    linkEmissionsArray[ls][tod][
-                                        routeStad, colNOX] = stadNOX
-                                    linkEmissionsArray[ls][tod][
-                                        routeBuitenweg, colNOX] += buitenwegNOX
-                                    linkEmissionsArray[ls][tod][
-                                        routeSnelweg, colNOX] += snelwegNOX
-
-                                    # Total CO2 of the trip
-                                    tripsCO2[currentTrips[trip, -1]] = (
-                                        np.sum(stadCO2) +
-                                        np.sum(buitenwegCO2) +
-                                        np.sum(snelwegCO2))
+                                        # Total CO2 of the trip
+                                        if etDict[et] == 'CO2':
+                                            tripsCO2[currentTrips[trip, -1]] = (
+                                                np.sum(stadEmissions) +
+                                                np.sum(buitenwegEmissions) +
+                                                np.sum(snelwegEmissions))
 
                                 else:
                                     tripsCO2[currentTrips[trip, -1]] = 0.0
@@ -1153,6 +1226,9 @@ def actually_run_module(args):
                     (43.0 - 33.0) * (tod + 1) / nHours)
 
         del prevFreight
+        
+        if doHybridRoutes:
+            del prevFreightHybrid
 
         # -------------------- Route search (vans) ----------------------------
 
@@ -1240,6 +1316,89 @@ def actually_run_module(args):
         # Make some space available on the RAM
         del csgraphVan
 
+        if doHybridRoutes:
+            prevVanHybrid = []
+
+            # Route search vans
+            if nCPU > 1:
+                for r in range(varDict['N_MULTIROUTE']):
+
+                    message = (
+                        "\tRoute search " +
+                        f"(vans - hybrid combustion - multirouting part {r+1})...")
+                    print(message)
+                    log_file.write(message + "\n")
+
+                    # The network with costs between nodes (vans)
+                    csgraphVanHybrid = lil_matrix((nNodes, nNodes))
+                    csgraphVanHybrid[
+                        np.array(MRDHlinks['A']),
+                        np.array(MRDHlinks['B'])] = costVanHybrid
+    
+                    if varDict['N_MULTIROUTE'] > 1:
+                        csgraphVanHybrid[
+                            np.array(MRDHlinks['A']),
+                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+
+                    # Initialize a pool object that spreads tasks
+                    # over different CPUs
+                    p = mp.Pool(nCPU)
+
+                    # Execute the Dijkstra route search
+                    prevVanHybridPerCPU = p.map(functools.partial(
+                        get_prev,
+                        csgraphVanHybrid,
+                        nNodes), indicesPerCPU)
+
+                    # Wait for completion of processes
+                    p.close()
+                    p.join()
+
+                    # Combine the results from the different CPUs
+                    prevVanHybrid.append(np.zeros((nOrigSelection, nNodes), dtype=int))
+                    for cpu in range(nCPU):
+                        for i in range(len(indicesPerCPU[cpu][0])):
+                            prevVanHybrid[r][origSelectionPerCPU[cpu][i], :] = prevVanHybridPerCPU[cpu][i, :]
+
+                    # Make some space available on the RAM
+                    del prevVanHybridPerCPU
+
+                    if root != '':
+                        root.progressBar['value'] = (
+                            33.0 +
+                            (60.0 - 33.0) * (1 + r) / varDict['N_MULTIROUTE'])
+
+            else:
+                for r in range(varDict['N_MULTIROUTE']):
+
+                    message = (
+                        "\tRoute search " +
+                        f"(vans - hybrid combustion - multirouting part {r+1})...")
+                    print(message)
+                    log_file.write(message + "\n")
+
+                    # The network with costs between nodes (vans)
+                    csgraphVanHybrid = lil_matrix((nNodes, nNodes))
+                    csgraphVanHybrid[
+                        np.array(MRDHlinks['A']),
+                        np.array(MRDHlinks['B'])] = costVanHybrid
+
+                    if varDict['N_MULTIROUTE'] > 1:
+                        csgraphVanHybrid[
+                            np.array(MRDHlinks['A']),
+                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
+
+                    # Execute the Dijkstra route search
+                    prevVanHybrid.append(get_prev(csgraphVanHybrid, nNodes, [indices, 0]))
+
+                    if root != '':
+                        root.progressBar['value'] = (
+                            43.0 +
+                            (70.0 - 43.0) * (1 + r) / varDict['N_MULTIROUTE'])
+
+            # Make some space available on the RAM
+            del csgraphVanHybrid
+
         # --------------- Emissions and intensities (parcel vans) -------------
 
         print("\tCalculating emissions and traffic intensities (vans)")
@@ -1259,232 +1418,186 @@ def actually_run_module(args):
             tripMatrixParcels = tripMatricesParcelsTOD[tod]
             tripMatrixParcelsOrigins = set(tripMatrixParcels[:, 0])
 
-            for vt in vehTypesParcels:
+            # Selecteer de trips die vertrokken in de huidige time-of-day
+            # en bereken de capacity utilization
+            trips = allParcelTrips.loc[
+                (allParcelTrips['TRIP_DEPTIME'] >= tod) &
+                (allParcelTrips['TRIP_DEPTIME'] < (tod + 1)), :]
 
-                # Selecteer de trips die vertrokken in de huidige time-of-day
-                # en bereken de capacity utilization
-                trips = allParcelTrips.loc[
-                    (allParcelTrips['TRIP_DEPTIME'] >= tod) &
-                    (allParcelTrips['TRIP_DEPTIME'] < (tod + 1)) &
-                    (allParcelTrips['VEHTYPE'] == vt), :]
+            if len(trips) > 0:
+                trips = np.array(trips[[
+                    'Depot_ID',
+                    'ORIG', 'DEST',
+                    'VEHTYPE', 'CAP_UT',
+                    'LS', 'COMBTYPE', 'INDEX']])
 
-                if len(trips) > 0:
-                    trips = np.array(trips[[
-                        'Depot_ID',
-                        'ORIG', 'DEST',
-                        'VEHTYPE',
-                        'CAP_UT',
-                        'LS',
-                        'COMBTYPE',
-                        'INDEX']])
+                for i in range(nOrigSelection):
+                    origZone = origSelection[i]
 
-                    for i in range(nOrigSelection):
-                        origZone = origSelection[i]
+                    if origZone in tripMatrixParcelsOrigins:
+                        destZoneIndex = np.where(
+                            tripMatrixParcels[:, 0] == origZone)[0]
 
-                        if origZone in tripMatrixParcelsOrigins:
-                            destZoneIndex = np.where(
-                                tripMatrixParcels[:, 0] == origZone)[0]
+                        # Schrijf de volumes op de links
+                        for j in destZoneIndex:
+                            destZone = tripMatrixParcels[j, 1]
 
-                            # Schrijf de volumes op de links
-                            for j in destZoneIndex:
-                                destZone = tripMatrixParcels[j, 1]
-                                nTrips = tripMatrixParcels[j, 2]
-                                route = get_route(
+                            route = get_route(
+                                i, zoneToCentroid[destZone],
+                                prevVan[0],
+                                linkDict)
+
+                            # Selecteer het deel van de route met
+                            # linktype stad/buitenweg/snelweg
+                            routeStad = route[roadtypeArray[route] == 1]
+                            routeBuitenweg = route[roadtypeArray[route] == 2]
+                            routeSnelweg = route[roadtypeArray[route] == 3]
+                            ZEZstad = ZEZarray[routeStad] == 1
+                            ZEZbuitenweg = ZEZarray[routeBuitenweg] == 1
+                            ZEZsnelweg = ZEZarray[routeSnelweg] == 1
+
+                            if doHybridRoutes:
+                                hybridRoute = get_route(
                                     i, zoneToCentroid[destZone],
-                                    prevVan[0],
+                                    prevVanHybrid[0],
                                     linkDict)
 
+                                hybridRouteStad = hybridRoute[
+                                    roadtypeArray[hybridRoute] == 1]
+                                hybridRouteBuitenweg = hybridRoute[
+                                    roadtypeArray[hybridRoute] == 2]
+                                hybridRouteSnelweg = hybridRoute[
+                                    roadtypeArray[hybridRoute] == 3]
+                                hybridZEZstad = ZEZarray[
+                                    hybridRouteStad] == 1
+                                hybridZEZbuitenweg = ZEZarray[
+                                    hybridRouteBuitenweg] == 1
+                                hybridZEZsnelweg = ZEZarray[
+                                    hybridRouteSnelweg] == 1
+
+                            # Welke trips worden allemaal gemaakt op de
+                            # HB van de huidige iteratie van de ij-loop
+                            currentTrips = trips[
+                                (trips[:, 1] == origZone) &
+                                (trips[:, 2] == destZone), :]
+
+                            # Bereken en schrijf de emissies op de links
+                            for trip in range(len(currentTrips)):
+                                vt = int(currentTrips[trip, 3])
+                                ct = int(currentTrips[trip, 6])
+                                capUt = currentTrips[trip, 4]
+                                
+                                if ct == 3:
+                                    tmpRoute = hybridRoute
+                                else:
+                                    tmpRoute = route
+
                                 # Number of trips for LS8 (= parcel deliveries)
-                                linkTripsArray[tod][route, ls] += nTrips
+                                linkTripsArray[tod][tmpRoute, ls] += 1
 
                                 # Number of trips for vehicle type
-                                linkTripsArray[tod][route, nLS + 2 + vt] += nTrips
+                                linkTripsArray[tod][tmpRoute, nLS + 2 + vt] += 1
 
                                 # Total number of trips
-                                linkTripsArray[tod][route, -1] += nTrips
-
-                                # Welke trips worden allemaal gemaakt op de
-                                # HB van de huidige iteratie van de ij-loop
-                                currentTrips = trips[
-                                    (trips[:, 1] == origZone) &
-                                    (trips[:, 2] == destZone), :]
+                                linkTripsArray[tod][tmpRoute, -1] += 1
 
                                 # De parcel demand trips per voertuigtype
                                 MRDHlinksIntensities.loc[
-                                    route,
-                                    'N_LS8_VEH' + str(vt)] += len(currentTrips)
+                                    tmpRoute,
+                                    'N_LS8_VEH' + str(vt)] += 1
 
                                 if doSelectedLink:
                                     for link in range(nSelectedLinks):
-                                        if selectedLinks[link] in route:
-                                            selectedLinkTripsArray[route, link] += (
-                                                tripMatrixParcels[j, -1])
+                                        if selectedLinks[link] in tmpRoute:
+                                            selectedLinkTripsArray[tmpRoute, link] += 1
 
-                                # Selecteer het deel van de route met
-                                # linktype stad/buitenweg/snelweg
-                                routeStad = route[roadtypeArray[route] == 1]
-                                routeBuitenweg = route[roadtypeArray[route] == 2]
-                                routeSnelweg = route[roadtypeArray[route] == 3]
-                                ZEZstad = ZEZarray[routeStad] == 1
-                                ZEZbuitenweg = ZEZarray[routeBuitenweg] == 1
-                                ZEZsnelweg = ZEZarray[routeSnelweg] == 1
-
-                                # Bereken en schrijf de emissies op de links
-                                for trip in range(len(currentTrips)):
-                                    ct = int(currentTrips[trip, 6])
-                                    capUt = currentTrips[trip, 4]
-
-                                    # If combustion type is fuel, hybrid
-                                    # or bio-fuel
-                                    if ct in [0, 3, 4]:
-                                        # CO2
-                                        stadCO2 = (
+                                # If combustion type is fuel or bio-fuel
+                                if ct in [0, 4]:
+                                    for et in range(nET):
+                                        stadEmissions = (
                                             distArray[routeStad] *
                                             get_applicable_emission_fac(
-                                                vtDict[vt], colCO2, capUt,
+                                                vtDict[vt], et, capUt,
                                                 emissionsStadLeeg,
                                                 emissionsStadVol))
 
-                                        buitenwegCO2 = (
+                                        buitenwegEmissions = (
                                             distArray[routeBuitenweg] *
                                             get_applicable_emission_fac(
-                                                vtDict[vt], colCO2, capUt,
+                                                vtDict[vt], et, capUt,
                                                 emissionsBuitenwegLeeg,
                                                 emissionsBuitenwegVol))
 
-                                        snelwegCO2 = (
+                                        snelwegEmissions = (
                                             distArray[routeSnelweg] *
                                             get_applicable_emission_fac(
-                                                vtDict[vt], colCO2, capUt,
+                                                vtDict[vt], et, capUt,
                                                 emissionsSnelwegLeeg,
                                                 emissionsSnelwegVol))
 
-                                        if ct == 3:
-                                            stadCO2[ZEZstad] = 0
-                                            buitenwegCO2[ZEZbuitenweg] = 0
-                                            snelwegCO2[ZEZsnelweg] = 0
-
                                         linkEmissionsArray[ls][tod][
-                                            routeStad, colCO2] = stadCO2
+                                            routeStad, et] = stadEmissions
                                         linkEmissionsArray[ls][tod][
-                                            routeBuitenweg, colCO2] += buitenwegCO2
+                                            routeBuitenweg, et] += buitenwegEmissions
                                         linkEmissionsArray[ls][tod][
-                                            routeSnelweg, colCO2] += snelwegCO2
-
-                                        # SO2
-                                        stadSO2 = (
-                                            distArray[routeStad] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colSO2, capUt,
-                                                emissionsStadLeeg,
-                                                emissionsStadVol))
-
-                                        buitenwegSO2 = (
-                                            distArray[routeBuitenweg] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colSO2, capUt,
-                                                emissionsBuitenwegLeeg,
-                                                emissionsBuitenwegVol))
-
-                                        snelwegSO2 = (
-                                            distArray[routeSnelweg] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colSO2, capUt,
-                                                emissionsSnelwegLeeg,
-                                                emissionsSnelwegVol))
-
-                                        if ct == 3:
-                                            stadSO2[ZEZstad] = 0
-                                            buitenwegSO2[ZEZbuitenweg] = 0
-                                            snelwegSO2[ZEZsnelweg] = 0
-
-                                        linkEmissionsArray[ls][tod][
-                                            routeStad, colSO2] = stadSO2
-                                        linkEmissionsArray[ls][tod][
-                                            routeBuitenweg, colSO2] += buitenwegSO2
-                                        linkEmissionsArray[ls][tod][
-                                            routeSnelweg, colSO2] += snelwegSO2
-
-                                        # PM
-                                        stadPM = (
-                                            distArray[routeStad] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colPM, capUt,
-                                                emissionsStadLeeg,
-                                                emissionsStadVol))
-
-                                        buitenwegPM = (
-                                            distArray[routeBuitenweg] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colPM, capUt,
-                                                emissionsBuitenwegLeeg,
-                                                emissionsBuitenwegVol))
-                                        snelwegPM = (
-                                            distArray[routeSnelweg] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colPM, capUt,
-                                                emissionsSnelwegLeeg,
-                                                emissionsSnelwegVol))
-
-                                        if ct == 3:
-                                            stadPM[ZEZstad] = 0
-                                            buitenwegPM[ZEZbuitenweg] = 0
-                                            snelwegPM[ZEZsnelweg] = 0
-
-                                        linkEmissionsArray[ls][tod][
-                                            routeStad, colPM] = stadPM
-                                        linkEmissionsArray[ls][tod][
-                                            routeBuitenweg, colPM] += buitenwegPM
-                                        linkEmissionsArray[ls][tod][
-                                            routeSnelweg, colPM] += snelwegPM
-
-                                        # NOX
-                                        stadNOX = (
-                                            distArray[routeStad] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colNOX, capUt,
-                                                emissionsStadLeeg,
-                                                emissionsStadVol))
-
-                                        buitenwegNOX = (
-                                            distArray[routeBuitenweg] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colNOX, capUt,
-                                                emissionsBuitenwegLeeg,
-                                                emissionsBuitenwegVol))
-
-                                        snelwegNOX = (
-                                            distArray[routeSnelweg] *
-                                            get_applicable_emission_fac(
-                                                vtDict[vt], colNOX, capUt,
-                                                emissionsSnelwegLeeg,
-                                                emissionsSnelwegVol))
-
-                                        if ct == 3:
-                                            stadNOX[ZEZstad] = 0
-                                            buitenwegNOX[ZEZbuitenweg] = 0
-                                            snelwegNOX[ZEZsnelweg] = 0
-
-                                        linkEmissionsArray[ls][tod][
-                                            routeStad, colNOX] = stadNOX
-                                        linkEmissionsArray[ls][tod][
-                                            routeBuitenweg, colNOX] += buitenwegNOX
-                                        linkEmissionsArray[ls][tod][
-                                            routeSnelweg, colNOX] += snelwegNOX
+                                            routeSnelweg, et] += snelwegEmissions
 
                                         # CO2-emissions for the current trip
-                                        parcelTripsCO2[currentTrips[trip, -1]] = (
-                                            np.sum(stadCO2) +
-                                            np.sum(buitenwegCO2) +
-                                            np.sum(snelwegCO2))
+                                        if etDict[et] == 'CO2':
+                                            parcelTripsCO2[currentTrips[trip, -1]] = (
+                                                np.sum(stadEmissions) +
+                                                np.sum(buitenwegEmissions) +
+                                                np.sum(snelwegEmissions))
 
-                                    else:
-                                        parcelTripsCO2[currentTrips[trip, -1]] = 0
+                                # Hybrid combustion
+                                elif ct == 3:
+                                    for et in range(nET):
+                                        stadEmissions = (
+                                            distArray[hybridRouteStad] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsStadLeeg,
+                                                emissionsStadVol))
 
-            if root != '':
-                root.progressBar['value'] = (
-                    70.0 +
-                    (75.0 - 70.0) * (tod + 1) / nHours)
+                                        buitenwegEmissions = (
+                                            distArray[hybridRouteBuitenweg] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsBuitenwegLeeg,
+                                                emissionsBuitenwegVol))
+
+                                        snelwegEmissions = (
+                                            distArray[hybridRouteSnelweg] *
+                                            get_applicable_emission_fac(
+                                                vtDict[vt], et, capUt,
+                                                emissionsSnelwegLeeg,
+                                                emissionsSnelwegVol))
+
+                                        stadEmissions[hybridZEZstad] = 0.0
+                                        buitenwegEmissions[hybridZEZbuitenweg] = 0.0
+                                        snelwegEmissions[hybridZEZsnelweg] = 0.0
+
+                                        linkEmissionsArray[ls][tod][
+                                            hybridRouteStad, et] = stadEmissions
+                                        linkEmissionsArray[ls][tod][
+                                            hybridRouteBuitenweg, et] += buitenwegEmissions
+                                        linkEmissionsArray[ls][tod][
+                                            hybridRouteSnelweg, et] += snelwegEmissions
+
+                                        # CO2-emissions for the current trip
+                                        if etDict[et] == 'CO2':
+                                            parcelTripsCO2[currentTrips[trip, -1]] = (
+                                                np.sum(stadEmissions) +
+                                                np.sum(buitenwegEmissions) +
+                                                np.sum(snelwegEmissions))
+
+                                else:
+                                    parcelTripsCO2[currentTrips[trip, -1]] = 0
+
+        if root != '':
+            root.progressBar['value'] = (
+                70.0 +
+                (75.0 - 70.0) * (tod + 1) / nHours)
 
         # ------------ Emissions and intensities (serv/constr vans) -----------
 
@@ -1503,11 +1616,20 @@ def actually_run_module(args):
                     prevVan[r],
                     linkDict) for j in destZones]
                 for r in range(varDict['N_MULTIROUTE'])]
+                
+            if doHybridRoutes:
+                hybridRoutes = [
+                    [get_route(
+                        i, zoneToCentroid[j],
+                        prevVanHybrid[r],
+                        linkDict) for j in destZones]
+                    for r in range(varDict['N_MULTIROUTE'])]
 
             # Van: Service segment
             for j in range(len(destZones)):
                 destZone = destZones[j]
 
+                tripIsZEZ = False
                 if varDict['LABEL'] == 'UCC':
                     tripIsZEZ = ((i in ZEZzones) or (j in ZEZzones))
 
@@ -1517,7 +1639,10 @@ def actually_run_module(args):
                             vanTripsService[origZone, destZone] /
                             varDict['N_MULTIROUTE'])
 
-                        route = routes[r][j]
+                        if varDict['LABEL'] == 'UCC' and tripIsZEZ:
+                            route = hybridRoutes[r][j]
+                        else:
+                            route = routes[r][j]
 
                         # Number of trips made on each link
                         linkVanTripsArray[route, 0] += nTrips
@@ -1526,146 +1651,45 @@ def actually_run_module(args):
                         routeBuitenweg = route[roadtypeArray[route] == 2]
                         routeSnelweg = route[roadtypeArray[route] == 3]
 
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                ZEZstad = np.where(ZEZarray[routeStad] == 1)[0]
-                                ZEZbuitenweg = np.where(ZEZarray[routeBuitenweg] == 1)[0]
-                                ZEZsnelweg = np.where(ZEZarray[routeSnelweg] == 1)[0]
+                        if varDict['LABEL'] == 'UCC' and tripIsZEZ:
+                            ZEZstad = np.where(ZEZarray[routeStad] == 1)[0]
+                            ZEZbuitenweg = np.where(ZEZarray[routeBuitenweg] == 1)[0]
+                            ZEZsnelweg = np.where(ZEZarray[routeSnelweg] == 1)[0]
 
                         vt = 7  # Vehicle type: Van
                         capUt = 0.5  # Assume half of loading capacity used
 
-                        # CO2
-                        stadCO2 = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colCO2, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegCO2 = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colCO2, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegCO2 = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colCO2, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadCO2[ZEZstad] = 0
-                                buitenwegCO2[ZEZbuitenweg] = 0
-                                snelwegCO2[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[0][
-                            routeStad, colCO2] += stadCO2
-                        linkVanEmissionsArray[0][
-                            routeBuitenweg, colCO2] += buitenwegCO2
-                        linkVanEmissionsArray[0][
-                            routeSnelweg, colCO2] += snelwegCO2
-
-                        # SO2
-                        stadSO2 = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colSO2, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegSO2 = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colSO2, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegSO2 = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colSO2, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadSO2[ZEZstad] = 0
-                                buitenwegSO2[ZEZbuitenweg] = 0
-                                snelwegSO2[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[0][
-                            routeStad, colSO2] += stadSO2
-                        linkVanEmissionsArray[0][
-                            routeBuitenweg, colSO2] += buitenwegSO2
-                        linkVanEmissionsArray[0][
-                            routeSnelweg, colSO2] += snelwegSO2
-
-                        # PM
-                        stadPM = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colPM, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegPM = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colPM, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegPM = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colPM, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadPM[ZEZstad] = 0
-                                buitenwegPM[ZEZbuitenweg] = 0
-                                snelwegPM[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[0][
-                            routeStad, colPM] += stadPM
-                        linkVanEmissionsArray[0][
-                            routeBuitenweg, colPM] += buitenwegPM
-                        linkVanEmissionsArray[0][
-                            routeSnelweg, colPM] += snelwegPM
-
-                        # NOX
-                        stadNOX = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colNOX, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegNOX = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colNOX, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegNOX = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colNOX, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadNOX[ZEZstad] = 0
-                                buitenwegNOX[ZEZbuitenweg] = 0
-                                snelwegNOX[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[0][
-                            routeStad, colNOX] += stadNOX
-                        linkVanEmissionsArray[0][
-                            routeBuitenweg, colNOX] += buitenwegNOX
-                        linkVanEmissionsArray[0][
-                            routeSnelweg, colNOX] += snelwegNOX
+                        for et in range(nET):
+                            stadEmissions = (
+                                nTrips * distArray[routeStad] *
+                                get_applicable_emission_fac(
+                                    vtDict[vt], et, capUt,
+                                    emissionsStadLeeg,
+                                    emissionsStadVol))
+                            buitenwegEmissions = (
+                                nTrips * distArray[routeBuitenweg] *
+                                get_applicable_emission_fac(
+                                    vtDict[vt], et, capUt,
+                                    emissionsBuitenwegLeeg,
+                                    emissionsBuitenwegVol))
+                            snelwegEmissions = (
+                                nTrips * distArray[routeSnelweg] *
+                                get_applicable_emission_fac(
+                                    vtDict[vt], et, capUt,
+                                    emissionsSnelwegLeeg,
+                                    emissionsSnelwegVol))
+    
+                            if varDict['LABEL'] == 'UCC' and tripIsZEZ:
+                                stadEmissions[ZEZstad] = 0.0
+                                buitenwegEmissions[ZEZbuitenweg] = 0.0
+                                snelwegEmissions[ZEZsnelweg] = 0.0
+    
+                            linkVanEmissionsArray[0][
+                                routeStad, et] += stadEmissions
+                            linkVanEmissionsArray[0][
+                                routeBuitenweg, et] += buitenwegEmissions
+                            linkVanEmissionsArray[0][
+                                routeSnelweg, et] += snelwegEmissions
 
                 # Van: Construction segment
                 if vanTripsConstruction[origZone, destZone] > 0:
@@ -1674,7 +1698,10 @@ def actually_run_module(args):
                             vanTripsConstruction[origZone, destZone] /
                             varDict['N_MULTIROUTE'])
 
-                        route = routes[r][j]
+                        if varDict['LABEL'] == 'UCC' and tripIsZEZ:
+                            route = hybridRoutes[r][j]
+                        else:
+                            route = routes[r][j]
 
                         # Number of trips made on each link
                         linkVanTripsArray[route, 1] += nTrips
@@ -1683,151 +1710,50 @@ def actually_run_module(args):
                         routeBuitenweg = route[roadtypeArray[route] == 2]
                         routeSnelweg = route[roadtypeArray[route] == 3]
 
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                ZEZstad = np.where(
-                                    ZEZarray[routeStad] == 1)[0]
-                                ZEZbuitenweg = np.where(
-                                    ZEZarray[routeBuitenweg] == 1)[0]
-                                ZEZsnelweg = np.where(
-                                    ZEZarray[routeSnelweg] == 1)[0]
+                        if varDict['LABEL'] == 'UCC' and tripIsZEZ:
+                            ZEZstad = np.where(
+                                ZEZarray[routeStad] == 1)[0]
+                            ZEZbuitenweg = np.where(
+                                ZEZarray[routeBuitenweg] == 1)[0]
+                            ZEZsnelweg = np.where(
+                                ZEZarray[routeSnelweg] == 1)[0]
 
                         vt = 7  # Vehicle type: Van
                         capUt = 0.5  # Assume half of loading capacity used
 
-                        # CO2
-                        stadCO2 = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colCO2, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegCO2 = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colCO2, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegCO2 = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colCO2, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
+                        for et in range(nET):
+                            stadEmissions = (
+                                nTrips * distArray[routeStad] *
+                                get_applicable_emission_fac(
+                                    vtDict[vt], et, capUt,
+                                    emissionsStadLeeg,
+                                    emissionsStadVol))
+                            buitenwegEmissions = (
+                                nTrips * distArray[routeBuitenweg] *
+                                get_applicable_emission_fac(
+                                    vtDict[vt], et, capUt,
+                                    emissionsBuitenwegLeeg,
+                                    emissionsBuitenwegVol))
+                            snelwegEmissions = (
+                                nTrips * distArray[routeSnelweg] *
+                                get_applicable_emission_fac(
+                                    vtDict[vt], et, capUt,
+                                    emissionsSnelwegLeeg,
+                                    emissionsSnelwegVol))
+    
+                            if varDict['LABEL'] == 'UCC' and tripIsZEZ:
+                                stadEmissions[ZEZstad] = 0.0
+                                buitenwegEmissions[ZEZbuitenweg] = 0.0
+                                snelwegEmissions[ZEZsnelweg] = 0.0
+    
+                            linkVanEmissionsArray[1][
+                                routeStad, et] += stadEmissions
+                            linkVanEmissionsArray[1][
+                                routeBuitenweg, et] += buitenwegEmissions
+                            linkVanEmissionsArray[1][
+                                routeSnelweg, et] += snelwegEmissions
 
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadCO2[ZEZstad] = 0
-                                buitenwegCO2[ZEZbuitenweg] = 0
-                                snelwegCO2[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[1][
-                            routeStad, colCO2] += stadCO2
-                        linkVanEmissionsArray[1][
-                            routeBuitenweg, colCO2] += buitenwegCO2
-                        linkVanEmissionsArray[1][
-                            routeSnelweg, colCO2] += snelwegCO2
-
-                        # SO2
-                        stadSO2 = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colSO2, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegSO2 = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colSO2, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegSO2 = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colSO2, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadSO2[ZEZstad] = 0
-                                buitenwegSO2[ZEZbuitenweg] = 0
-                                snelwegSO2[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[1][
-                            routeStad, colSO2] += stadSO2
-                        linkVanEmissionsArray[1][
-                            routeBuitenweg, colSO2] += buitenwegSO2
-                        linkVanEmissionsArray[1][
-                            routeSnelweg, colSO2] += snelwegSO2
-
-                        # PM
-                        stadPM = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colPM, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegPM = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colPM, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegPM = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colPM, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadPM[ZEZstad] = 0
-                                buitenwegPM[ZEZbuitenweg] = 0
-                                snelwegPM[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[1][
-                            routeStad, colPM] += stadPM
-                        linkVanEmissionsArray[1][
-                            routeBuitenweg, colPM] += buitenwegPM
-                        linkVanEmissionsArray[1][
-                            routeSnelweg, colPM] += snelwegPM
-
-                        # NOX
-                        stadNOX = (
-                            nTrips * distArray[routeStad] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colNOX, capUt,
-                                emissionsStadLeeg,
-                                emissionsStadVol))
-                        buitenwegNOX = (
-                            nTrips * distArray[routeBuitenweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colNOX, capUt,
-                                emissionsBuitenwegLeeg,
-                                emissionsBuitenwegVol))
-                        snelwegNOX = (
-                            nTrips * distArray[routeSnelweg] *
-                            get_applicable_emission_fac(
-                                vtDict[vt], colNOX, capUt,
-                                emissionsSnelwegLeeg,
-                                emissionsSnelwegVol))
-
-                        if varDict['LABEL'] == 'UCC':
-                            if tripIsZEZ:
-                                stadNOX[ZEZstad] = 0
-                                buitenwegNOX[ZEZbuitenweg] = 0
-                                snelwegNOX[ZEZsnelweg] = 0
-
-                        linkVanEmissionsArray[1][
-                            routeStad, colNOX] += stadNOX
-                        linkVanEmissionsArray[1][
-                            routeBuitenweg, colNOX] += buitenwegNOX
-                        linkVanEmissionsArray[1][
-                            routeSnelweg, colNOX] += snelwegNOX
-
-            if i % int(round(nOrigSelection / 20)) == 0:
+            if i % int(round(nOrigSelection / 100)) == 0:
                 progress = round(i / nOrigSelection * 100, 1)
                 print('\t\t\t' + str(progress) + '%', end='\r')
 
@@ -1842,6 +1768,9 @@ def actually_run_module(args):
 
         # Make some space available on the RAM
         del prevVan, vanTripsService, vanTripsConstruction
+        
+        if doHybridRoutes:
+            del prevVanHybrid
 
         # Write the intensities and emissions into the links-DataFrames
         for tod in timeOfDays:
@@ -2149,7 +2078,7 @@ def actually_run_module(args):
                 # Add data fields
                 w.record(*dbfData[i, :])
 
-                if i % int(round(nLinks / 20)) == 0:
+                if i % int(round(nLinks / 100)) == 0:
                     progress = round(i / nLinks * 100, 1)
                     print('\t' + str(progress) + '%', end='\r')
 
