@@ -174,7 +174,7 @@ def actually_run_module(args):
         emissionDivFac = [1000, 1000000, 1000000, 1000]
         etDict = dict(
             (dimET.at[i, 'ID'], dimET.at[i, 'Comment']) for i in dimET.index)
-        etInvDict = dict((v, k) for k, v in etDict.items())
+        # etInvDict = dict((v, k) for k, v in etDict.items())
 
         # Which vehicle type can be used in the parcel module
         vehTypesParcels = np.array(
@@ -477,6 +477,7 @@ def actually_run_module(args):
         # are only used to go to UCC and not for through traffic
         if varDict['LABEL'] == 'UCC':
             MRDHlinks.loc[MRDHlinks['ZEZ'] >= 1, 'COST_FREIGHT'] += 10000
+            MRDHlinks.loc[MRDHlinks['ZEZ'] >= 1, 'COST_VAN'] += 10000
 
         # Initialize empty fields with emissions and traffic intensity
         # per link (also save list with all field names)
@@ -2317,6 +2318,7 @@ if __name__ == '__main__':
     varDict['CRW_PDEMAND_BIKE'] = ""
 
     varDict['SHIFT_FREIGHT_TO_COMB1'] = ""
+    varDict['SHIFT_VAN_TO_COMB1'] = ""
 
     varDict['IMPEDANCE_SPEED_FREIGHT'] = 'V_FR_OS'
     varDict['IMPEDANCE_SPEED_VAN']     = 'V_PA_OS'
