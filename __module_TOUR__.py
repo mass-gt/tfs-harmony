@@ -660,7 +660,7 @@ def actually_run_module(args):
         nTripsPerTour = [
             [len(tourSequences[car][tour]) - 1 for tour in range(nTours[car])]
             for car in range(nCarriers)]
-        nTripsTotal = np.sum(np.sum(nTripsPerTour))
+        nTripsTotal = np.sum(np.sum(np.array(nTripsPerTour, dtype=object)))
 
         # Weight per trip
         tripWeights = [
