@@ -275,7 +275,7 @@ def actually_run_module(args):
         log_file.write(message + '\n')
 
         # Remove columns that are not needed for synthesis
-        segsEmpl = segsEmpl.drop(['INDUSTRIE_voorCorr', 'WP', 'LOGNODE'], 1)
+        segsEmpl = segsEmpl.drop(columns=['INDUSTRIE_voorCorr', 'WP', 'LOGNODE'])
 
         if root != '':
             root.progressBar['value'] = 3
@@ -289,7 +289,7 @@ def actually_run_module(args):
         # Read firm input data
         firmSizePerSector = pd.read_csv(varDict['FIRMSIZE'])
         firmSizePerSector.index = firmSizePerSector['Sector']
-        firmSizePerSector.drop('Sector', inplace=True, axis=1)
+        firmSizePerSector = firmSizePerSector.drop(columns='Sector')
 
         firmSize_labels = firmSizePerSector.columns[1:].to_list()
         firmSize_dict = dict(zip(
@@ -311,7 +311,7 @@ def actually_run_module(args):
         # First create random distribution for all sectors combined;
         # starting point: firmSizePerSector - joint distribution table.
         # Drop column with SEGs-sectors which is not needed here
-        firmSizeALL = firmSizePerSector.drop(['Sector_SEGs'], axis=1)
+        firmSizeALL = firmSizePerSector.drop(columns='Sector_SEGs')
 
         # Create probability density function
         firmsXsectorALL_pdf = (firmSizeALL / 1.0) / sum(sum(firmSizeALL.values))
@@ -329,9 +329,7 @@ def actually_run_module(args):
         distr = {}
         for sect in SEGs_sectors:
             firmSize[sect] = firmSizePerSector[
-                firmSizePerSector['Sector_SEGs'] == sect].drop(
-                    ['Sector_SEGs'],
-                    axis=1)
+                firmSizePerSector['Sector_SEGs'] == sect].drop(columns='Sector_SEGs')
 
             firmsXsector[sect] = firmSize[sect].apply(
                 lambda x: x.index + '::' + x.name).values.ravel()
