@@ -3,7 +3,7 @@ import pandas as pd
 import time
 import datetime
 import os.path
-from __functions__ import read_mtx, read_shape
+from calculation.common.io import read_mtx, read_shape
 
 # Modules nodig voor de user interface
 import tkinter as tk

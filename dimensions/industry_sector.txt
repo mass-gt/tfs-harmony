@@ -1,0 +1,20 @@
+ID	Comment
+0	A Landbouw, bosbouw en visserij
+1	B Delfstoffenwinning
+2	C Industrie
+3	D Energievoorziening
+4	E Waterbedrijven en afvalbeheer
+5	F Bouwnijverheid
+6	G Handel
+7	H Vervoer en opslag
+8	I Horeca
+9	J Informatie en communicatie
+10	K Financiële dienstverlening
+11	L Verhuur en handel van onroerend goed
+12	M Specialistische zakelijke diensten
+13	N Verhuur en overige zakelijke diensten
+14	O Openbaar bestuur en overheidsdiensten
+15	P Onderwijs
+16	Q Gezondheids- en welzijnszorg
+17	R Cultuur, sport en recreatie
+18	S Overige dienstverlening

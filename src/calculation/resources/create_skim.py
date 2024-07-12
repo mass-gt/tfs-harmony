@@ -17,7 +17,7 @@ import scipy.sparse.csgraph
 from scipy.sparse import lil_matrix
 import multiprocessing as mp
 import functools
-from __functions__ import read_shape, write_mtx
+from calculation.common.io import read_shape, write_mtx
 
     
 

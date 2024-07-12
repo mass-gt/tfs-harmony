@@ -1,4 +1,4 @@
 ID	Comment
-0	"0: Regular zone"
-1	"1: Transshipment terminal"
-2	"2: Distribution center"
+0	"Regular zone"
+1	"Transshipment terminal"
+2	"Distribution center"

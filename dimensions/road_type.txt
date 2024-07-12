@@ -1,0 +1,4 @@
+ID	Comment
+0	Buitenweg
+1	Snelweg
+2	Stad
