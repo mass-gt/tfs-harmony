@@ -210,6 +210,7 @@ def add_firm_coordinates(
     firms_df: pd.DataFrame,
     shapelyZones: List[Union[Polygon, MultiPolygon]],
     invZoneDict: Dict[int, int],
+    seeds: Dict[str, int],
     root: Any,
     nTriesAllowed: int = 500,
 ) -> pd.DataFrame:
@@ -237,8 +238,12 @@ def add_firm_coordinates(
 
         while (not pointInPolygon) and (numberOfTries <= nTriesAllowed):
             # Generate a random point within the zone boundaries
+            np.random.seed(numberOfTries * seeds['firm_coordinates'] + i)
             x = minX + (maxX - minX) * np.random.rand()
+
+            np.random.seed(2 * numberOfTries * seeds['firm_coordinates'] + i)
             y = minY + (maxY - minY) * np.random.rand()
+
             point = Point(x, y)
 
             # Check if the random point is actually contained by

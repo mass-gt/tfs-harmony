@@ -301,6 +301,21 @@ def get_cep_shares(
     )
 
 
+def generate_shipment_seeds(
+    baseSeed: int,
+    maxNumShipments: int,
+    ls: int,
+    nstr: int,
+    ft: int,
+    externalZone: int = 0
+) -> np.ndarray:
+    """Generates seeds for the synthesis of a set of shipments."""
+    np.random.seed(baseSeed + externalZone * 1000 + ls * 100 + nstr * 10 + ft)
+    np.random.seed(np.random.randint(10000000))
+
+    return np.random.randint(low=0, high=10000000, size=maxNumShipments)
+
+
 def draw_vehicle_type_and_shipment_size(
     paramsShipSizeVehType: Dict[Tuple[int, str], float],
     nstr: int,
@@ -313,6 +328,7 @@ def draw_vehicle_type_and_shipment_size(
     truckCapacities: Dict[int, float],
     nVT: int,
     absoluteShipmentSizes: np.ndarray,
+    seed: int,
 ) -> Tuple[int, int]:
     """
     Calculates the utilities of the choice model for vehicle type and shipment size and then draws one choice.
@@ -355,7 +371,7 @@ def draw_vehicle_type_and_shipment_size(
     cumProbabilities = np.cumsum(probabilities)
 
     # Sample one choice based on the cumulative probability distribution
-    ssvt = draw_choice_mcs(cumProbabilities)
+    ssvt = draw_choice_mcs(cumProbabilities, seed)
 
     # Deduce from this the chosen shipment size category and vehicle type
     ssChosen = int(np.floor(ssvt / nVT))
@@ -376,6 +392,7 @@ def draw_delivery_times(
     nLS: int,
     varDict: Dict[str, str],
     dims: ModelDimensions,
+    seed: int,
 ) -> Tuple[Dict[int, int], Dict[int, int], Dict[int, int]]:
     """
     Reads the time-of-day coefficients and then uses these to draw the delivery time for each shipment.
@@ -417,7 +434,7 @@ def draw_delivery_times(
         cumProbs = np.cumsum(probs)
         cumProbs /= cumProbs[-1]
 
-        deliveryTimePeriod[i] = draw_choice_mcs(cumProbs)
+        deliveryTimePeriod[i] = draw_choice_mcs(cumProbs, seed + i)
         lowerTOD[i] = timeIntervals[ls][deliveryTimePeriod[i]][0]
         upperTOD[i] = timeIntervals[ls][deliveryTimePeriod[i]][1]
 

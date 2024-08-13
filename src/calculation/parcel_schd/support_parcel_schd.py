@@ -16,6 +16,7 @@ def create_schedules(
     parcelNodesCEP: Dict[int, str],
     parcelDepTime: np.ndarray,
     tourType: int,
+    seed: int,
     root: Any,
     startValueProgress: float,
     endValueProgress: float,
@@ -92,6 +93,9 @@ def create_schedules(
             parcelsDelivered[depot][cluster] = list(nParcelsPerStop.copy())
 
             # Determine the departure time of each trip in the tour
+            np.random.seed(seed + 10000 * depot + cluster)
+            np.random.seed(np.random.randint(10000000))
+
             departureTimesTour = [
                 np.where(parcelDepTime > np.random.rand())[0][0] +
                 np.random.rand()]
@@ -580,6 +584,7 @@ def do_crowdshipping(
     nFirstZonesCS, parcelShareCRW, modes,
     zone_gemeente_dict, segsDetail,
     datapathO, label,
+    seed,
     root,
 ):
     '''
@@ -593,6 +598,8 @@ def do_crowdshipping(
     logger.debug("\t\tGet parcel demand...")
 
     nParcels = len(parcels)
+
+    np.random.seed(seed)
 
     randSelectionCRW = (
         (np.random.rand(nParcels) < parcelShareCRW) &

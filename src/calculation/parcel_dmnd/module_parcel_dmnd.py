@@ -5,7 +5,7 @@ import sys
 import traceback
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_skims
+from calculation.common.io import read_shape, get_seeds, get_skims
 from calculation.common.vrt import draw_choice_mcs
 from .support_parcel_dmnd import get_cum_shares_vt_ucc, write_parcels_to_geojson, aggregate_parcels
 
@@ -30,6 +30,8 @@ def actually_run_module(
         # ------------------------- Import data -------------------------------
 
         logger.debug("\tImporting data...")
+
+        seeds = get_seeds(varDict)
 
         zones = read_shape(varDict['ZONES'])
         zones = pd.DataFrame(zones).sort_values('AREANR')
@@ -63,20 +65,19 @@ def actually_run_module(
         parcelNodes, coords = read_shape(varDict['PARCELNODES'],returnGeometry=True)
         parcelNodes['X'] = [coords[i]['coordinates'][0] for i in range(len(coords))]
         parcelNodes['Y'] = [coords[i]['coordinates'][1] for i in range(len(coords))]
-        parcelNodes.index= parcelNodes['id'].astype(int)
+        parcelNodes.index = parcelNodes['id'].astype(int)
         parcelNodes = parcelNodes.sort_index()
         nParcelNodes = len(parcelNodes)
+
+        if nParcelNodes != len(parcelNodes['id'].unique()):
+            raise Exception("There are duplicate id's in the PARCELNODES file.")
 
         cepShares = pd.read_csv(varDict['CEP_SHARES'], sep='\t')
         cepShares.index = cepShares['courier']
 
         cepList = np.unique(parcelNodes['CEP'])
-        cepNodes = [
-            np.where(parcelNodes['CEP'] == str(cep))[0]
-            for cep in cepList]
-        cepNodeDict = {}
-        for cepNo in range(len(cepList)):
-            cepNodeDict[cepList[cepNo]] = cepNodes[cepNo]
+        cepNodes = [np.where(parcelNodes['CEP'] == str(cep))[0]for cep in cepList]
+        cepNodeDict = dict((cepName, cepNodes[cepNumber]) for cepNumber, cepName in enumerate(cepList))
 
         if root is not None:
             root.progressBar['value'] = 1.0
@@ -514,22 +515,23 @@ def actually_run_module(
                     # number in ongoing df from index count-1 the next x=no.
                     # of parcels rows, fill the cell in the column Parcel_ID
                     # with a number
-                    n = zones.loc[zoneID, 'parcels_' + str(cep)]
+                    n = zones.at[zoneID, 'parcels_' + str(cep)]
+
+                    if n == 0:
+                        continue
 
                     # Parcel_ID
-                    parcels[count:(count + n), 0] = (
-                        np.arange(count + 1, count + 1 + n, dtype=int))
+                    parcels[count:(count + n), 0] = np.arange(count + 1, count + 1 + n, dtype=int)
 
                     # O_zone
-                    parcels[count:(count + n), 1] = (
-                        parcelNodes['AREANR'][parcelNodeIndex + 1])
+                    parcels[count:(count + n), 1] = parcelNodes.at[parcelNodeIndex + 1, 'AREANR']
 
                     # D_zone, DepotNumber and CEP
                     parcels[count:(count + n), 2] = zoneID
                     parcels[count:(count + n), 3] = parcelNodeIndex + 1
                     parcelsCep[count:(count + n)] = cep
 
-                    count += zones['parcels_' + str(cep)][zoneID]
+                    count += zones.at[zoneID, 'parcels_' + str(cep)]
 
         # Put the parcel demand data back in a DataFrame
         parcels = pd.DataFrame(parcels, columns=cols)
@@ -667,6 +669,8 @@ def actually_run_module(
             origZones = np.array(parcels['O_zone'].astype(int))
             destZones = np.array(parcels['D_zone'].astype(int))
             depotNumbers = np.array(parcels['DepotNumber'].astype(int))
+
+            np.random.seed(seeds['parcel_zez_consolidation'])
             whereDestZEZ = np.where(
                 (zones['ZEZ'][destZones] >= 1) &
                 (probConsolidation > np.random.rand(len(parcels))))[0]
@@ -709,7 +713,7 @@ def actually_run_module(
                 newParcels[count, 7] = 0                # To UCC
 
                 # Vehicle type
-                newParcels[count, 5] = draw_choice_mcs(cumSharesVehUCC)
+                newParcels[count, 5] = draw_choice_mcs(cumSharesVehUCC, seeds['parcel_zez_vehicle_type'] + i)
 
                 count += 1
 

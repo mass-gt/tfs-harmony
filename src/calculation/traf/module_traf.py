@@ -7,11 +7,10 @@ import sys
 import traceback
 
 from scipy.sparse import lil_matrix
-from shapely.geometry import Point, Polygon, MultiPolygon
 from typing import Any, Dict, List
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import get_num_cpu, read_mtx, read_shape
+from calculation.common.io import get_num_cpu, get_seeds, read_mtx, read_shape
 from .traf_support import (
     add_zez_to_links, calc_prev, get_route, get_link_dict, get_emission_factors,
     get_applicable_emission_fac,
@@ -93,9 +92,10 @@ def actually_run_module(
 
         logger.debug("\tImporting and preprocessing network...")
 
+        seeds = get_seeds(varDict)
+
         # Import links
         MRDHlinks, MRDHlinksGeometry = read_shape(varDict['LINKS'], returnGeometry=True)
-        nLinks = len(MRDHlinks)
 
         if root is not None:
             root.progressBar['value'] = 2.0
@@ -360,7 +360,7 @@ def actually_run_module(
         allParcelTrips.loc[allParcelTrips['OrigType'] == 'UCC', 'COMBTYPE'] = 1
 
         # For each tourID, at which indices are its trips found
-        whereParcelTour = {}
+        whereParcelTour: Dict[str, List[int]] = {}
         for i in allParcelTrips.index:
             tourID = allParcelTrips.at[i, 'Tour_ID']
             try:
@@ -385,9 +385,11 @@ def actually_run_module(
 
         # Possibility to switch to electric
         if doShiftVanToElectric:
-            for indices in list(whereParcelTour.values()):
+            for i, tmpParcelIndices in enumerate(whereParcelTour.values()):
+                np.random.seed(seeds['parcel_zez_combustion'] + i)
+                np.random.seed(np.random.randint(10000000))
                 if varDict['SHIFT_VAN_TO_COMB1'] <= np.random.rand():
-                    allParcelTrips.loc[indices, 'COMBTYPE'] = 1
+                    allParcelTrips.loc[tmpParcelIndices, 'COMBTYPE'] = 1
 
         # Determine linktypes (urban/rural/highway)
         stadLinkTypes = [
@@ -501,38 +503,35 @@ def actually_run_module(
 
         # Route search freight
         if nCPU > 1:
-            # From which nodes does every CPU perform
-            # the shortest path algorithm
-            indicesPerCPU = [
-                [indices[cpu::nCPU], cpu]
-                for cpu in range(nCPU)]
-            origSelectionPerCPU = [
-                np.arange(nOrigSelection)[cpu::nCPU]
-                for cpu in range(nCPU)]
+            # From which nodes does every CPU perform the shortest path algorithm
+            indicesPerCPU = [[indices[cpu::nCPU], cpu] for cpu in range(nCPU)]
+            origSelectionPerCPU = [np.arange(nOrigSelection)[cpu::nCPU] for cpu in range(nCPU)]
 
-            for r in range(varDict['N_MULTIROUTE']):
+        for r in range(varDict['N_MULTIROUTE']):
 
-                logger.debug(f"\t\tRoute search (freight - multirouting part {r+1})...")
+            logger.debug(f"\t\tRoute search (freight - multirouting part {r+1})...")
 
-                # The network with costs between nodes (freight)
-                csgraphFreight = lil_matrix((nNodes, nNodes))
+            # The network with costs between nodes (freight)
+            csgraphFreight = lil_matrix((nNodes, nNodes))
+            csgraphFreight[
+                np.array(MRDHlinks['A']),
+                np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_FREIGHT'])
+
+            if varDict['N_MULTIROUTE'] > 1:
+                np.random.seed(r * seeds['traf_multiroute'])
                 csgraphFreight[
                     np.array(MRDHlinks['A']),
-                    np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_FREIGHT'])
+                    np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
 
-                if varDict['N_MULTIROUTE'] > 1:
-                    csgraphFreight[
-                        np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                # Execute the Dijkstra route search
+            # Execute the Dijkstra route search
+            if nCPU == 1:
+                prevFreight.append(calc_prev(csgraphFreight, nNodes, [indices, 0]))
+            else:
                 with mp.Pool(nCPU) as p:
                     prevFreightPerCPU = p.map(functools.partial(
                         calc_prev,
                         csgraphFreight,
                         nNodes), indicesPerCPU)
-
-                # Combine the results from the different CPUs
                 prevFreight.append(np.zeros((nOrigSelection ,nNodes), dtype=int))
                 for cpu in range(nCPU):
                     for i in range(len(indicesPerCPU[cpu][0])):
@@ -541,33 +540,10 @@ def actually_run_module(
                 # Make some space available on the RAM
                 del prevFreightPerCPU
 
-                if root is not None:
-                    root.progressBar['value'] = (
-                        5.0 +
-                        (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
-
-        else:
-            for r in range(varDict['N_MULTIROUTE']):
-                logger.debug("\t\tRoute search (freight - multirouting part {r+1})...")
-
-                # The network with costs between nodes (freight)
-                csgraphFreight = lil_matrix((nNodes, nNodes))
-                csgraphFreight[
-                    np.array(MRDHlinks['A']),
-                    np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_FREIGHT'])
-
-                if varDict['N_MULTIROUTE'] > 1:
-                    csgraphFreight[
-                        np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                # Execute the Dijkstra route search
-                prevFreight.append(calc_prev(csgraphFreight, nNodes, [indices, 0]))
-
-                if root is not None:
-                    root.progressBar['value'] = (
-                        5.0 +
-                        (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
+            if root is not None:
+                root.progressBar['value'] = (
+                    5.0 +
+                    (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
 
         # Make some space available on the RAM
         del csgraphFreight
@@ -576,32 +552,32 @@ def actually_run_module(
             prevFreightHybrid = []
 
             # Route search freight (hybrid combustion)
-            if nCPU > 1:
+            for r in range(varDict['N_MULTIROUTE']):
 
-                for r in range(varDict['N_MULTIROUTE']):
+                logger.debug(
+                    f"\t\tRoute search (freight - hybrid combustion - multirouting part {r+1})...")
 
-                    logger.debug(
-                        f"\t\tRoute search (freight - hybrid combustion - multirouting part {r+1})...")
+                # The network with costs between nodes (freight)
+                csgraphFreightHybrid = lil_matrix((nNodes, nNodes))
+                csgraphFreightHybrid[
+                    np.array(MRDHlinks['A']),
+                    np.array(MRDHlinks['B'])] = costFreightHybrid
 
-                    # The network with costs between nodes (freight)
-                    csgraphFreightHybrid = lil_matrix((nNodes, nNodes))
+                if varDict['N_MULTIROUTE'] > 1:
+                    np.random.seed(r * seeds['traf_multiroute'])
                     csgraphFreightHybrid[
                         np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] = costFreightHybrid
+                        np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
 
-                    if varDict['N_MULTIROUTE'] > 1:
-                        csgraphFreightHybrid[
-                            np.array(MRDHlinks['A']),
-                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                    # Execute the Dijkstra route search
+                # Execute the Dijkstra route search
+                if nCPU == 1:
+                    prevFreightHybrid.append(calc_prev(csgraphFreightHybrid, nNodes, [indices, 0]))
+                else:
                     with mp.Pool(nCPU) as p:
                         prevFreightHybridPerCPU = p.map(functools.partial(
                             calc_prev,
                             csgraphFreightHybrid,
                             nNodes), indicesPerCPU)
-
-                    # Combine the results from the different CPUs
                     prevFreightHybrid.append(np.zeros((nOrigSelection ,nNodes), dtype=int))
                     for cpu in range(nCPU):
                         for i in range(len(indicesPerCPU[cpu][0])):
@@ -610,37 +586,10 @@ def actually_run_module(
                     # Make some space available on the RAM
                     del prevFreightHybridPerCPU
 
-                    if root is not None:
-                        root.progressBar['value'] = (
-                            5.0 +
-                            (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
-
-            else:
-                for r in range(varDict['N_MULTIROUTE']):
-                    logger.debug(
-                        f"\tRoute search (freight - hybrid combustion - multirouting part {r+1})...")
-
-                    # The network with costs between nodes (freight)
-                    csgraphFreightHybrid = lil_matrix((nNodes, nNodes))
-                    csgraphFreightHybrid[
-                        np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] = costFreightHybrid
-
-                    if varDict['N_MULTIROUTE'] > 1:
-                        csgraphFreightHybrid[
-                            np.array(MRDHlinks['A']),
-                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                    # Execute the Dijkstra route search
-                    prevFreightHybrid.append(calc_prev(
-                        csgraphFreightHybrid,
-                        nNodes,
-                        [indices, 0]))
-
-                    if root is not None:
-                        root.progressBar['value'] = (
-                            5.0 +
-                            (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
+                if root is not None:
+                    root.progressBar['value'] = (
+                        5.0 +
+                        (33.0 - 5.0) * (1 + r) / varDict['N_MULTIROUTE'])
 
             # Make some space available on the RAM
             del csgraphFreightHybrid
@@ -650,6 +599,8 @@ def actually_run_module(
         logger.debug("\tCalculating emissions and traffic intensities (freight)...")
 
         id_co2 = dims.get_id_from_label("emission_type", "CO2")
+
+        np.random.seed(10 * seeds['traf_multiroute'])
 
         for tod in timeOfDays:
 
@@ -754,17 +705,13 @@ def actually_run_module(
                                 ct = int(currentTrips[trip, 6])
                                 capUt = currentTrips[trip, 4]
 
-                                # Select which of the calculated routes
-                                # to use for current trip
+                                # Select which of the calculated routes to use for current trip
                                 whichMultiRoute = np.random.randint(varDict['N_MULTIROUTE'])
 
                                 route = routes[whichMultiRoute][j]
-                                routeStad = routesStad[
-                                    whichMultiRoute]
-                                routeBuitenweg = routesBuitenweg[
-                                    whichMultiRoute]
-                                routeSnelweg = routesSnelweg[
-                                    whichMultiRoute]
+                                routeStad = routesStad[whichMultiRoute]
+                                routeBuitenweg = routesBuitenweg[whichMultiRoute]
+                                routeSnelweg = routesSnelweg[whichMultiRoute]
 
                                 ZEZstad = ZEZSstad[whichMultiRoute]
                                 ZEZbuitenweg = ZEZSbuitenweg[whichMultiRoute]
@@ -876,30 +823,31 @@ def actually_run_module(
         prevVan = []
 
         # Route search vans
-        if nCPU > 1:
-            for r in range(varDict['N_MULTIROUTE']):
+        for r in range(varDict['N_MULTIROUTE']):
 
-                logger.debug(f"\t\tRoute search (vans - multirouting part {r+1})...")
+            logger.debug(f"\t\tRoute search (vans - multirouting part {r+1})...")
 
-                # The network with costs between nodes (vans)
-                csgraphVan = lil_matrix((nNodes, nNodes))
+            # The network with costs between nodes (vans)
+            csgraphVan = lil_matrix((nNodes, nNodes))
+            csgraphVan[
+                np.array(MRDHlinks['A']),
+                np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_VAN'])
+
+            if varDict['N_MULTIROUTE'] > 1:
+                np.random.seed(r * seeds['traf_multiroute'])
                 csgraphVan[
                     np.array(MRDHlinks['A']),
-                    np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_VAN'])
+                    np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
 
-                if varDict['N_MULTIROUTE'] > 1:
-                    csgraphVan[
-                        np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                # Execute the Dijkstra route search
+            # Execute the Dijkstra route search
+            if nCPU == 1:
+                prevVan.append(calc_prev(csgraphVan, nNodes, [indices, 0]))
+            else:
                 with mp.Pool(nCPU) as p:
                     prevVanPerCPU = p.map(functools.partial(
                         calc_prev,
                         csgraphVan,
                         nNodes), indicesPerCPU)
-
-                # Combine the results from the different CPUs
                 prevVan.append(np.zeros((nOrigSelection, nNodes), dtype=int))
                 for cpu in range(nCPU):
                     for i in range(len(indicesPerCPU[cpu][0])):
@@ -908,34 +856,10 @@ def actually_run_module(
                 # Make some space available on the RAM
                 del prevVanPerCPU
 
-                if root is not None:
-                    root.progressBar['value'] = (
-                        33.0 +
-                        (60.0 - 33.0) * (1 + r) / varDict['N_MULTIROUTE'])
-
-        else:
-            for r in range(varDict['N_MULTIROUTE']):
-
-                logger.debug(f"\t\tRoute search (vans - multirouting part {r+1})...")
-
-                # The network with costs between nodes (vans)
-                csgraphVan = lil_matrix((nNodes, nNodes))
-                csgraphVan[
-                    np.array(MRDHlinks['A']),
-                    np.array(MRDHlinks['B'])] = np.array(MRDHlinks['COST_VAN'])
-
-                if varDict['N_MULTIROUTE'] > 1:
-                    csgraphVan[
-                        np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                # Execute the Dijkstra route search
-                prevVan.append(calc_prev(csgraphVan, nNodes, [indices, 0]))
-
-                if root is not None:
-                    root.progressBar['value'] = (
-                        43.0 +
-                        (70.0 - 43.0) * (1 + r) / varDict['N_MULTIROUTE'])
+            if root is not None:
+                root.progressBar['value'] = (
+                    33.0 +
+                    (60.0 - 33.0) * (1 + r) / varDict['N_MULTIROUTE'])
 
         # Make some space available on the RAM
         del csgraphVan
@@ -957,55 +881,33 @@ def actually_run_module(
                         np.array(MRDHlinks['B'])] = costVanHybrid
     
                     if varDict['N_MULTIROUTE'] > 1:
+                        np.random.seed(r * seeds['traf_multiroute'])
                         csgraphVanHybrid[
                             np.array(MRDHlinks['A']),
                             np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
 
                     # Execute the Dijkstra route search
-                    with mp.Pool(nCPU) as p:
-                        prevVanHybridPerCPU = p.map(functools.partial(
-                            calc_prev,
-                            csgraphVanHybrid,
-                            nNodes), indicesPerCPU)
+                    if nCPU == 1:
+                        prevVanHybrid.append(calc_prev(csgraphVanHybrid, nNodes, [indices, 0]))
 
-                    # Combine the results from the different CPUs
-                    prevVanHybrid.append(np.zeros((nOrigSelection, nNodes), dtype=int))
-                    for cpu in range(nCPU):
-                        for i in range(len(indicesPerCPU[cpu][0])):
-                            prevVanHybrid[r][origSelectionPerCPU[cpu][i], :] = prevVanHybridPerCPU[cpu][i, :]
+                    else:
+                        with mp.Pool(nCPU) as p:
+                            prevVanHybridPerCPU = p.map(functools.partial(
+                                calc_prev,
+                                csgraphVanHybrid,
+                                nNodes), indicesPerCPU)
+                        prevVanHybrid.append(np.zeros((nOrigSelection, nNodes), dtype=int))
+                        for cpu in range(nCPU):
+                            for i in range(len(indicesPerCPU[cpu][0])):
+                                prevVanHybrid[r][origSelectionPerCPU[cpu][i], :] = prevVanHybridPerCPU[cpu][i, :]
 
-                    # Make some space available on the RAM
-                    del prevVanHybridPerCPU
+                        # Make some space available on the RAM
+                        del prevVanHybridPerCPU
 
                     if root is not None:
                         root.progressBar['value'] = (
                             33.0 +
                             (60.0 - 33.0) * (1 + r) / varDict['N_MULTIROUTE'])
-
-            else:
-                for r in range(varDict['N_MULTIROUTE']):
-
-                    logger.debug(
-                        f"\t\tRoute search (vans - hybrid combustion - multirouting part {r+1})...")
-
-                    # The network with costs between nodes (vans)
-                    csgraphVanHybrid = lil_matrix((nNodes, nNodes))
-                    csgraphVanHybrid[
-                        np.array(MRDHlinks['A']),
-                        np.array(MRDHlinks['B'])] = costVanHybrid
-
-                    if varDict['N_MULTIROUTE'] > 1:
-                        csgraphVanHybrid[
-                            np.array(MRDHlinks['A']),
-                            np.array(MRDHlinks['B'])] *= (0.9 + 0.2 * np.random.rand(len(MRDHlinks)))
-
-                    # Execute the Dijkstra route search
-                    prevVanHybrid.append(calc_prev(csgraphVanHybrid, nNodes, [indices, 0]))
-
-                    if root is not None:
-                        root.progressBar['value'] = (
-                            43.0 +
-                            (70.0 - 43.0) * (1 + r) / varDict['N_MULTIROUTE'])
 
             # Make some space available on the RAM
             del csgraphVanHybrid
@@ -1070,18 +972,12 @@ def actually_run_module(
                                     prevVanHybrid[0],
                                     linkDict)
 
-                                hybridRouteStad = hybridRoute[
-                                    roadtypeArray[hybridRoute] == 1]
-                                hybridRouteBuitenweg = hybridRoute[
-                                    roadtypeArray[hybridRoute] == 2]
-                                hybridRouteSnelweg = hybridRoute[
-                                    roadtypeArray[hybridRoute] == 3]
-                                hybridZEZstad = ZEZarray[
-                                    hybridRouteStad] == 1
-                                hybridZEZbuitenweg = ZEZarray[
-                                    hybridRouteBuitenweg] == 1
-                                hybridZEZsnelweg = ZEZarray[
-                                    hybridRouteSnelweg] == 1
+                                hybridRouteStad = hybridRoute[roadtypeArray[hybridRoute] == 1]
+                                hybridRouteBuitenweg = hybridRoute[roadtypeArray[hybridRoute] == 2]
+                                hybridRouteSnelweg = hybridRoute[roadtypeArray[hybridRoute] == 3]
+                                hybridZEZstad = ZEZarray[hybridRouteStad] == 1
+                                hybridZEZbuitenweg = ZEZarray[hybridRouteBuitenweg] == 1
+                                hybridZEZsnelweg = ZEZarray[hybridRouteSnelweg] == 1
 
                             # Welke trips worden allemaal gemaakt op de
                             # HB van de huidige iteratie van de ij-loop
@@ -1110,9 +1006,7 @@ def actually_run_module(
                                 linkTripsArray[tod][tmpRoute, -1] += 1
 
                                 # De parcel demand trips per voertuigtype
-                                MRDHlinksIntensities.loc[
-                                    tmpRoute,
-                                    'N_LS8_VEH' + str(vt)] += 1
+                                MRDHlinksIntensities.loc[tmpRoute, 'N_LS8_VEH' + str(vt)] += 1
 
                                 if doSelectedLink:
                                     for link in range(nSelectedLinks):
@@ -1264,12 +1158,9 @@ def actually_run_module(
                                 buitenwegEmissions[ZEZbuitenweg] = 0.0
                                 snelwegEmissions[ZEZsnelweg] = 0.0
     
-                            linkVanEmissionsArray[0][
-                                routeStad, et] += stadEmissions
-                            linkVanEmissionsArray[0][
-                                routeBuitenweg, et] += buitenwegEmissions
-                            linkVanEmissionsArray[0][
-                                routeSnelweg, et] += snelwegEmissions
+                            linkVanEmissionsArray[0][routeStad, et] += stadEmissions
+                            linkVanEmissionsArray[0][routeBuitenweg, et] += buitenwegEmissions
+                            linkVanEmissionsArray[0][routeSnelweg, et] += snelwegEmissions
 
                 # Van: Construction segment
                 if vanTripsConstruction[origZone, destZone] > 0:
@@ -1291,12 +1182,9 @@ def actually_run_module(
                         routeSnelweg = route[roadtypeArray[route] == 3]
 
                         if varDict['LABEL'] == 'UCC' and tripIsZEZ:
-                            ZEZstad = np.where(
-                                ZEZarray[routeStad] == 1)[0]
-                            ZEZbuitenweg = np.where(
-                                ZEZarray[routeBuitenweg] == 1)[0]
-                            ZEZsnelweg = np.where(
-                                ZEZarray[routeSnelweg] == 1)[0]
+                            ZEZstad = np.where(ZEZarray[routeStad] == 1)[0]
+                            ZEZbuitenweg = np.where(ZEZarray[routeBuitenweg] == 1)[0]
+                            ZEZsnelweg = np.where(ZEZarray[routeSnelweg] == 1)[0]
 
                         for et in range(nET):
                             stadEmissions = (
@@ -1350,8 +1238,7 @@ def actually_run_module(
 
             # The DataFrame to be exported to CSV
             MRDHlinksIntensities.loc[:, volCols] += linkTripsArray[tod].astype(int)
-            MRDHlinksIntensities.loc[:, f'N_TOD{tod}'] += (
-                linkTripsArray[tod][:, -1].astype(int))
+            MRDHlinksIntensities.loc[:, f'N_TOD{tod}'] += linkTripsArray[tod][:, -1].astype(int)
 
             # Total emissions and per logistic segment
             for ls in range(nLS):

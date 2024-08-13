@@ -4,16 +4,18 @@ import pandas as pd
 import sys
 import traceback
 
+from itertools import product
 from typing import Any, Dict
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_skims
+from calculation.common.io import read_shape, get_seeds, get_skims
 from calculation.common.vrt import draw_choice_mcs
 from .support_ship import (
     get_coeffs_distance_decay, get_nstr_to_ls, get_commodity_matrix,
     get_urban_density, get_make_use_distribution, get_flow_type_shares,
     get_cum_shares_vt_ucc, get_cep_shares,
     draw_delivery_times, draw_vehicle_type_and_shipment_size,
+    generate_shipment_seeds,
     get_zonal_prod_attr, write_shipments_to_shp)
 
 logger = logging.getLogger("tfs")
@@ -53,6 +55,8 @@ def actually_run_module(
         nFlowTypesExternal = len([row for row in dims.flow_type.values() if row['IsExternal'] == 1])
 
         absoluteShipmentSizes = np.array([row['Median'] for row in dims.shipment_size.values()])
+
+        seeds = get_seeds(varDict)
 
         # Distance decay parameters
         alpha, beta = get_coeffs_distance_decay(varDict)
@@ -194,8 +198,11 @@ def actually_run_module(
             root.progressBar['value'] = 2.6
 
         # Consolidation potential per logistic segment (for UCC scenario)
-        probConsolidation = dict(
-            (int(row['logistic_segment']), float(row['probability']))
+        cumProbsConsolidation = dict(
+            (
+                int(row['logistic_segment']),
+                np.array([1.0 - float(row['probability']), 1.0]),
+            )
             for row in pd.read_csv(varDict['ZEZ_CONSOLIDATION'], sep='\t').to_dict('records')
         )
 
@@ -349,163 +356,175 @@ def actually_run_module(
                 for ft in range(nFlowTypesInternal)])
             allocatedWeightInternal = 0
 
-            for ls in range(nLS):
+            for ls, nstr in product(range(nLS), range(nNSTR)):
 
-                for nstr in range(nNSTR):
+                if lsToNstr[nstr, ls] <= 0:
+                    continue
 
-                    if lsToNstr[nstr, ls] <= 0:
-                        continue
+                logger.debug(f"\t\tFor logistic segment {ls} (NSTR{nstr})",)
 
-                    logger.debug(f"\t\tFor logistic segment {ls} (NSTR{nstr})",)
+                if root is not None:
+                    root.update_statusbar(
+                        "Shipment Synthesizer: " +
+                        f"Synthesizing shipments within study area (LS {ls} and NSTR {nstr})")
+                    
 
-                    if root is not None:
-                        root.update_statusbar(
-                            "Shipment Synthesizer: " +
-                            f"Synthesizing shipments within study area (LS {ls} and NSTR {nstr})")
+                for ft in range(nFlowTypesInternal):
+                    tmpShipmentNumber = 0
+                    allocatedWeight = 0
+                    totalWeight = demandInternalByFT[ft][ls] * lsToNstr[nstr, ls]
 
-                    for ft in range(nFlowTypesInternal):
+                    tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
+                    tmpSeedsReceiver = generate_shipment_seeds(
+                        seeds['shipment_internal_receiver'], tmpMaxNumShipments, ls, nstr, ft)
+                    tmpSeedsSender = generate_shipment_seeds(
+                        seeds['shipment_internal_sender'], tmpMaxNumShipments, ls, nstr, ft)
+                    tmpSeedsVehicleType = generate_shipment_seeds(
+                        seeds['shipment_internal_vehicle_type'], tmpMaxNumShipments, ls, nstr, ft)
 
-                        allocatedWeight = 0
-                        totalWeight = demandInternalByFT[ft][ls] * lsToNstr[nstr, ls]
+                    # While the weight of all synthesized shipments for this segment so far
+                    # does not exceed the total weight for this segment
+                    while allocatedWeight < totalWeight:
+                        flowType[count] = ft + 1
+                        goodsType[count] = nstr
+                        logisticSegment[count] = ls
 
-                        # While the weight of all synthesized shipment
-                        # for this segment so far does not exceed the
-                        # total weight for this segment
-                        while allocatedWeight < totalWeight:
-                            flowType[count] = ft + 1
-                            goodsType[count] = nstr
-                            logisticSegment[count] = ls
+                        # Flows between parcel depots
+                        if ls == id_parcel_consolidated:
+                            cep = draw_choice_mcs(cepSharesInternal, tmpSeedsReceiver[tmpShipmentNumber])
+                            depot = draw_choice_mcs(cepDepotShares[cep], 2 * tmpSeedsReceiver[tmpShipmentNumber])
+                            toFirm[count] = 0
+                            destZone[count] = cepDepotZones[cep][depot]
+                            destX[count] = cepDepotX[cep][depot]
+                            destY[count] = cepDepotY[cep][depot]
+                            toDC = 1
 
-                            # Flows between parcel depots
-                            if ls == id_parcel_consolidated:
-                                cep = draw_choice_mcs(cepSharesInternal)
-                                depot = draw_choice_mcs(cepDepotShares[cep])
-                                toFirm[count] = 0
-                                destZone[count] = cepDepotZones[cep][depot]
-                                destX[count] = cepDepotX[cep][depot]
-                                destY[count] = cepDepotY[cep][depot]
-                                toDC = 1
+                        # Determine receiving firm for flows to consumer
+                        elif (flowType[count] in (1, 3, 6)):
+                            toFirm[count] = draw_choice_mcs(
+                                cumProbReceive[:, nstr], tmpSeedsReceiver[tmpShipmentNumber])
+                            destZone[count] = firmZone[toFirm[count]]
+                            destX[count] = firmX[toFirm[count]]
+                            destY[count] = firmY[toFirm[count]]
+                            toDC = 0
+                        # Determine receiving DC for flows to DC
+                        elif (flowType[count] in (2, 5, 8)):
+                            toFirm[count] = draw_choice_mcs(
+                                cumProbDC, tmpSeedsReceiver[tmpShipmentNumber])
+                            destZone[count] = dcZones[toFirm[count]]
+                            destX[count] = distributionCentersX[toFirm[count]]
+                            destY[count] = distributionCentersY[toFirm[count]]
+                            toDC = 1
+                        # Determine receiving Transshipment Terminal for flows to TT
+                        elif (flowType[count] in (4, 7, 9)):
+                            toFirm[count] = ttZones[draw_choice_mcs(
+                                cumProbTT, tmpSeedsReceiver[tmpShipmentNumber])]
+                            destZone[count] = toFirm[count]
+                            destX[count] = zoneX[toFirm[count]]
+                            destY[count] = zoneY[toFirm[count]]
+                            toDC = 0
 
-                            # Determine receiving firm for flows to consumer
-                            elif (flowType[count] in (1, 3, 6)):
-                                toFirm[count] = draw_choice_mcs(cumProbReceive[:, nstr])
-                                destZone[count] = firmZone[toFirm[count]]
-                                destX[count] = firmX[toFirm[count]]
-                                destY[count] = firmY[toFirm[count]]
-                                toDC = 0
-                            # Determine receiving DC for flows to DC
-                            elif (flowType[count] in (2, 5, 8)):
-                                toFirm[count] = draw_choice_mcs(cumProbDC)
-                                destZone[count] = dcZones[toFirm[count]]
-                                destX[count] = distributionCentersX[toFirm[count]]
-                                destY[count] = distributionCentersY[toFirm[count]]
-                                toDC = 1
-                            # Determine receiving Transshipment Terminal for flows to TT
-                            elif (flowType[count] in (4, 7, 9)):
-                                toFirm[count] = ttZones[draw_choice_mcs(cumProbTT)]
-                                destZone[count] = toFirm[count]
-                                destX[count] = zoneX[toFirm[count]]
-                                destY[count] = zoneY[toFirm[count]]
-                                toDC = 0
+                        tmpCostTime = (
+                            costPerHourSourcing *
+                            skimTravTime[destZone[count]::nZones] / 3600)
+                        tmpCostDist = (
+                            costPerKmSourcing *
+                            skimDistance[destZone[count]::nZones] / 1000)
+                        tmpCost = tmpCostTime + tmpCostDist
 
-                            tmpCostTime = (
-                                costPerHourSourcing *
-                                skimTravTime[destZone[count]::nZones] / 3600)
-                            tmpCostDist = (
-                                costPerKmSourcing *
-                                skimDistance[destZone[count]::nZones] / 1000)
-                            tmpCost = tmpCostTime + tmpCostDist
+                        distanceDecay = 1 / (1 + np.exp(alpha + beta * np.log(tmpCost)))
 
-                            distanceDecay = 1 / (1 + np.exp(alpha + beta * np.log(tmpCost)))
+                        if (flowType[count] in (1, 2, 4)):
+                            distanceDecay = distanceDecay[firmZone]
+                        elif (flowType[count] in (3, 5, 7)):
+                            distanceDecay = distanceDecay[dcZones]
+                        elif (flowType[count] in (6, 8, 9)):
+                            distanceDecay = distanceDecay[ttZones]
 
-                            if (flowType[count] in (1, 2, 4)):
-                                distanceDecay = distanceDecay[firmZone]
-                            elif (flowType[count] in (3, 5, 7)):
-                                distanceDecay = distanceDecay[dcZones]
-                            elif (flowType[count] in (6, 8, 9)):
-                                distanceDecay = distanceDecay[ttZones]
+                        distanceDecay /= np.sum(distanceDecay)
 
-                            distanceDecay /= np.sum(distanceDecay)
+                        if ls == id_parcel_consolidated:
+                            origDepot = draw_choice_mcs(
+                                cepDepotShares[cep], tmpSeedsSender[tmpShipmentNumber])
 
-                            if ls == id_parcel_consolidated:
-                                origDepot = draw_choice_mcs(cepDepotShares[cep])
-
-                                if origDepot == depot:
-                                    if depot == 0:
-                                        origDepot = origDepot + 1
-                                    elif depot == len(cepDepotShares[cep]) - 1:
-                                        origDepot -= 1
-                                    else:
-                                        origDepot += [-1, 1][np.random.randint(2)]
-                                depot = origDepot
-
-                                fromFirm[count] = 0
-                                origZone[count] = cepDepotZones[cep][depot]
-                                origX[count] = cepDepotX[cep][depot]
-                                origY[count] = cepDepotY[cep][depot]
-                                fromDC = 1
-
-                            # Determine sending firm for flows from consumer
-                            elif (flowType[count] in (1, 2, 4)):
-                                prob = probSend[:, nstr] * distanceDecay
-                                prob = np.cumsum(prob)
-                                prob /= prob[-1]
-                                fromFirm[count] = draw_choice_mcs(prob)
-                                origZone[count] = firmZone[fromFirm[count]]
-                                origX[count] = firmX[fromFirm[count]]
-                                origY[count] = firmY[fromFirm[count]]
-                                fromDC = 0
-
-                            # Determine sending DCfor flows from DC
-                            elif (flowType[count] in (3, 5 ,7)):
-                                if chooseNearestDC and flowType[count] == 3:
-                                    dists = skimDistance[distributionCentersZone * nZones + destZone[count]]
-                                    fromFirm[count] = np.argmin(dists)
+                            if origDepot == depot:
+                                if depot == 0:
+                                    origDepot += 1
+                                elif depot == len(cepDepotShares[cep]) - 1:
+                                    origDepot -= 1
                                 else:
-                                    prob = probDC * distanceDecay
-                                    prob = np.cumsum(prob)
-                                    prob /= prob[-1]
-                                    fromFirm[count] = draw_choice_mcs(prob)
-                                origZone[count] = dcZones[fromFirm[count]]
-                                origX[count] = distributionCentersX[fromFirm[count]]
-                                origY[count] = distributionCentersY[fromFirm[count]]
-                                fromDC = 1
+                                    origDepot += [-1, 1][draw_choice_mcs(
+                                        np.array([0.5, 1.0]), 2 * tmpSeedsSender[tmpShipmentNumber])]
+                            depot = origDepot
 
-                            # Determine sending Transshipment Terminal for flows from TT
-                            elif (flowType[count] in (6, 8, 9)):
-                                prob = probTT * distanceDecay
+                            fromFirm[count] = 0
+                            origZone[count] = cepDepotZones[cep][depot]
+                            origX[count] = cepDepotX[cep][depot]
+                            origY[count] = cepDepotY[cep][depot]
+                            fromDC = 1
+
+                        # Determine sending firm for flows from consumer
+                        elif (flowType[count] in (1, 2, 4)):
+                            prob = probSend[:, nstr] * distanceDecay
+                            prob = np.cumsum(prob)
+                            prob /= prob[-1]
+                            fromFirm[count] = draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])
+                            origZone[count] = firmZone[fromFirm[count]]
+                            origX[count] = firmX[fromFirm[count]]
+                            origY[count] = firmY[fromFirm[count]]
+                            fromDC = 0
+
+                        # Determine sending DCfor flows from DC
+                        elif (flowType[count] in (3, 5 ,7)):
+                            if chooseNearestDC and flowType[count] == 3:
+                                dists = skimDistance[distributionCentersZone * nZones + destZone[count]]
+                                fromFirm[count] = np.argmin(dists)
+                            else:
+                                prob = probDC * distanceDecay
                                 prob = np.cumsum(prob)
                                 prob /= prob[-1]
-                                fromFirm[count] = ttZones[draw_choice_mcs(prob)]
-                                origZone[count] = fromFirm[count]
-                                origX[count] = zoneX[fromFirm[count]]
-                                origY[count] = zoneY[fromFirm[count]]
-                                fromDC = 0
+                                fromFirm[count] = draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])
+                            origZone[count] = dcZones[fromFirm[count]]
+                            origX[count] = distributionCentersX[fromFirm[count]]
+                            origY[count] = distributionCentersY[fromFirm[count]]
+                            fromDC = 1
 
-                            ssChosen, vtChosen = draw_vehicle_type_and_shipment_size(
-                                paramsShipSizeVehType, nstr,
-                                skimTravTime[(origZone[count]) * nZones + (destZone[count])] / 3600,
-                                skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
-                                fromDC, toDC,
-                                costPerHour, costPerKm, truckCapacities,
-                                nVT, absoluteShipmentSizes
-                            )
+                        # Determine sending Transshipment Terminal for flows from TT
+                        elif (flowType[count] in (6, 8, 9)):
+                            prob = probTT * distanceDecay
+                            prob = np.cumsum(prob)
+                            prob /= prob[-1]
+                            fromFirm[count] = ttZones[draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])]
+                            origZone[count] = fromFirm[count]
+                            origX[count] = zoneX[fromFirm[count]]
+                            origY[count] = zoneY[fromFirm[count]]
+                            fromDC = 0
 
-                            shipmentSizeCat[count] = ssChosen
-                            shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
-                            vehicleType[count] = vtChosen
+                        ssChosen, vtChosen = draw_vehicle_type_and_shipment_size(
+                            paramsShipSizeVehType, nstr,
+                            skimTravTime[(origZone[count]) * nZones + (destZone[count])] / 3600,
+                            skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
+                            fromDC, toDC,
+                            costPerHour, costPerKm, truckCapacities,
+                            nVT, absoluteShipmentSizes, tmpSeedsVehicleType[tmpShipmentNumber]
+                        )
 
-                            # Update weight and counter
-                            allocatedWeight += shipmentSize[count]
-                            allocatedWeightInternal += shipmentSize[count]
-                            count += 1
+                        shipmentSizeCat[count] = ssChosen
+                        shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
+                        vehicleType[count] = vtChosen
 
-                            if root is not None:
-                                if count % 300 == 0:
-                                    root.progressBar['value'] = (
-                                        percStart +
-                                        (percEnd - percStart) *
-                                        (allocatedWeightInternal / totalWeightInternal))
+                        # Update weight and counter
+                        allocatedWeight += shipmentSize[count]
+                        allocatedWeightInternal += shipmentSize[count]
+                        count += 1
+                        tmpShipmentNumber += 1
+
+                        if root is not None:
+                            if count % 300 == 0:
+                                root.progressBar['value'] = (
+                                    percStart +
+                                    (percEnd - percStart) *
+                                    (allocatedWeightInternal / totalWeightInternal))
 
             if doExtArea:
 
@@ -525,117 +544,123 @@ def actually_run_module(
                     for ft in range(nFlowTypesExternal)])
                 allocatedWeightExport = 0
 
-                for ls in range(nLS):
+                for ls, nstr in product(range(nLS), range(nNSTR)):
 
-                    for nstr in range(nNSTR):
+                    if lsToNstr[nstr, ls] <= 0:
+                        continue
 
-                        if lsToNstr[nstr, ls] <= 0:
-                            continue
+                    logger.debug(f"\t\tFor logistic segment {ls} (NSTR{nstr})")
 
-                        logger.debug(f"\t\tFor logistic segment {ls} (NSTR{nstr})")
+                    if root is not None:
+                        root.update_statusbar(
+                            "Shipment Synthesizer: " +
+                            f"Synthesizing shipments leaving study area (LS {ls} and NSTR {nstr})")
 
-                        if root is not None:
-                            root.update_statusbar(
-                                "Shipment Synthesizer: " +
-                                f"Synthesizing shipments leaving study area (LS {ls} and NSTR {nstr})")
+                    for ft in range(nFlowTypesExternal):
 
-                        for ft in range(nFlowTypesExternal):
+                        for dest in range(nSuperZones):
+                            tmpShipmentNumber = 0
+                            allocatedWeight = 0
+                            totalWeight = demandExportByFT[ft][dest, ls] * lsToNstr[nstr, ls]
 
-                            for dest in range(nSuperZones):
-                                allocatedWeight = 0
-                                totalWeight = demandExportByFT[ft][dest, ls] * lsToNstr[nstr, ls]
+                            tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
+                            tmpSeedsSender = generate_shipment_seeds(
+                                seeds['shipment_export_sender'], tmpMaxNumShipments, ls, nstr, ft, dest)
+                            tmpSeedsVehicleType = generate_shipment_seeds(
+                                seeds['shipment_export_vehicle_type'], tmpMaxNumShipments, ls, nstr, ft, dest)
 
-                                tmpCostTime = (
-                                    costPerHourSourcing *
-                                    skimTravTime[(nInternalZones + dest)::nZones] / 3600)
-                                tmpCostDist = (
-                                    costPerKmSourcing *
-                                    skimDistance[(nInternalZones + dest)::nZones] / 1000)
-                                tmpCost = tmpCostTime + tmpCostDist
+                            tmpCostTime = (
+                                costPerHourSourcing *
+                                skimTravTime[(nInternalZones + dest)::nZones] / 3600)
+                            tmpCostDist = (
+                                costPerKmSourcing *
+                                skimDistance[(nInternalZones + dest)::nZones] / 1000)
+                            tmpCost = tmpCostTime + tmpCostDist
 
-                                distanceDecay = 1 / (1 + np.exp(alpha + beta * np.log(tmpCost)))
+                            distanceDecay = 1 / (1 + np.exp(alpha + beta * np.log(tmpCost)))
 
-                                if ft + 1 + nFlowTypesInternal == 10:
-                                    distanceDecay = distanceDecay[firmZone]
-                                elif ft + 1 + nFlowTypesInternal == 11:
-                                    distanceDecay = distanceDecay[dcZones]
-                                elif ft + 1 + nFlowTypesInternal == 12:
-                                    distanceDecay = distanceDecay[ttZones]
+                            if ft + 1 + nFlowTypesInternal == 10:
+                                distanceDecay = distanceDecay[firmZone]
+                            elif ft + 1 + nFlowTypesInternal == 11:
+                                distanceDecay = distanceDecay[dcZones]
+                            elif ft + 1 + nFlowTypesInternal == 12:
+                                distanceDecay = distanceDecay[ttZones]
 
-                                distanceDecay /= np.sum(distanceDecay)
+                            distanceDecay /= np.sum(distanceDecay)
 
-                                while allocatedWeight < totalWeight:
-                                    flowType[count] = ft + 1 + nFlowTypesInternal
-                                    logisticSegment[count] = ls
-                                    goodsType[count] = nstr
-                                    toFirm[count] = 0
-                                    destZone[count] = nInternalZones + dest
-                                    destX[count] = superZoneX[dest]
-                                    destY[count] = superZoneY[dest]
+                            while allocatedWeight < totalWeight:
+                                flowType[count] = ft + 1 + nFlowTypesInternal
+                                logisticSegment[count] = ls
+                                goodsType[count] = nstr
+                                toFirm[count] = 0
+                                destZone[count] = nInternalZones + dest
+                                destX[count] = superZoneX[dest]
+                                destY[count] = superZoneY[dest]
 
-                                    if ls == id_parcel_consolidated:
-                                        cep = draw_choice_mcs(cepSharesTotal)
-                                        depot = draw_choice_mcs(cepDepotShares[cep])
-                                        fromFirm[count] = 0
-                                        origZone[count] = cepDepotZones[cep][depot]
-                                        origX[count] = cepDepotX[cep][depot]
-                                        origY[count] = cepDepotY[cep][depot]
-                                        fromDC = 1
+                                if ls == id_parcel_consolidated:
+                                    cep = draw_choice_mcs(cepSharesTotal, tmpSeedsSender[tmpShipmentNumber])
+                                    depot = draw_choice_mcs(cepDepotShares[cep], 2 * tmpSeedsSender[tmpShipmentNumber])
+                                    fromFirm[count] = 0
+                                    origZone[count] = cepDepotZones[cep][depot]
+                                    origX[count] = cepDepotX[cep][depot]
+                                    origY[count] = cepDepotY[cep][depot]
+                                    fromDC = 1
 
-                                    # From consumer
-                                    elif flowType[count] == 10:
-                                        prob = np.cumsum(probSend[:, nstr] * distanceDecay)
-                                        prob /= prob[-1]
-                                        fromFirm[count] = draw_choice_mcs(prob)
-                                        origZone[count] = firmZone[fromFirm[count]]
-                                        origX[count] = firmX[fromFirm[count]]
-                                        origY[count] = firmY[fromFirm[count]]
-                                        fromDC = 0
+                                # From consumer
+                                elif flowType[count] == 10:
+                                    prob = np.cumsum(probSend[:, nstr] * distanceDecay)
+                                    prob /= prob[-1]
+                                    fromFirm[count] = draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])
+                                    origZone[count] = firmZone[fromFirm[count]]
+                                    origX[count] = firmX[fromFirm[count]]
+                                    origY[count] = firmY[fromFirm[count]]
+                                    fromDC = 0
 
-                                    # From distribution center
-                                    elif flowType[count] == 11:
-                                        prob = np.cumsum(probDC * distanceDecay)
-                                        prob /= prob[-1]
-                                        fromFirm[count] = draw_choice_mcs(prob)
-                                        origZone[count] = dcZones[fromFirm[count]]
-                                        origX[count] = distributionCentersX[fromFirm[count]]
-                                        origY[count] = distributionCentersY[fromFirm[count]]
-                                        fromDC = 1
+                                # From distribution center
+                                elif flowType[count] == 11:
+                                    prob = np.cumsum(probDC * distanceDecay)
+                                    prob /= prob[-1]
+                                    fromFirm[count] = draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])
+                                    origZone[count] = dcZones[fromFirm[count]]
+                                    origX[count] = distributionCentersX[fromFirm[count]]
+                                    origY[count] = distributionCentersY[fromFirm[count]]
+                                    fromDC = 1
 
-                                    # From transshipment terminal
-                                    elif flowType[count] == 12:
-                                        prob = np.cumsum(probTT * distanceDecay)
-                                        prob /= prob[-1]
-                                        fromFirm[count] = ttZones[draw_choice_mcs(prob)]
-                                        origZone[count] = fromFirm[count]
-                                        origX[count] = zoneX[fromFirm[count]]
-                                        origY[count] = zoneY[fromFirm[count]]
-                                        fromDC = 0
+                                # From transshipment terminal
+                                elif flowType[count] == 12:
+                                    prob = np.cumsum(probTT * distanceDecay)
+                                    prob /= prob[-1]
+                                    fromFirm[count] = ttZones[draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])]
+                                    origZone[count] = fromFirm[count]
+                                    origX[count] = zoneX[fromFirm[count]]
+                                    origY[count] = zoneY[fromFirm[count]]
+                                    fromDC = 0
 
-                                    ssChosen, vtChosen = draw_vehicle_type_and_shipment_size(
-                                        paramsShipSizeVehType, nstr,
-                                        skimTravTime[(origZone[count]) * nZones + (destZone[count])] / 3600,
-                                        skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
-                                        fromDC, toDC,
-                                        costPerHour, costPerKm, truckCapacities,
-                                        nVT, absoluteShipmentSizes
-                                    )
+                                ssChosen, vtChosen = draw_vehicle_type_and_shipment_size(
+                                    paramsShipSizeVehType, nstr,
+                                    skimTravTime[(origZone[count]) * nZones + (destZone[count])] / 3600,
+                                    skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
+                                    fromDC, toDC,
+                                    costPerHour, costPerKm, truckCapacities,
+                                    nVT, absoluteShipmentSizes, tmpSeedsVehicleType[tmpShipmentNumber]
+                                )
 
-                                    shipmentSizeCat[count] = ssChosen
-                                    shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
-                                    vehicleType[count] = vtChosen
+                                shipmentSizeCat[count] = ssChosen
+                                shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
+                                vehicleType[count] = vtChosen
 
-                                    # Update weight and counter
-                                    allocatedWeight += shipmentSize[count]
-                                    allocatedWeightExport += shipmentSize[count]
-                                    count += 1
+                                # Update weight and counter
+                                allocatedWeight += shipmentSize[count]
+                                allocatedWeightExport += shipmentSize[count]
+                                count += 1
+                                tmpShipmentNumber += 1
 
-                                    if root is not None:
-                                        if count % 300 == 0:
-                                            root.progressBar['value'] = (
-                                                percStart +
-                                                (percEnd - percStart) *
-                                                (allocatedWeightExport/ totalWeightExport))
+                                if root is not None:
+                                    if count % 300 == 0:
+                                        root.progressBar['value'] = (
+                                            percStart +
+                                            (percEnd - percStart) *
+                                            (allocatedWeightExport/ totalWeightExport))
 
                 fromDC = 0
 
@@ -654,119 +679,125 @@ def actually_run_module(
                     for ft in range(nFlowTypesExternal)])
                 allocatedWeightImport  = 0
 
-                for ls in range(nLS):
+                for ls, nstr in product(range(nLS), range(nNSTR)):
 
-                    for nstr in range(nNSTR):
+                    if lsToNstr[nstr, ls] <= 0:
+                        continue
 
-                        if lsToNstr[nstr, ls] <= 0:
-                            continue
+                    logger.debug(f"\t\tFor logistic segment {ls} (NSTR{nstr})")
 
-                        logger.debug(f"\t\tFor logistic segment {ls} (NSTR{nstr})")
+                    if root is not None:
+                        root.update_statusbar(
+                            "Shipment Synthesizer: " +
+                            f"Synthesizing shipments entering study area (LS {ls}) and NSTR {nstr})")
 
-                        if root is not None:
-                            root.update_statusbar(
-                                "Shipment Synthesizer: " +
-                                f"Synthesizing shipments entering study area (LS {ls}) and NSTR {nstr})")
+                    for ft in range(nFlowTypesExternal):
 
-                        for ft in range(nFlowTypesExternal):
+                        for orig in range(nSuperZones):
+                            tmpShipmentNumber = 0
+                            allocatedWeight = 0
+                            totalWeight = demandImportByFT[ft][orig, ls] * lsToNstr[nstr, ls]
 
-                            for orig in range(nSuperZones):
-                                allocatedWeight = 0
-                                totalWeight = demandImportByFT[ft][orig, ls] * lsToNstr[nstr, ls]
+                            tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
+                            tmpSeedsReceiver = generate_shipment_seeds(
+                                seeds['shipment_import_receiver'], tmpMaxNumShipments, ls, nstr, ft, dest)
+                            tmpSeedsVehicleType = generate_shipment_seeds(
+                                seeds['shipment_import_vehicle_type'], tmpMaxNumShipments, ls, nstr, ft, dest)
 
-                                tmpCostTime = (
-                                    costPerHourSourcing *
-                                    skimTravTime[(nInternalZones + orig) * nZones + np.arange(nZones)] /
-                                    3600)
-                                tmpCostDist = (
-                                    costPerKmSourcing *
-                                    skimDistance[(nInternalZones + orig) * nZones + np.arange(nZones)] /
-                                    1000)
-                                tmpCost = tmpCostTime + tmpCostDist
+                            tmpCostTime = (
+                                costPerHourSourcing *
+                                skimTravTime[(nInternalZones + orig) * nZones + np.arange(nZones)] /
+                                3600)
+                            tmpCostDist = (
+                                costPerKmSourcing *
+                                skimDistance[(nInternalZones + orig) * nZones + np.arange(nZones)] /
+                                1000)
+                            tmpCost = tmpCostTime + tmpCostDist
 
-                                distanceDecay = 1 / (1 + np.exp(alpha + beta * np.log(tmpCost)))
+                            distanceDecay = 1 / (1 + np.exp(alpha + beta * np.log(tmpCost)))
 
-                                if ft + 1 + nFlowTypesInternal == 10:
-                                    distanceDecay = distanceDecay[firmZone]
-                                elif ft + 1 + nFlowTypesInternal == 11:
-                                    distanceDecay = distanceDecay[dcZones]
-                                elif ft + 1 + nFlowTypesInternal == 12:
-                                    distanceDecay = distanceDecay[ttZones]
+                            if ft + 1 + nFlowTypesInternal == 10:
+                                distanceDecay = distanceDecay[firmZone]
+                            elif ft + 1 + nFlowTypesInternal == 11:
+                                distanceDecay = distanceDecay[dcZones]
+                            elif ft + 1 + nFlowTypesInternal == 12:
+                                distanceDecay = distanceDecay[ttZones]
 
-                                distanceDecay /= np.sum(distanceDecay)
+                            distanceDecay /= np.sum(distanceDecay)
 
-                                while allocatedWeight < totalWeight:
-                                    flowType[count] = ft + 1 + nFlowTypesInternal
-                                    logisticSegment[count] = ls
-                                    goodsType[count] = nstr
-                                    fromFirm[count] = 0
-                                    origZone[count] = nInternalZones + orig
-                                    origX[count] = superZoneX[orig]
-                                    origY[count] = superZoneY[orig]
+                            while allocatedWeight < totalWeight:
+                                flowType[count] = ft + 1 + nFlowTypesInternal
+                                logisticSegment[count] = ls
+                                goodsType[count] = nstr
+                                fromFirm[count] = 0
+                                origZone[count] = nInternalZones + orig
+                                origX[count] = superZoneX[orig]
+                                origY[count] = superZoneY[orig]
 
-                                    if ls == id_parcel_consolidated:
-                                        cep = draw_choice_mcs(cepSharesTotal)
-                                        depot = draw_choice_mcs(cepDepotShares[cep])
-                                        toFirm[count] = 0
-                                        destZone[count] = cepDepotZones[cep][depot]
-                                        destX[count] = cepDepotX[cep][depot]
-                                        destY[count] = cepDepotY[cep][depot]
-                                        toDC = 1
+                                if ls == id_parcel_consolidated:
+                                    cep = draw_choice_mcs(cepSharesTotal, tmpSeedsReceiver[tmpShipmentNumber])
+                                    depot = draw_choice_mcs(cepDepotShares[cep], 2 * tmpSeedsReceiver[tmpShipmentNumber])
+                                    toFirm[count] = 0
+                                    destZone[count] = cepDepotZones[cep][depot]
+                                    destX[count] = cepDepotX[cep][depot]
+                                    destY[count] = cepDepotY[cep][depot]
+                                    toDC = 1
 
-                                    # To consumer
-                                    elif flowType[count] == 10:
-                                        prob = np.cumsum(probReceive[:, nstr] * distanceDecay)
-                                        prob /= prob[-1]
-                                        toFirm[count] = draw_choice_mcs(prob)
-                                        destZone[count] = firmZone[toFirm[count]]
-                                        destX[count] = firmX[toFirm[count]]
-                                        destY[count] = firmY[toFirm[count]]
-                                        toDC = 0
+                                # To consumer
+                                elif flowType[count] == 10:
+                                    prob = np.cumsum(probReceive[:, nstr] * distanceDecay)
+                                    prob /= prob[-1]
+                                    toFirm[count] = draw_choice_mcs(prob, tmpSeedsReceiver[tmpShipmentNumber])
+                                    destZone[count] = firmZone[toFirm[count]]
+                                    destX[count] = firmX[toFirm[count]]
+                                    destY[count] = firmY[toFirm[count]]
+                                    toDC = 0
 
-                                    # To distribution center
-                                    elif flowType[count] == 11:
-                                        prob = np.cumsum(probDC * distanceDecay)
-                                        prob /= prob[-1]
-                                        toFirm[count] = draw_choice_mcs(prob)
-                                        destZone[count] = dcZones[toFirm[count]]
-                                        destX[count] = distributionCentersX[toFirm[count]]
-                                        destY[count] = distributionCentersY[toFirm[count]]
-                                        toDC = 1
+                                # To distribution center
+                                elif flowType[count] == 11:
+                                    prob = np.cumsum(probDC * distanceDecay)
+                                    prob /= prob[-1]
+                                    toFirm[count] = draw_choice_mcs(prob, tmpSeedsReceiver[tmpShipmentNumber])
+                                    destZone[count] = dcZones[toFirm[count]]
+                                    destX[count] = distributionCentersX[toFirm[count]]
+                                    destY[count] = distributionCentersY[toFirm[count]]
+                                    toDC = 1
 
-                                    # To transshipment terminal
-                                    elif flowType[count] == 12:
-                                        prob = np.cumsum(probTT * distanceDecay)
-                                        prob /= prob[-1]
-                                        toFirm[count] = ttZones[draw_choice_mcs(prob)]
-                                        destZone[count] = toFirm[count]
-                                        destX[count] = zoneX[toFirm[count]]
-                                        destY[count] = zoneY[toFirm[count]]
-                                        toDC = 0
+                                # To transshipment terminal
+                                elif flowType[count] == 12:
+                                    prob = np.cumsum(probTT * distanceDecay)
+                                    prob /= prob[-1]
+                                    toFirm[count] = ttZones[draw_choice_mcs(prob, tmpSeedsReceiver[tmpShipmentNumber])]
+                                    destZone[count] = toFirm[count]
+                                    destX[count] = zoneX[toFirm[count]]
+                                    destY[count] = zoneY[toFirm[count]]
+                                    toDC = 0
 
-                                    ssChosen, vtChosen = draw_vehicle_type_and_shipment_size(
-                                        paramsShipSizeVehType, nstr,
-                                        skimTravTime[(origZone[count]) * nZones + (destZone[count])] / 3600,
-                                        skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
-                                        fromDC, toDC,
-                                        costPerHour, costPerKm, truckCapacities,
-                                        nVT, absoluteShipmentSizes
-                                    )
+                                ssChosen, vtChosen = draw_vehicle_type_and_shipment_size(
+                                    paramsShipSizeVehType, nstr,
+                                    skimTravTime[(origZone[count]) * nZones + (destZone[count])] / 3600,
+                                    skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
+                                    fromDC, toDC,
+                                    costPerHour, costPerKm, truckCapacities,
+                                    nVT, absoluteShipmentSizes, tmpSeedsVehicleType[tmpShipmentNumber]
+                                )
 
-                                    shipmentSizeCat[count] = ssChosen
-                                    shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
-                                    vehicleType[count] = vtChosen
+                                shipmentSizeCat[count] = ssChosen
+                                shipmentSize[count] = min(absoluteShipmentSizes[ssChosen], totalWeight - allocatedWeight)
+                                vehicleType[count] = vtChosen
 
-                                    # Update weight and counter
-                                    allocatedWeight += shipmentSize[count]
-                                    allocatedWeightImport += shipmentSize[count]
-                                    count += 1
+                                # Update weight and counter
+                                allocatedWeight += shipmentSize[count]
+                                allocatedWeightImport += shipmentSize[count]
+                                count += 1
+                                tmpShipmentNumber += 1
 
-                                    if root is not None:
-                                        if count % 300 == 0:
-                                            root.progressBar['value'] = (
-                                                percStart +
-                                                (percEnd - percStart) *
-                                                (allocatedWeightImport / totalWeightImport))
+                                if root is not None:
+                                    if count % 300 == 0:
+                                        root.progressBar['value'] = (
+                                            percStart +
+                                            (percEnd - percStart) *
+                                            (allocatedWeightImport / totalWeightImport))
 
             if varDict['CORRECTIONS_TONNES'] != '':
                 logger.debug("\tSynthesizing additional shipments (corrections)...")
@@ -798,8 +829,17 @@ def actually_run_module(
                         if lsToNstr[nstr, ls] <= 0:
                             continue
 
+                        tmpShipmentNumber = 0
                         totalWeight = float(corrections.at[cor, 'tonnes_day']) * lsToNstr[nstr, ls]
                         allocatedWeight = 0
+
+                        tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
+                        tmpSeedsReceiver = generate_shipment_seeds(
+                            seeds['shipment_corrections_receiver'], tmpMaxNumShipments, ls, nstr, cor)
+                        tmpSeedsSender = generate_shipment_seeds(
+                            seeds['shipment_corrections_sender'], tmpMaxNumShipments, ls, nstr, cor)
+                        tmpSeedsVehicleType = generate_shipment_seeds(
+                            seeds['shipment_corrections_vehicle_type'], tmpMaxNumShipments, ls, nstr, cor)
 
                         # While the weight of all synthesized shipments for this segment so far
                         # does not exceed the total weight for this segment
@@ -810,7 +850,7 @@ def actually_run_module(
 
                             # Determine receiving firm
                             if dest == -1:
-                                toFirm[count] = draw_choice_mcs(cumProbReceive[:, nstr])
+                                toFirm[count] = draw_choice_mcs(cumProbReceive[:, nstr], tmpSeedsReceiver[tmpShipmentNumber])
                                 destZone[count] = firmZone[toFirm[count]]
                                 destX[count] = firmX[toFirm[count]]
                                 destY[count] = firmY[toFirm[count]]
@@ -840,7 +880,7 @@ def actually_run_module(
                                 prob *= distanceDecay
                                 prob = np.cumsum(prob)
                                 prob /= prob[-1]
-                                fromFirm[count] = draw_choice_mcs(prob)
+                                fromFirm[count] = draw_choice_mcs(prob, tmpSeedsSender[tmpShipmentNumber])
                                 origZone[count] = firmZone[fromFirm[count]]
                                 origX[count] = firmX[fromFirm[count]]
                                 origY[count] = firmY[fromFirm[count]]
@@ -858,7 +898,7 @@ def actually_run_module(
                                 skimDistance[(origZone[count]) * nZones + (destZone[count])] / 1000,
                                 fromDC, toDC,
                                 costPerHour, costPerKm, truckCapacities,
-                                nVT, absoluteShipmentSizes
+                                nVT, absoluteShipmentSizes, tmpSeedsVehicleType[tmpShipmentNumber]
                             )
 
                             shipmentSizeCat[count] = ssChosen
@@ -868,6 +908,7 @@ def actually_run_module(
                             # Update weight and counter
                             allocatedWeight += shipmentSize[count]
                             count += 1
+                            tmpShipmentNumber += 1
 
                     if root is not None:
                         root.progressBar['value'] = (
@@ -887,7 +928,7 @@ def actually_run_module(
             # Determine delivery time period for each shipment
             deliveryTimePeriod, lowerTOD, upperTOD = draw_delivery_times(
                 origZone, destZone, logisticSegment, vehicleType, isTT, isPC,
-                urbanDensityCat, zoneDict, nLS, varDict, dims,
+                urbanDensityCat, zoneDict, nLS, varDict, dims, seeds['shipment_delivery_time'],
             )
 
             # --------------------- Creating shipments CSV --------------------
@@ -1006,7 +1047,7 @@ def actually_run_module(
 
                 ls = int(shipments['LS'][i])
 
-                if probConsolidation[ls] <= np.random.rand():
+                if draw_choice_mcs(cumProbsConsolidation[ls], seeds['shipment_zez_consolidation'] + i) == 0:
                     continue
 
                 trueOrigin = int(shipments['ORIG'][i])
@@ -1025,7 +1066,8 @@ def actually_run_module(
                 newShipments.at[count,'DEST'    ] = newOrigin
                 newShipments.at[count,'FROM_UCC'] = 0
                 newShipments.at[count,'TO_UCC'  ] = 1
-                newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(cumSharesVehUCC[ls])
+                newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(
+                    cumSharesVehUCC[ls], seeds['shipment_zez_vehicle_type'] + i)
 
                 if varDict['SHIPMENTS_REF'] == "":
                     origX[nShips+count] = zoneX[invZoneDict[trueOrigin]]
@@ -1042,7 +1084,7 @@ def actually_run_module(
 
                 ls = int(shipments['LS'][i])
 
-                if probConsolidation[ls] <= np.random.rand():
+                if draw_choice_mcs(cumProbsConsolidation[ls], seeds['shipment_zez_consolidation'] + i) == 0:
                     continue
 
                 trueDest = int(shipments['DEST'][i])
@@ -1061,7 +1103,8 @@ def actually_run_module(
                 newShipments.at[count,'DEST'    ] = trueDest
                 newShipments.at[count,'FROM_UCC'] = 1
                 newShipments.at[count,'TO_UCC'  ] = 0
-                newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(cumSharesVehUCC[ls])
+                newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(
+                    cumSharesVehUCC[ls], seeds['shipment_zez_vehicle_type'] + i)
 
                 if varDict['SHIPMENTS_REF'] == "":
                     origX[nShips+count] = zoneX[invZoneDict[newDest]]
@@ -1084,11 +1127,12 @@ def actually_run_module(
                 gemeenteDest = zonesShape['Gemeentena'][shipments['DEST'][i]]
                 if gemeenteOrig == gemeenteDest:
                     if ls != id_dangerous:
-                        shipments.at[i,'VEHTYPE'] = draw_choice_mcs(cumSharesVehUCC[ls])
+                        shipments.at[i,'VEHTYPE'] = draw_choice_mcs(
+                            cumSharesVehUCC[ls], seeds['shipment_zez_vehicle_type'] + i)
 
                 # Als het van de ene ZEZ naar de andere ZEZ gaat,
                 # maken we 3 legs: ZEZ1--> UCC1, UCC1-->UCC2, UCC2-->ZEZ2
-                elif probConsolidation[ls] > np.random.rand():
+                elif draw_choice_mcs(cumProbsConsolidation[ls], seeds['shipment_zez_consolidation'] + i) == 1:
                     trueOrigin = int(shipments['ORIG'][i])
                     trueDest   = int(shipments['DEST'][i])
                     newOrigin  = zonesShape['UCC_zone'][trueOrigin]
@@ -1107,7 +1151,8 @@ def actually_run_module(
                     newShipments.at[count,'DEST'    ] = newOrigin
                     newShipments.at[count,'FROM_UCC'] = 0
                     newShipments.at[count,'TO_UCC'  ] = 1
-                    newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(cumSharesVehUCC[ls])
+                    newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(
+                        cumSharesVehUCC[ls], seeds['shipment_zez_vehicle_type'] + i)
                     if varDict['SHIPMENTS_REF'] == "":
                         origX[nShips + count] = zoneX[invZoneDict[trueOrigin]]
                         origY[nShips + count] = zoneY[invZoneDict[trueOrigin]]
@@ -1129,7 +1174,8 @@ def actually_run_module(
                     newShipments.at[count,'DEST'    ] = trueDest
                     newShipments.at[count,'FROM_UCC'] = 1
                     newShipments.at[count,'TO_UCC'  ] = 0
-                    newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(cumSharesVehUCC[ls])
+                    newShipments.at[count,'VEHTYPE' ] = draw_choice_mcs(
+                        cumSharesVehUCC[ls], 2 * seeds['shipment_zez_vehicle_type'] + i)
                     if varDict['SHIPMENTS_REF'] == "":
                         origX[nShips+count] = zoneX[invZoneDict[newDest]]
                         origY[nShips+count] = zoneY[invZoneDict[newDest]]

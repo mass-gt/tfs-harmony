@@ -10,9 +10,11 @@ import traceback
 from typing import Any, Dict
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_num_cpu, get_skims
+from calculation.common.io import read_shape, get_num_cpu, get_seeds, get_skims
 from calculation.common.vrt import draw_choice_mcs
-from .support_tour import form_tours, get_traveltime, max_nstr, sum_weight, get_cum_shares_comb_ucc
+from .support_tour import (
+    assign_shipments_to_carriers, form_tours,
+    get_traveltime, max_nstr, sum_weight, get_cum_shares_comb_ucc)
 
 logger = logging.getLogger("tfs")
 
@@ -41,12 +43,6 @@ def actually_run_module(
 
         nCPU = get_num_cpu(varDict, 8)
 
-        # Carrying capacity for each vehicle type
-        carryingCapacity = dict(
-            (int(row['vehicle_type']), float(row['capacity_kg']))
-            for row in pd.read_csv(varDict['VEHICLE_CAPACITY'], sep='\t').to_dict('records')
-        )
-
         # The number of carriers that transport the shipments not going to or from a DC
         nCarriersNonDC = 100
 
@@ -60,6 +56,14 @@ def actually_run_module(
             root.progressBar['value'] = 0.1
 
         logger.debug("\tImporting shipments and zones...")
+
+        seeds = get_seeds(varDict)
+
+        # Carrying capacity for each vehicle type
+        carryingCapacity = dict(
+            (int(row['vehicle_type']), float(row['capacity_kg']))
+            for row in pd.read_csv(varDict['VEHICLE_CAPACITY'], sep='\t').to_dict('records')
+        )
 
         # Import zones
         zones = read_shape(varDict['ZONES'])
@@ -161,28 +165,8 @@ def actually_run_module(
             (zones[shipments['ORIG'] - 1][:, 4]) |
             (zones[shipments['DEST'] - 1][:, 4]))
 
-        # Determine the carrier ID for each shipment
-        # Shipments are first grouped by DC
-        # (one carrier per DC assumed, carrierID = 0 to nDC)
-        shipments['CARRIER'] = 0
-        whereLoadDC = shipments['SEND_DC'] != -99999
-        whereUnloadDC = shipments['RECEIVE_DC'] != -99999
-
-        # Shipments not loaded or unloaded at DC are randomly assigned
-        # to the other carriers, carrierID = nDC to nDC + nCarriersNonDC]
-        whereBothDC = (whereLoadDC) & (whereUnloadDC)
-        whereNoDC = ~(whereLoadDC) & ~(whereUnloadDC)
-
-        shipments.loc[whereLoadDC, 'CARRIER'] = (
-            shipments['SEND_DC'][whereLoadDC])
-        shipments.loc[whereUnloadDC, 'CARRIER'] = (
-            shipments['RECEIVE_DC'][whereUnloadDC])
-        shipments.loc[whereBothDC, 'CARRIER'] = [
-            [shipments['SEND_DC'][i], shipments['RECEIVE_DC'][i]][
-                np.random.randint(0, 2)]
-            for i in shipments.loc[whereBothDC, :].index]
-        shipments.loc[whereNoDC, 'CARRIER'] = (
-            nDC + np.random.randint(0, nCarriersNonDC, np.sum(whereNoDC)))
+        # Which carrier transports which shipments, keep track of field 'CARRIER' in shipments
+        shipments = assign_shipments_to_carriers(shipments, nDC, nCarriersNonDC, seeds['tour_carrier_allocation'])
 
         if root is not None:
             root.progressBar['value'] = 2.0
@@ -335,7 +319,8 @@ def actually_run_module(
                 nTOD,
                 nNSTR,
                 logitParams_ETfirst,
-                logitParams_ETlater
+                logitParams_ETlater,
+                seeds['tour_formation'],
             ), chunks)
 
         if root is not None:
@@ -505,6 +490,7 @@ def actually_run_module(
                         nZones)
                     
                     # Time spent at the destination of the current trip
+                    np.random.seed(seeds['tour_departure_time'] + 10000 * car + tour)
                     dwellTime = avgDwellTime * 2 * np.random.rand()
 
                     # Arrival time at the destination of the current trip
@@ -567,9 +553,11 @@ def actually_run_module(
                     ls = shipments[tours[car][tour][0], 10]
                     vt = shipments[tours[car][tour][0], 4]
 
+                    tmpSeed = seeds['tour_zez_combustion'] + 10000 * car + tour
+
                     # Combustion type for tours from/to UCCs
                     if car >= nDC + nCarriersNonDC:
-                        combTypeTour[car][tour] = draw_choice_mcs(cumProbCombustion[(ls, vt)])
+                        combTypeTour[car][tour] = draw_choice_mcs(cumProbCombustion[(ls, vt)], tmpSeed)
 
                     else:
                         inZEZ = [
@@ -579,7 +567,7 @@ def actually_run_module(
 
                         # Combustion type for tours within ZEZ (but not from/to UCCs)
                         if np.all(inZEZ):
-                            combTypeTour[car][tour] = draw_choice_mcs(cumProbCombustion[(ls, vt)])
+                            combTypeTour[car][tour] = draw_choice_mcs(cumProbCombustion[(ls, vt)], tmpSeed)
 
                         # Hybrids for tours directly entering/leaving the ZEZ
                         elif np.any(inZEZ):
@@ -597,6 +585,8 @@ def actually_run_module(
 
         # Unless the shift-to-electric or shift-to-hydrogen
         # parameter is set (SHIFT_FREIGHT_TO_COMB1 or _COMB2)
+        np.random.seed(seeds['tour_shift_combustion'])
+
         if doShiftToElectric or doShiftToHydrogen:
             for car in range(nCarriers):
                 for tour in range(nTours[car]):

@@ -15,7 +15,7 @@ def draw_choice_mcs(
     '''
     if seed is not None:
         np.random.seed(seed)
-        np.random.seed(np.random.randint(1000000))
+        np.random.seed(np.random.randint(10000000))
 
     num_alt: int = len(cum_probs)
 

@@ -30,6 +30,39 @@ def get_cum_shares_comb_ucc(varDict: Dict[str, str], dims: ModelDimensions) -> D
     return cumProbCombustion
 
 
+def assign_shipments_to_carriers(
+    shipments: pd.DataFrame,
+    nDC: int,
+    nCarriersNonDC: int,
+    seed: int
+) -> pd.DataFrame:
+    """Fills the field 'CARRIER' for the shipments DataFrame."""
+    # Determine the carrier ID for each shipment
+    # Shipments are first grouped by DC (one carrier per DC assumed, carrierID = 0 to nDC)
+    shipments['CARRIER'] = 0
+    whereLoadDC = shipments['SEND_DC'] != -99999
+    whereUnloadDC = shipments['RECEIVE_DC'] != -99999
+
+    # Shipments not loaded or unloaded at DC are randomly assigned
+    # to the other carriers, carrierID = nDC to nDC + nCarriersNonDC]
+    whereBothDC = (whereLoadDC) & (whereUnloadDC)
+    whereNoDC = ~(whereLoadDC) & ~(whereUnloadDC)
+
+    np.random.seed(seed)
+
+    shipments.loc[whereLoadDC, 'CARRIER'] = (
+        shipments['SEND_DC'][whereLoadDC])
+    shipments.loc[whereUnloadDC, 'CARRIER'] = (
+        shipments['RECEIVE_DC'][whereUnloadDC])
+    shipments.loc[whereBothDC, 'CARRIER'] = [
+        [shipments['SEND_DC'][i], shipments['RECEIVE_DC'][i]][np.random.randint(0, 2)]
+        for i in shipments.loc[whereBothDC, :].index]
+    shipments.loc[whereNoDC, 'CARRIER'] = (
+        nDC + np.random.randint(0, nCarriersNonDC, np.sum(whereNoDC)))
+    
+    return shipments
+
+
 def get_traveltime(orig, dest, skim, nZones):
     '''
     Obtain the travel time [h] for orig to a destination zone.
@@ -568,7 +601,8 @@ def form_tours(
     carryingCapacity, dcZones,
     nShipmentsPerCarrier, nCarriers, nTOD, nNSTR,
     logitParams_ETfirst, logitParams_ETlater,
-    cars
+    seed,
+    cars,
 ):
     '''
     Run the tour formation procedure for a set of carriers with a set of shipments.
@@ -577,8 +611,10 @@ def form_tours(
     tourSequences = [[] for car in range(nCarriers)]
 
     for car in cars:
-
         print(f'\tForming tours for carrier {car+1} of {nCarriers}...', end='\r')
+
+        np.random.seed(seed + car)
+        np.random.seed(np.random.randint(10000000))
 
         tourCount = 0
 

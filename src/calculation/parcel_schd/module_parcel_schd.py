@@ -5,7 +5,7 @@ import sys
 import traceback
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_mtx, read_shape, get_skims
+from calculation.common.io import read_mtx, read_shape, get_seeds, get_skims
 from .support_parcel_schd import (
     cluster_parcels, create_schedules, do_crowdshipping,
     write_schedules_to_geojson, export_trip_matrices)
@@ -36,6 +36,8 @@ def actually_run_module(
         # ------------------------- Import data--------------------------------
 
         logger.debug("\tImporting data...")
+
+        seeds = get_seeds(varDict)
 
         parcels = pd.read_csv(
             f"{varDict['OUTPUTFOLDER']}ParcelDemand_{varDict['LABEL']}.csv", sep=',')
@@ -158,6 +160,7 @@ def actually_run_module(
                 nFirstZonesCS, parcelShareCRW, modes,
                 zone_gemeente_dict, segsDetail,
                 varDict['OUTPUTFOLDER'], varDict['LABEL'],
+                seeds['parcel_crowdshipping'],
                 root)
 
         # -------------------- Forming spatial clusters of parcels ------------
@@ -304,6 +307,7 @@ def actually_run_module(
                 parcelNodesCEP,
                 parcelDepTime,
                 tourType,
+                seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
             # Depots to UCCs
@@ -319,6 +323,7 @@ def actually_run_module(
                 parcelNodesCEP,
                 parcelDepTime,
                 tourType,
+                seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
             # Depots to UCCs (van)
@@ -334,6 +339,7 @@ def actually_run_module(
                 parcelNodesCEP,
                 parcelDepTime,
                 tourType,
+                seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
             # Depots to UCCs (LEVV)
@@ -349,6 +355,7 @@ def actually_run_module(
                 parcelNodesCEP,
                 parcelDepTime,
                 tourType,
+                seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
             # Combine deliveries of all tour types
@@ -372,6 +379,7 @@ def actually_run_module(
                 parcelNodesCEP,
                 parcelDepTime,
                 tourType,
+                seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
         # ---------------- Export output table to CSV and SHP -----------------

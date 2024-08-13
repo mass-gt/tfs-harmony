@@ -46,6 +46,7 @@ variables = [
     "FAC_LS4", "FAC_LS5", "FAC_LS6", "FAC_LS7",
     "SHIFT_FREIGHT_TO_COMB1", "SHIFT_VAN_TO_COMB1",
     "SHIFT_FREIGHT_TO_COMB2",
+    "SEEDS",
     "LABEL",
     "MODULES"]
 
@@ -105,7 +106,8 @@ files = [
     "SHIPMENTS_REF", "FIRMS_REF",
     "CORRECTIONS_TONNES",
     "CRW_MODEPARAMS", "CRW_PDEMAND_CAR", "CRW_PDEMAND_BIKE",
-    "MICROHUBS", "VEHICLETYPES"]
+    "MICROHUBS", "VEHICLETYPES",
+    "SEEDS"]
 
 # Variables that became obsolete due to changes in the modules.
 # Keep these in here to prevent errors on older ini files with these

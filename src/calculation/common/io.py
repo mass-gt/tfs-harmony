@@ -145,3 +145,11 @@ def get_num_cpu(varDict: Dict[str, str], maxCPU: int) -> int:
         nCPU = max(1, min(mp.cpu_count() - 1, maxCPU))
 
     return nCPU
+
+
+def get_seeds(varDict: Dict[str, str]) -> Dict[str, int]:
+    """Reads the file with random seeds."""
+    return dict(
+        (str(row['step']), int(row['seed']))
+        for row in pd.read_csv(varDict['SEEDS'], sep='\t').to_dict('records')
+    )

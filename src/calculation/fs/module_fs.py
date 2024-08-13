@@ -7,7 +7,7 @@ import traceback
 from typing import Any, Dict
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape
+from calculation.common.io import read_shape, get_seeds
 from calculation.common.vrt import draw_choice_mcs
 from .support_fs import validation_checks, add_firm_coordinates, get_shapely_zones, read_segs
 
@@ -32,6 +32,8 @@ def actually_run_module(
         logger.debug('\tImporting data...')
         if root is not None:
             root.update_statusbar('Importing data...')
+
+        seeds = get_seeds(varDict)
 
         # Shapefile of study area
         zones, zonesGeometry = read_shape(varDict['ZONES'], returnGeometry=True)
@@ -106,10 +108,13 @@ def actually_run_module(
                 sector_label = dims.employment_sector[sector]['Comment']
 
                 jobs_to_assign = float(segs.loc[zone][sector_label])
+                tmp_id = 0
 
                 while jobs_to_assign > 0:
+                    firm_seed = seeds['firm_size'] + zone * 1000 + sector * 100 + tmp_id
+
                     # Draw a firm for current sector
-                    firm_size = draw_choice_mcs(firmSizePerSectorCumProb[sector])
+                    firm_size = draw_choice_mcs(firmSizePerSectorCumProb[sector], firm_seed)
 
                     # Determine size of the firm.
                     # If we draw a firm from the largest category,
@@ -118,12 +123,16 @@ def actually_run_module(
                         low = firmSizeMapping[firm_size][0]
                         mode = max(low, 0.5 * jobs_to_assign)
                         right = max(150, 1.5 * jobs_to_assign)
+
+                        np.random.seed(firm_size)
                         size = int(round(np.random.triangular(low, mode, right, size=1)[0]))
 
                     # If the firm is from a closed size category,
                     # draw size from uniform distribution
                     else:
                         low, high = firmSizeMapping[firm_size]
+
+                        np.random.seed(firm_size)
                         size = np.random.randint(low, high)
 
                     # Check if size fits in zone.
@@ -137,6 +146,7 @@ def actually_run_module(
                     zoneEmpl.append(assigned_jobs)
 
                     jobs_to_assign -= size
+                    tmp_id += 1
 
             if (zone - 1) % int((maxZoneNumberZH - 1) / 100) == 0:
                 print('\t' + str(round((zone - 1) / (maxZoneNumberZH - 1) * 100, 1)) + '%', end='\r')
@@ -183,7 +193,7 @@ def actually_run_module(
         zoneDict = {int(a): int(b) for a, b in zoneDict.items()}
         invZoneDict = dict((v, k) for k, v in zoneDict.items())
 
-        firms_df = add_firm_coordinates(firms_df, shapelyZones, invZoneDict, root)
+        firms_df = add_firm_coordinates(firms_df, shapelyZones, invZoneDict, seeds, root)
 
         # ---------------------- Export firms to CSV  -------------------------
 
