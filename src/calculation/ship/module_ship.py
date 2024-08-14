@@ -58,6 +58,8 @@ def actually_run_module(
 
         seeds = get_seeds(varDict)
 
+        dayToWeekFactor = float(varDict["DAY_TO_WEEK_FACTOR"]) if varDict["DAY_TO_WEEK_FACTOR"] != "" else 1.0
+
         # Distance decay parameters
         alpha, beta = get_coeffs_distance_decay(varDict)
 
@@ -351,7 +353,7 @@ def actually_run_module(
                 root.progressBar['value'] = percStart
 
             # For progress bar
-            totalWeightInternal = np.sum([
+            totalWeightInternal = dayToWeekFactor * np.sum([
                 np.sum(demandInternalByFT[ft])
                 for ft in range(nFlowTypesInternal)])
             allocatedWeightInternal = 0
@@ -372,7 +374,7 @@ def actually_run_module(
                 for ft in range(nFlowTypesInternal):
                     tmpShipmentNumber = 0
                     allocatedWeight = 0
-                    totalWeight = demandInternalByFT[ft][ls] * lsToNstr[nstr, ls]
+                    totalWeight = dayToWeekFactor * demandInternalByFT[ft][ls] * lsToNstr[nstr, ls]
 
                     tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
                     tmpSeedsReceiver = generate_shipment_seeds(
@@ -539,7 +541,7 @@ def actually_run_module(
                     root.progressBar['value'] = percStart
 
                 # For progress bar
-                totalWeightExport = np.sum([
+                totalWeightExport = dayToWeekFactor * np.sum([
                     np.sum(np.sum(demandExportByFT[ft]))
                     for ft in range(nFlowTypesExternal)])
                 allocatedWeightExport = 0
@@ -561,7 +563,7 @@ def actually_run_module(
                         for dest in range(nSuperZones):
                             tmpShipmentNumber = 0
                             allocatedWeight = 0
-                            totalWeight = demandExportByFT[ft][dest, ls] * lsToNstr[nstr, ls]
+                            totalWeight = dayToWeekFactor * demandExportByFT[ft][dest, ls] * lsToNstr[nstr, ls]
 
                             tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
                             tmpSeedsSender = generate_shipment_seeds(
@@ -674,7 +676,7 @@ def actually_run_module(
                     root.update_statusbar(
                         "Shipment Synthesizer: Synthesizing shipments entering study area")
 
-                totalWeightImport = np.sum([
+                totalWeightImport = dayToWeekFactor * np.sum([
                     np.sum(np.sum(demandImportByFT[ft]))
                     for ft in range(nFlowTypesExternal)])
                 allocatedWeightImport  = 0
@@ -696,7 +698,7 @@ def actually_run_module(
                         for orig in range(nSuperZones):
                             tmpShipmentNumber = 0
                             allocatedWeight = 0
-                            totalWeight = demandImportByFT[ft][orig, ls] * lsToNstr[nstr, ls]
+                            totalWeight = dayToWeekFactor * demandImportByFT[ft][orig, ls] * lsToNstr[nstr, ls]
 
                             tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))
                             tmpSeedsReceiver = generate_shipment_seeds(
@@ -830,7 +832,7 @@ def actually_run_module(
                             continue
 
                         tmpShipmentNumber = 0
-                        totalWeight = float(corrections.at[cor, 'tonnes_day']) * lsToNstr[nstr, ls]
+                        totalWeight = dayToWeekFactor * float(corrections.at[cor, 'tonnes_day']) * lsToNstr[nstr, ls]
                         allocatedWeight = 0
 
                         tmpMaxNumShipments = int(np.ceil(totalWeight / min(absoluteShipmentSizes)))

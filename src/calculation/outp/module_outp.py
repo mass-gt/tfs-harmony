@@ -60,6 +60,8 @@ def actually_run_module(
         nCombType = len(dims.combustion_type)
         nShipSize = len(dims.shipment_size)
 
+        dayToWeekFactor = float(varDict["DAY_TO_WEEK_FACTOR"]) if varDict["DAY_TO_WEEK_FACTOR"] != "" else 1.0
+
         if root is not None:
             root.progressBar['value'] = 0.1
 
@@ -226,9 +228,7 @@ def actually_run_module(
             shipments.loc[
                 (shipments['WEIGHT'] >= lowerSize) & (shipments['WEIGHT'] < upperSize),
                 'WEIGHT_LEVELS'] = i
-        shipmentSizeHist = np.unique(
-            shipments['WEIGHT_LEVELS'],
-            return_counts=True)
+        shipmentSizeHist = np.unique(shipments['WEIGHT_LEVELS'], return_counts=True)[1] / dayToWeekFactor
         shipmentSizeLabels = np.array([row['Comment'] for row in dims.shipment_size.values()], dtype=str)
 
         outfile.write('Shipment size; actual weight (freight)' + sep + '\n')
@@ -237,20 +237,17 @@ def actually_run_module(
         for i in range(nShipSize):
             outfile.write(
                 sep + shipmentSizeLabels[i] +
-                sep + str(shipmentSizeHist[1][i]) + '\n')
+                sep + str(shipmentSizeHist[i]) + '\n')
 
         # Chosen shipment size category
-        shipmentSizeHist = np.unique(
-            shipments['WEIGHT_CAT'],
-            return_counts=True)
-        outfile.write(
-            '\nShipment size; chosen weight class (freight)' + sep + '\n')
+        shipmentSizeHist = np.unique(shipments['WEIGHT_CAT'], return_counts=True)[1] / dayToWeekFactor
+        outfile.write('\nShipment size; chosen weight class (freight)' + sep + '\n')
         outfile.write(sep + 'Weight (tonnes)' + sep + 'Number of shipments\n')
 
         for i in range(nShipSize):
             outfile.write(
                 sep + shipmentSizeLabels[i] +
-                sep + str(shipmentSizeHist[1][i]) + '\n')
+                sep + str(shipmentSizeHist[i]) + '\n')
 
         # Chosen vehicle type per shipment
         nShipsVeh = np.zeros(nVT)
@@ -259,7 +256,7 @@ def actually_run_module(
         outfile.write(sep + 'Vehicle type' + sep + 'Number of shipments\n')
 
         for veh in range(nVT):
-            nShipsVeh[veh] = len(shipments[shipments['VEHTYPE'] == veh])
+            nShipsVeh[veh] = len(shipments[shipments['VEHTYPE'] == veh]) / dayToWeekFactor
             outfile.write(
                 sep + vtNames[veh] +
                 sep + str(nShipsVeh[veh]) + '\n')
@@ -271,7 +268,7 @@ def actually_run_module(
         outfile.write(sep + 'LS' + sep + 'Number of shipments\n')
 
         for ls in range(nLS - 1):
-            nShipsLS[ls] = len(shipments[shipments['LS'] == ls])
+            nShipsLS[ls] = len(shipments[shipments['LS'] == ls]) / dayToWeekFactor
             outfile.write(sep + lsNames[ls] + sep + str(nShipsLS[ls]) + '\n')
         outfile.write(sep + lsNames[nLS - 1] + sep + str(len(parcels)) + '\n')
 
@@ -289,7 +286,7 @@ def actually_run_module(
         outfile.write(sep + 'LS' + sep + 'Number of shipments\n')
 
         for ls in range(nLS - 1):
-            nShipsLS[ls] = len(ZEZshipments[ZEZshipments['LS'] == ls])
+            nShipsLS[ls] = len(ZEZshipments[ZEZshipments['LS'] == ls]) / dayToWeekFactor
             outfile.write(sep + lsNames[ls] + sep + str(nShipsLS[ls]) + '\n')
         outfile.write(sep + lsNames[nLS - 1] + sep + str(len(ZEZparcels)) + '\n')
         
@@ -301,10 +298,10 @@ def actually_run_module(
         logger.debug("\t\tTrips")
 
         # Number of trips by direction
-        nTripsTotal = trips.shape[0]
-        nTripsLeaving = trips[trips['DEST'] > 99999900].shape[0]
-        nTripsEntering = trips[trips['ORIG'] > 99999900].shape[0]
-        nTripsIntra = nTripsTotal - nTripsLeaving - nTripsEntering
+        nTripsTotal = trips.shape[0] / dayToWeekFactor
+        nTripsLeaving = trips[trips['DEST'] > 99999900].shape[0] / dayToWeekFactor
+        nTripsEntering = trips[trips['ORIG'] > 99999900].shape[0] / dayToWeekFactor
+        nTripsIntra = (nTripsTotal - nTripsLeaving - nTripsEntering)
 
         outfile.write('\nNumber of trips (freight; by direction)' + sep + '\n')
         outfile.write(sep + 'Direction'             + sep + 'Number of trips'   + '\n')
@@ -317,10 +314,7 @@ def actually_run_module(
         nParcelTripsTotal = parcelTrips.shape[0]
         nParcelTripsLeaving = parcelTrips[parcelTrips['DEST'] > 99999900].shape[0]
         nParcelTripsEntering = parcelTrips[parcelTrips['ORIG'] > 99999900].shape[0]
-        nParcelTripsIntra = (
-            nParcelTripsTotal -
-            nParcelTripsLeaving -
-            nParcelTripsEntering)
+        nParcelTripsIntra = (nParcelTripsTotal - nParcelTripsLeaving - nParcelTripsEntering)
 
         outfile.write('\nNumber of trips (parcel; by direction)' + sep + '\n')
         outfile.write(sep + 'Direction'             + sep + 'Number of trips'         + '\n')
@@ -340,9 +334,7 @@ def actually_run_module(
         for ls in range(nLS - 1):
             outfile.write(sep + lsNames[ls])
             for nstr in range(-1, nNSTR):
-                value = np.sum(
-                    (trips['LS'] == ls) &
-                    (trips['NSTR'] == nstr))
+                value = np.sum((trips['LS'] == ls) & (trips['NSTR'] == nstr)) / dayToWeekFactor
                 outfile.write(sep + str(value))
             outfile.write('\n')
 
@@ -351,12 +343,10 @@ def actually_run_module(
         tripOrigs = np.array(trips['ORIG'])
         tripDests = np.array(trips['DEST'])
         zezZones = np.array(
-            zonesShape.loc[
-                (zonesShape['ZEZ'] == 1) & (zonesShape['Gemeentena'] == 'Rotterdam'),
-                'AREANR'])
+            zonesShape.loc[(zonesShape['ZEZ'] == 1) & (zonesShape['Gemeentena'] == 'Rotterdam'), 'AREANR'])
         tripsZEZ = trips.iloc[
             [i for i in range(len(trips))
-             if tripOrigs[i] in zezZones or tripDests[i] in zezZones], :]
+            if tripOrigs[i] in zezZones or tripDests[i] in zezZones], :]
 
         outfile.write('\nNumber of trips ')
         outfile.write('(freight/parcel; by logistic segment and NSTR)' + sep + '\n')
@@ -370,9 +360,7 @@ def actually_run_module(
         for ls in range(nLS - 1):
             outfile.write(sep + lsNames[ls])
             for nstr in range(-1, nNSTR):
-                value = np.sum(
-                    (tripsZEZ['LS'] == ls) &
-                    (tripsZEZ['NSTR'] == nstr))
+                value = np.sum((tripsZEZ['LS'] == ls) & (tripsZEZ['NSTR'] == nstr)) / dayToWeekFactor
                 outfile.write(sep + str(value))
             outfile.write('\n')
             
@@ -387,12 +375,10 @@ def actually_run_module(
         outfile.write('\n')
 
         for veh in range(nVT):
-            nTripsVeh[veh] = len(trips[trips['VEHTYPE'] == veh])
+            nTripsVeh[veh] = len(trips[trips['VEHTYPE'] == veh]) / dayToWeekFactor
             nTripsVehComb = [None for comb in range(nCombType)]
             for comb in range(nCombType):
-                nTripsVehComb[comb] = np.sum(
-                    (trips['VEHTYPE'] == veh) &
-                    (trips['COMBTYPE'] == comb))
+                nTripsVehComb[comb] = np.sum((trips['VEHTYPE'] == veh) & (trips['COMBTYPE'] == comb)) / dayToWeekFactor
             outfile.write(sep + vtNames[veh])
             for comb in range(nCombType):
                 outfile.write(sep + str(nTripsVehComb[comb]))
@@ -409,9 +395,7 @@ def actually_run_module(
         for ls in range(nLS - 1):
             outfile.write(sep + lsNames[ls])
             for vt in range(nVT):
-                value = np.sum(
-                    (trips['LS'] == ls) &
-                    (trips['VEHTYPE'] == vt))
+                value = np.sum((trips['LS'] == ls) & (trips['VEHTYPE'] == vt)) / dayToWeekFactor
                 outfile.write(sep + str(value))
             outfile.write('\n')
 
@@ -447,10 +431,10 @@ def actually_run_module(
         logger.debug("\t\tTransported weight")
 
         # Transport weight by direction
-        weightTotal = round(sum(tours['TOUR_WEIGHT']), 2)
-        weightLeaving = round(sum(tours[tours['DEST'] > 99999900]['TOUR_WEIGHT']), 2)
-        weightEntering = round(sum(tours[tours['ORIG'] > 99999900]['TOUR_WEIGHT']), 2)
-        weightIntra = weightTotal - weightLeaving - weightEntering
+        weightTotal = round(sum(tours['TOUR_WEIGHT'] / dayToWeekFactor), 2)
+        weightLeaving = round(sum(tours[tours['DEST'] > 99999900]['TOUR_WEIGHT'] / dayToWeekFactor), 2)
+        weightEntering = round(sum(tours[tours['ORIG'] > 99999900]['TOUR_WEIGHT'] / dayToWeekFactor), 2)
+        weightIntra = (weightTotal - weightLeaving - weightEntering)
 
         outfile.write('\nTransported tonnes (freight; by direction)' + sep + '\n')
         outfile.write(sep + 'Direction'             + sep + 'Tonnes'            + '\n')
@@ -465,7 +449,7 @@ def actually_run_module(
         outfile.write(sep + 'NSTR' + sep + 'Tonnes\n')
 
         for nstr in range(nNSTR):
-            weightNSTR[nstr] = round(sum(tours[tours['NSTR'] == nstr]['TOUR_WEIGHT']), 2)
+            weightNSTR[nstr] = round(sum(tours[tours['NSTR'] == nstr]['TOUR_WEIGHT']) / dayToWeekFactor, 2)
             outfile.write(sep + str(nstr) + sep + str(weightNSTR[nstr]) + '\n')
 
         # Transported weight by Vehicle type
@@ -477,11 +461,11 @@ def actually_run_module(
         outfile.write('\n')
 
         for veh in range(nVT):
-            weightVeh[veh] = np.round(np.sum(tours[tours['VEHTYPE'] == veh]['TOUR_WEIGHT']),2)
+            weightVeh[veh] = np.round(np.sum(tours[tours['VEHTYPE'] == veh]['TOUR_WEIGHT'] / dayToWeekFactor), 2)
             weightVehComb = [None for comb in range(nCombType)]
             for comb in range(nCombType):
                 weightVehComb[comb] = np.round(np.sum(
-                    tours[(tours['VEHTYPE'] == veh) & (tours['COMBTYPE'] == comb)]['TOUR_WEIGHT']), 2)
+                    tours[(tours['VEHTYPE'] == veh) & (tours['COMBTYPE'] == comb)]['TOUR_WEIGHT'] / dayToWeekFactor), 2)
             outfile.write(sep + vtNames[veh])
             for comb in range(nCombType):
                 outfile.write(sep + str(weightVehComb[comb]))
@@ -492,7 +476,7 @@ def actually_run_module(
         outfile.write('\nTransported tonnes (freight; by logistic segment)' + sep + '\n')
         outfile.write(sep + 'LS' + sep + 'Tonnes\n')
         for ls in range(nLS - 1):
-            weightLS[ls] = round(sum(tours[tours['LS'] == ls]['TOUR_WEIGHT']), 2)
+            weightLS[ls] = round(sum(tours[tours['LS'] == ls]['TOUR_WEIGHT'] / dayToWeekFactor), 2)
             outfile.write(sep + lsNames[ls] + sep + str(weightLS[ls]) + '\n')
         outfile.write(sep + lsNames[nLS - 1] + sep + 'n.a.' + '\n')
 
@@ -504,12 +488,9 @@ def actually_run_module(
         logger.debug("\t\tAverage trip loads")
 
         # Average trip load by direction
-        loadedTrips = trips[trips['NSTR'] != -1]
-        loadedTripsIntra = loadedTrips[
-            [(
-                loadedTrips['DEST'][i] <= 99999900 and
-                loadedTrips['ORIG'][i] <= 99999900)
-             for i in loadedTrips.index]]
+        loadedTrips = trips.loc[trips['NSTR'] != -1, :]
+        loadedTripsIntra = loadedTrips.loc[
+            (loadedTrips['DEST'] <= 99999900) & (loadedTrips['ORIG'] <= 99999900), :]
         avgLoadIntra = round(loadedTripsIntra['TRIP_WEIGHT'].mean(), 2)
         avgLoadLeaving = round(loadedTrips[loadedTrips['DEST'] > 99999900]['TRIP_WEIGHT'].mean(),2)
         avgLoadEntering = round(loadedTrips[loadedTrips['ORIG'] > 99999900]['TRIP_WEIGHT'].mean(),2)
@@ -566,22 +547,17 @@ def actually_run_module(
 
         logger.debug("\t\tNumber of shipments")
 
-        nShipsTotal = pd.value_counts(tours['N_SHIP'], sort=False)
-        nShipsNSTR = pd.crosstab(tours['N_SHIP'], tours['NSTR'])
-        nShipsLS = pd.crosstab(tours['N_SHIP'], tours['LS'])
+        nShipsTotal = pd.value_counts(tours['N_SHIP'], sort=False) / dayToWeekFactor
+        nShipsNSTR = pd.crosstab(tours['N_SHIP'], tours['NSTR']) / dayToWeekFactor
+        nShipsLS = pd.crosstab(tours['N_SHIP'], tours['LS']) / dayToWeekFactor
 
         toursInternal = tours[
             [tours['ORIG'][i] <= 99999900 and tours['DEST'][i] <= 99999900
              for i in tours.index]]
-        nShipsTotalInternal = pd.value_counts(
-            toursInternal['N_SHIP'],
-            sort=False)
-        nShipsNSTRInternal = pd.crosstab(
-            toursInternal['N_SHIP'],
-            toursInternal['NSTR'])
-        nShipsLSInternal = pd.crosstab(
-            toursInternal['N_SHIP'],
-            toursInternal['LS'])
+
+        nShipsTotalInternal = pd.value_counts(toursInternal['N_SHIP'], sort=False) / dayToWeekFactor
+        nShipsNSTRInternal = pd.crosstab(toursInternal['N_SHIP'], toursInternal['NSTR']) / dayToWeekFactor
+        nShipsLSInternal = pd.crosstab(toursInternal['N_SHIP'], toursInternal['LS']) / dayToWeekFactor
         
         outfile.write("\nNumber of shipments per tour (freight; by NSTR)\n")
         outfile.write(f"{sep}{sep}NSTR\n")
@@ -619,7 +595,7 @@ def actually_run_module(
         outfile.write('LS' + sep + 'Number of trips\n')
 
         for ls in range(nLS - 1):
-            nToursLS = len(np.unique(trips.loc[trips['LS'] == ls,'TOUR_ID']))
+            nToursLS = len(np.unique(trips.loc[trips['LS'] == ls, 'TOUR_ID']))
             if nToursLS > 0:
                 outfile.write(
                     lsNames[ls] + sep +
@@ -640,10 +616,10 @@ def actually_run_module(
 
         # Trips tonkilometers
         trips['TONKM'] = trips['DIST'] * trips['TRIP_WEIGHT']
-        tonKilometersTotal = round(sum(trips['TONKM']), 2)
-        tonKilometersLeaving = round(sum(trips[trips['DEST'] > 99999900]['TONKM']), 2)
-        tonKilometersEntering = round(sum(trips[trips['ORIG'] > 99999900]['TONKM']), 2)
-        tonKilometersIntra = tonKilometersTotal - tonKilometersLeaving - tonKilometersEntering
+        tonKilometersTotal = round(sum(trips['TONKM'] / dayToWeekFactor), 2)
+        tonKilometersLeaving = round(sum(trips[trips['DEST'] > 99999900]['TONKM'] / dayToWeekFactor), 2)
+        tonKilometersEntering = round(sum(trips[trips['ORIG'] > 99999900]['TONKM'] / dayToWeekFactor), 2)
+        tonKilometersIntra = (tonKilometersTotal - tonKilometersLeaving - tonKilometersEntering)
 
         outfile.write('\nTonkilometers trips (freight; by direction)' + sep + '\n')
         outfile.write(sep + 'Direction'             + sep + 'TonKM'   + '\n')
@@ -654,9 +630,9 @@ def actually_run_module(
        
         # Shipments tonkilometers
         shipments['TONKM'] = shipments['DIST'] * shipments['WEIGHT']
-        tonKilometersTotal = round(sum(shipments['TONKM']), 2)
-        tonKilometersLeaving = round(sum(shipments[shipments['DEST'] > 99999900]['TONKM']), 2)
-        tonKilometersEntering = round(sum(shipments[shipments['ORIG'] > 99999900]['TONKM']), 2)
+        tonKilometersTotal = round(sum(shipments['TONKM'] / dayToWeekFactor), 2)
+        tonKilometersLeaving = round(sum(shipments[shipments['DEST'] > 99999900]['TONKM'] / dayToWeekFactor), 2)
+        tonKilometersEntering = round(sum(shipments[shipments['ORIG'] > 99999900]['TONKM'] / dayToWeekFactor), 2)
         tonKilometersIntra  = tonKilometersTotal -  tonKilometersLeaving -  tonKilometersEntering
 
         outfile.write('\nTonkilometers shipments (freight; by direction)' + sep + '\n')
@@ -684,9 +660,7 @@ def actually_run_module(
         for ls in range(nLS - 1):
             outfile.write(sep + lsNames[ls])
             for vt in range(nVT):
-                value = np.sum(trips.loc[
-                    (trips['LS']==ls) &
-                    (trips['VEHTYPE']==vt), 'DIST'])
+                value = np.sum(trips.loc[(trips['LS']==ls) & (trips['VEHTYPE']==vt), 'DIST']) / dayToWeekFactor
                 outfile.write(sep + str(value))
             outfile.write('\n')
         nParcelTripsVan  = np.sum(parcelTrips.loc[parcelTrips['VehType'] == 'Van', 'DIST'])

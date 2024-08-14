@@ -94,6 +94,8 @@ def actually_run_module(
 
         seeds = get_seeds(varDict)
 
+        dayToWeekFactor = float(varDict["DAY_TO_WEEK_FACTOR"]) if varDict["DAY_TO_WEEK_FACTOR"] != "" else 1.0
+
         # Import links
         MRDHlinks, MRDHlinksGeometry = read_shape(varDict['LINKS'], returnGeometry=True)
 
@@ -734,8 +736,7 @@ def actually_run_module(
                                 if doSelectedLink:
                                     for link in range(nSelectedLinks):
                                         if selectedLinks[link] in route:
-                                            selectedLinkTripsArray[
-                                                route, link] += 1
+                                            selectedLinkTripsArray[route, link] += 1
 
                                 # If combustion type is fuel or bio-fuel
                                 if ct in [0, 4]:
@@ -809,6 +810,12 @@ def actually_run_module(
                 root.progressBar['value'] = (
                     33.0 +
                     (43.0 - 33.0) * (tod + 1) / nHours)
+
+        for tod in timeOfDays:
+            linkTripsArray[tod] /= dayToWeekFactor
+            for ls in range(nLS):
+                linkEmissionsArray[ls][tod] /= dayToWeekFactor
+
 
         del prevFreight
         
