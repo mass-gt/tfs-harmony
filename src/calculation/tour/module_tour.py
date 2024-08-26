@@ -166,7 +166,9 @@ def actually_run_module(
             (zones[shipments['DEST'] - 1][:, 4]))
 
         # Which carrier transports which shipments, keep track of field 'CARRIER' in shipments
-        shipments = assign_shipments_to_carriers(shipments, nDC, nCarriersNonDC, seeds['tour_carrier_allocation'])
+        id_parcel_consolidated = dims.get_id_from_label("logistic_segment", "Parcel (consolidated flows)")
+        shipments = assign_shipments_to_carriers(
+            shipments, nDC, nCarriersNonDC, id_parcel_consolidated, seeds['tour_carrier_allocation'])
 
         if root is not None:
             root.progressBar['value'] = 2.0

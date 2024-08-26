@@ -34,14 +34,15 @@ def assign_shipments_to_carriers(
     shipments: pd.DataFrame,
     nDC: int,
     nCarriersNonDC: int,
+    id_parcel_consolidated: int,
     seed: int
 ) -> pd.DataFrame:
     """Fills the field 'CARRIER' for the shipments DataFrame."""
     # Determine the carrier ID for each shipment
     # Shipments are first grouped by DC (one carrier per DC assumed, carrierID = 0 to nDC)
     shipments['CARRIER'] = 0
-    whereLoadDC = shipments['SEND_DC'] != -99999
-    whereUnloadDC = shipments['RECEIVE_DC'] != -99999
+    whereLoadDC = (shipments['SEND_DC'] != -99999) & (shipments['LS'] != id_parcel_consolidated)
+    whereUnloadDC = (shipments['RECEIVE_DC'] != -99999) & (shipments['LS'] != id_parcel_consolidated)
 
     # Shipments not loaded or unloaded at DC are randomly assigned
     # to the other carriers, carrierID = nDC to nDC + nCarriersNonDC]
@@ -50,15 +51,12 @@ def assign_shipments_to_carriers(
 
     np.random.seed(seed)
 
-    shipments.loc[whereLoadDC, 'CARRIER'] = (
-        shipments['SEND_DC'][whereLoadDC])
-    shipments.loc[whereUnloadDC, 'CARRIER'] = (
-        shipments['RECEIVE_DC'][whereUnloadDC])
+    shipments.loc[whereLoadDC, 'CARRIER'] = shipments['SEND_DC'][whereLoadDC]
+    shipments.loc[whereUnloadDC, 'CARRIER'] = shipments['RECEIVE_DC'][whereUnloadDC]
     shipments.loc[whereBothDC, 'CARRIER'] = [
         [shipments['SEND_DC'][i], shipments['RECEIVE_DC'][i]][np.random.randint(0, 2)]
         for i in shipments.loc[whereBothDC, :].index]
-    shipments.loc[whereNoDC, 'CARRIER'] = (
-        nDC + np.random.randint(0, nCarriersNonDC, np.sum(whereNoDC)))
+    shipments.loc[whereNoDC, 'CARRIER'] = nDC + np.random.randint(0, nCarriersNonDC, np.sum(whereNoDC))
     
     return shipments
 
