@@ -200,9 +200,8 @@ def nearest_neighbor(ships, TODs, dc, skim, nZones, nTOD):
     
             nearestShipment = np.argmin(timeCurrentToRemaining)
     
-            tourSequence[nLoad + nUnloadFirstTOD + currentship] = (
-                    unloadingLastTOD[nearestShipment])
-    
+            tourSequence[nLoad + nUnloadFirstTOD + currentship] = unloadingLastTOD[nearestShipment]
+
             unloadingLastTOD = np.delete(unloadingLastTOD, nearestShipment)
 
     # ---------- Some restructuring of tourSequence variable ------------------
@@ -231,37 +230,41 @@ def nearest_neighbor(ships, TODs, dc, skim, nZones, nTOD):
     if lenTourSequence > 3:
         startLocations = np.array(tourSequence[:-1]) - 1
         endLocations = np.array(tourSequence[1:]) - 1
-        tourDuration = np.sum(
-            skim[startLocations * nZones + endLocations, 0]) / 3600
+        tourDuration = np.sum(skim[startLocations * nZones + endLocations, 0]) / 3600
 
-        for shiftLocA in range(1, lenTourSequence - 1):
-            for shiftLocB in range(1, lenTourSequence - 1):
-                if shiftLocA != shiftLocB:
-                    swappedTourSequence = tourSequence.copy()
-                    swappedTourSequence[shiftLocA] = tourSequence[shiftLocB]
-                    swappedTourSequence[shiftLocB] = tourSequence[shiftLocA]
+        for shiftLocA, shiftLocB in product(range(1, lenTourSequence), range(1, lenTourSequence)):
+            if shiftLocA == shiftLocB:
+                continue
 
-                    swappedStartLocations = np.array(swappedTourSequence[:-1]) - 1
-                    swappedEndLocations = np.array(swappedTourSequence[1:]) - 1
-                    swappedTourDuration = np.sum(
-                        skim[swappedStartLocations * nZones + swappedEndLocations, 0]) / 3600
+            swappedTourSequence = tourSequence.copy()
+            swappedTourSequence[shiftLocA] = tourSequence[shiftLocB]
 
-                    # Only make the swap definitive
-                    # if it reduces the tour duration
-                    if swappedTourDuration < tourDuration:
+            if shiftLocA < shiftLocB:
+                for i in range(shiftLocA + 1, shiftLocB + 1):
+                    swappedTourSequence[i] = tourSequence[i - 1]
+            else:
+                for i in range(shiftLocB, shiftLocA):
+                    swappedTourSequence[i] = tourSequence[i + 1]
 
-                        # Check if the loading locations are visited
-                        # before the unloading locations
-                        precedence = [None for i in range(len(ships))]
-                        for i in range(len(ships)):
-                            load, unload = ships[i, 0], ships[i, 1]
-                            precedence[i] = (
-                                np.where(swappedTourSequence == unload)[0][-1] >
-                                np.where(swappedTourSequence == load)[0][0])
+            swappedStartLocations = np.array(swappedTourSequence[:-1]) - 1
+            swappedEndLocations = np.array(swappedTourSequence[1:]) - 1
+            swappedTourDuration = np.sum(
+                skim[swappedStartLocations * nZones + swappedEndLocations, 0]) / 3600
 
-                        if np.all(precedence):
-                            tourSequence = swappedTourSequence.copy()
-                            tourDuration = swappedTourDuration
+            # Only make the swap definitive if it reduces the tour duration
+            if swappedTourDuration < tourDuration:
+
+                # Check if the loading locations are visited before the unloading locations
+                precedence = [None for i in range(len(ships))]
+                for i in range(len(ships)):
+                    load, unload = ships[i, 0], ships[i, 1]
+                    precedence[i] = (
+                        np.where(swappedTourSequence == unload)[0][-1] >
+                        np.where(swappedTourSequence == load)[0][0])
+
+                if np.all(precedence):
+                    tourSequence = swappedTourSequence.copy()
+                    tourDuration = swappedTourDuration
 
     return np.array(tourSequence, dtype=int)
 
@@ -305,38 +308,49 @@ def cap_utilization(veh, weights, carryingCapacity):
     return sum(weights) / carryingCapacity[veh]
 
 
-def proximity(tourlocs, universal, skim, nZones):
+def proximity(tourlocs, universal, skim, nZones, selectShipmentMeasure=False):
     '''
-    Reports the proximity value [km] of each shipment in
-    the universal choice set
+    Reports the proximity value [km] of each shipment in the universal choice set.
+
+    If selectShipmentMeasure is set to True the measure calculated in a slightly different way,
+    which helps with constructing more logical tour sequence. If it is set to False, it is
+    calculated consistently with the model estimations.
 
     tourlocs = array with the locations visited in the tour so far
     universal = the universal choice set
     '''
-    # Unique locations visited in the tour so far
-    # (except for tour starting point)
-    if tourlocs[0, 0] == tourlocs[0, 1]:
-        tourlocs = [x for x in np.unique(tourlocs) if x != 0]
-    else:
-        tourlocs = [x for x in np.unique(tourlocs) if x != 0 and x != tourlocs[0, 0]]
-
     # Loading and unloading locations of the remaining shipments
     otherShipments = universal[:, 1:3].astype(int)
     nOtherShipments = len(otherShipments)
 
+    # Unique locations visited in the tour so far
+    if selectShipmentMeasure:
+        tourLocsLoading = [x for x in np.unique(tourlocs[:, 0]) if x != 0]
+        tourLocsUnloading = [x for x in np.unique(tourlocs[:, 1]) if x != 0]
+    else:
+        if tourlocs[0, 0] == tourlocs[0, 1]:
+            tourLocsLoading = [x for x in np.unique(tourlocs) if x != 0]
+        else:
+            tourLocsLoading = [x for x in np.unique(tourlocs) if x != 0 and x != tourlocs[0, 0]]
+        tourLocsUnloading = tourLocsLoading
+
     # Initialization
-    distancesLoading = np.zeros((len(tourlocs), nOtherShipments))
-    distancesUnloading = np.zeros((len(tourlocs), nOtherShipments))
+    distancesLoading = np.zeros((len(tourLocsLoading), nOtherShipments))
+    distancesUnloading = np.zeros((len(tourLocsUnloading), nOtherShipments))
 
-    for i in range(len(tourlocs)):
+    for i in range(len(tourLocsLoading)):
         distancesLoading[i, :] = skim[
-            (tourlocs[i] - 1) * nZones + (otherShipments[:, 0] - 1), 1] / 1000
+            (tourLocsLoading[i] - 1) * nZones + (otherShipments[:, 0] - 1), 1] / 1000
+        
+    for i in range(len(tourLocsUnloading)):
         distancesUnloading[i, :] = skim[
-            (tourlocs[i] - 1) * nZones + (otherShipments[:, 1] - 1), 1] / 1000
+            (tourLocsUnloading[i] - 1) * nZones + (otherShipments[:, 1] - 1), 1] / 1000
 
-    # Proximity measure = distance to nearest loading and unloading
-    # location summed up
-    distances = np.min(distancesLoading + distancesUnloading, axis=0)
+    # Proximity measure = distance to nearest loading and unloading location summed up
+    if selectShipmentMeasure:
+        distances = np.min(distancesLoading, axis=0) + np.min(distancesUnloading, axis=0)
+    else:
+        distances = np.min(distancesLoading + distancesUnloading, axis=0)
 
     return distances
 
@@ -532,7 +546,7 @@ def selectshipment(
     shipsCapUt = (tourWeight + universal[:, 6]) / carryingCapacity[tourVT]
 
     # Check proximity of other shipments to the tour
-    shipsProx = proximity(tourlocs, universal, skim, nZones)
+    shipsProx = proximity(tourlocs, universal, skim, nZones, selectShipmentMeasure=True)
 
     # Which shipments belong to the same logistic segment and have
     # the same vehicle type as the tour
@@ -550,28 +564,18 @@ def selectshipment(
 
         # Only two aligning time periods allowed in a tour
         if tourTODs[0] == firstCategoryTOD:
-            shipsFeasibleTOD = (
-                (np.abs(shipsTOD - tourTODs[0]) <= 1) |
-                (shipsTOD == lastCategoryTOD))
+            shipsFeasibleTOD = (np.abs(shipsTOD - tourTODs[0]) <= 1) | (shipsTOD == lastCategoryTOD)
         elif tourTODs[0] == lastCategoryTOD:
-            shipsFeasibleTOD = (
-                (np.abs(shipsTOD - tourTODs[0]) <= 1) |
-                (shipsTOD == firstCategoryTOD))
+            shipsFeasibleTOD = (np.abs(shipsTOD - tourTODs[0]) <= 1) | (shipsTOD == firstCategoryTOD)
         else:
-            shipsFeasibleTOD = (
-                np.abs(shipsTOD - tourTODs[0]) <= 1)
+            shipsFeasibleTOD = (np.abs(shipsTOD - tourTODs[0]) <= 1)
 
     else:
-        shipsFeasibleTOD = (
-            (universal[:, 13] == tourTODs[0]) |
-            (universal[:, 13] == tourTODs[1]))
+        shipsFeasibleTOD = (universal[:, 13] == tourTODs[0]) | (universal[:, 13] == tourTODs[1])
 
     # Initialize feasible choice set, those shipments that
     # comply with constraints
-    selectShipConstraints = (
-        (shipsCapUt < 1.1) &
-        shipsSameLS &
-        shipsFeasibleTOD)
+    selectShipConstraints = (shipsCapUt < 1.1) & shipsSameLS & shipsFeasibleTOD
     feasibleChoiceSet = universal[selectShipConstraints]
 
     # If there are no feasible shipments, the return -2 statement
@@ -579,19 +583,18 @@ def selectshipment(
     if len(feasibleChoiceSet) == 0:
         return -2
 
-    else:
-        shipsSameVT = shipsSameVT[selectShipConstraints]
-        shipsProx = shipsProx[selectShipConstraints]
+    shipsSameVT = shipsSameVT[selectShipConstraints]
+    shipsProx = shipsProx[selectShipConstraints]
 
-        # Make shipments of same vehicle type more likely to be chosen
-        # (through lower proximity value)
-        shipsProx[shipsSameVT] /= 2
+    # Make shipments of same vehicle type more likely to be chosen
+    # (through lower proximity value)
+    shipsProx[shipsSameVT] /= 2
 
-        # Select the shipment with minimum distance to the tour (proximity)
-        ssChoice = np.argmin(shipsProx)
-        chosenShipment = feasibleChoiceSet[ssChoice]
+    # Select the shipment with minimum distance to the tour (proximity)
+    ssChoice = np.argmin(shipsProx)
+    chosenShipment = feasibleChoiceSet[ssChoice]
 
-        return chosenShipment
+    return chosenShipment
 
 
 def form_tours(
