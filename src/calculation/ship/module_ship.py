@@ -976,8 +976,8 @@ def actually_run_module(
             shipments.loc[shipments['FLOWTYPE'].isin([6, 8, 9]), 'SEND_FIRM'] = -99999
 
             # Only fill in DC ID for shipments to and from DC
-            whereToDC = ((shipments['FLOWTYPE'].isin([2, 5, 8, 11])) & (shipments['ORIG'] > 99999900))
-            whereFromDC = ((shipments['FLOWTYPE'].isin([3, 5, 7, 11])) & (shipments['DEST'] > 99999900))
+            whereToDC = shipments['FLOWTYPE'].isin([2, 5, 8]) | ((shipments['FLOWTYPE'] == 11) & (shipments['ORIG'] > 99999900))
+            whereFromDC = shipments['FLOWTYPE'].isin([3, 5, 7]) | ((shipments['FLOWTYPE'] == 11) & (shipments['DEST'] > 99999900))
             shipments.loc[whereToDC,  'RECEIVE_DC'] = np.array(list(toFirm.values()))[whereToDC]
             shipments.loc[whereFromDC,'SEND_DC'   ] = np.array(list(fromFirm.values()))[whereFromDC]
 
