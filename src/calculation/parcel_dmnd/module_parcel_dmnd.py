@@ -392,14 +392,7 @@ def actually_run_module(
         # a parameter for sted = 0
         for z in zoneList:
             sted = segs.at[z, 'STED']
-
-            if sted > 0:
-                sted_param = demandParams.loc[
-                    demandParams['Parameter'] == f'STED_GM_{int(sted)}',
-                    'Estimate']
-
-            else:
-                sted_param = 0
+            sted_param = demandParams.loc[demandParams['Parameter'] == f'STED_GM_{int(sted)}', 'Estimate'] if sted > 0 else 0.0
 
             for a in ageList:
                 for i in incList:
@@ -423,14 +416,12 @@ def actually_run_module(
         mu_dict = {}
         parcel_levels = [0, 1, 2, 3, 4, 5, 10, 15, 20]
         for x in parcel_levels:
-            mu_dict[x] = demandParams['Estimate'].loc[
-                demandParams['Parameter'] == f'WI_nongroceries_{x}'].iloc[-1]
+            mu_dict[x] = demandParams['Estimate'].loc[demandParams['Parameter'] == f'WI_nongroceries_{x}'].iloc[-1]
 
         # Calculate cumulative probabilities with logit formula
         for p in parcel_levels[:-1]:
             mu = mu_dict[p]
-            demandDF[f'cprob_{p}p'] = (
-                1 + np.exp(demandDF['param_sum'] - mu)) ** (-1)
+            demandDF[f'cprob_{p}p'] = (1 + np.exp(demandDF['param_sum'] - mu)) ** -1
 
         # Cum prob for highest category is 1 by definition
         demandDF['cprob_20p'] = 1
@@ -466,15 +457,27 @@ def actually_run_module(
 
         logger.debug("\t\t\tAggregate to zonal level...")
 
-        demandDF = demandDF.replace(np.nan, 0)
         demandPerZone = pd.pivot_table(
-            demandDF.reset_index(),
+            demandDF.fillna(0.0).reset_index(),
             values=['parcels', 'pers'],
             index=['zone'],
             aggfunc=np.sum)
+        demandPerZone['parcels'] /= 60
+
+        logger.debug(f"\t\t\tCorrection towards PARCELS_PER_PERSON={float(varDict['PARCELS_PER_PERSON'])}...")
+
+        realizedSumParcels = demandPerZone['parcels'].sum()
+        targetSumParcels = demandPerZone['pers'].sum() * float(varDict['PARCELS_PER_PERSON'])
+        corrFactorParcels = targetSumParcels / realizedSumParcels
+
+        logger.debug(f"\t\t\t\tCorrection factor = {corrFactorParcels}")
+
+        demandPerZone['parcels'] *= corrFactorParcels
 
         # Add the B2C parcels to the B2B parcels
-        zones['parcels'] += (demandPerZone['parcels'] / 60)
+        zones['parcels'] += demandPerZone['parcels']
+
+        logger.debug("\t\tAssign parcels to couriers and depots...")
 
         # Spread over couriers based on market shares
         for cep in cepList:
