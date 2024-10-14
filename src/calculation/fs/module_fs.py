@@ -100,7 +100,11 @@ def actually_run_module(
         id_max_firm_size = dims.get_id_from_label("firm_size", "Groot")
 
         # Select zone
-        for zone in segs[:maxZoneNumberZH].index:
+        for zone in segs.index:
+
+            if zone > maxZoneNumberZH:
+                continue
+
             assigned_jobs = 0
 
             # Select industry sector I
