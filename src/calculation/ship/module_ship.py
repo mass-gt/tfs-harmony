@@ -173,6 +173,13 @@ def actually_run_module(
 
         skimTravTime, skimDistance, nZones = get_skims(varDict)
 
+        if (nSuperZones + nInternalZones) != nZones:
+            raise Exception(
+                f"The number of internal zones in the ZONES file ({nInternalZones}) " +
+                f"and the number of external zones in the SUP_COORDINATES_ID file ({nSuperZones}) "
+                f"don't match with the number of zones in the skim files: ({nZones})."
+            )
+
         if root is not None:
             root.progressBar['value'] = 2.5
 
