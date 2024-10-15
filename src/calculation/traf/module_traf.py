@@ -104,8 +104,12 @@ def actually_run_module(
 
         # Import nodes and zones
         MRDHnodes: pd.DataFrame = read_shape(varDict['NODES'])
-        zones, zonesGeometry = read_shape(varDict['ZONES'], returnGeometry=True)
         nNodes = len(MRDHnodes)
+
+        if addZezToLinks:
+            zones, zonesGeometry = read_shape(varDict['ZONES'], returnGeometry=True)
+        else:
+            zones = read_shape(varDict['ZONES'])
 
         if root is not None:
             root.progressBar['value'] = 2.5
@@ -138,51 +142,35 @@ def actually_run_module(
         # here instead of in QGIS
         if addZezToLinks:
             logger.debug("\tPerforming spatial coupling of ZEZ-zones to links...")
-
             MRDHlinks = add_zez_to_links(MRDHlinks, MRDHlinksGeometry, zones, zonesGeometry)
 
-        # Dictionary with zone numbers (keys) to corresponding
-        # centroid node ID as given in the shapefile (values)
-        zoneToCentroidKeys = np.arange(nIntZones)
-        zoneToCentroidValues = []
+        # Dictionary with zone numbers (keys) to corresponding centroid node ID as given in the shapefile (values)
+        zoneToCentroid = {}
         for i in range(nIntZones):
-            zoneToCentroidValues.append(np.where(
-                (MRDHnodes['AREANR'] == areaNumbers[i]) &
-                (MRDHnodes['TYPENO'] == 99))[0][0])
-        zoneToCentroid = dict(np.transpose(np.vstack((
-            zoneToCentroidKeys,
-            zoneToCentroidValues))))
+            zoneToCentroid[i] = np.where(MRDHnodes['NODENR']==areaNumbers[i] + 10000000)[0][0]
         for i in range(nSupZones):
-            zoneToCentroid[nIntZones + i] = np.where(
-                (MRDHnodes['AREANR'] == 99999900 + i + 1) &
-                (MRDHnodes['TYPENO'] == 99))[0][0]
+            zoneToCentroid[nIntZones+i] = np.where((MRDHnodes['AREANR']==99999900+i+1) & (MRDHnodes['TYPENO']==99))[0][0]
 
         # Dictionary with zone number (used in this script) to
         # corresponding zone number (used in input/output)
-        zoneDict = dict(np.transpose(np.vstack((
-            np.arange(nIntZones),
-            zones['AREANR']))))
-        zoneDict = {int(a): int(b) for a, b in zoneDict.items()}
+        zoneDict = dict((i, value) for i, value in enumerate(zones['AREANR'].astype(int).values))
         for i in range(nSupZones):
             zoneDict[nIntZones + i] = 99999900 + i + 1
         invZoneDict = dict((v, k) for k, v in zoneDict.items())
 
         # The node IDs as given in the shapefile (values) and
         # a new ID numbering from 0 to nNodes (keys)
-        nodeDict = dict(np.transpose(np.vstack((
-            np.arange(nNodes),
-            MRDHnodes['NODENR']))))
+        nodeDict = dict((i, value) for i, value in enumerate(MRDHnodes['NODENR'].astype(int).values))
         invNodeDict = dict((v, k) for k, v in nodeDict.items())
 
         # Check on NODENR values
         nodeNr = set(np.array(MRDHnodes['NODENR']))
-        missingNodes = list(np.unique([
-            x for x in MRDHlinks['A'] if x not in nodeNr]))
-        for x in MRDHlinks['B']:
-            if x not in nodeNr:
-                if x not in missingNodes:
-                    missingNodes.append(x)
-        if len(missingNodes) > 0:
+        missingNodes = list(np.unique(
+            [x for x in MRDHlinks['A'] if x not in nodeNr] +
+            [x for x in MRDHlinks['B'] if x not in nodeNr]
+        ))
+
+        if missingNodes:
             raise Exception(
                 "Error! The following NODENR values were found in the links shape " +
                 f" but not in the nodes shape! {missingNodes}")
@@ -196,17 +184,14 @@ def actually_run_module(
         MRDHlinks['B'] = [invNodeDict[x] for x in MRDHlinks['B']]
 
         # Recode the link IDs from 0 to len(MRDHlinks)
-        MRDHlinks.index = np.arange(len(MRDHlinks))
-        MRDHlinks.index = MRDHlinks.index.map(int)
+        MRDHlinks.index = np.arange(len(MRDHlinks), dtype=int)
 
         # Assume a speed of 50 km/h if there are links with freight speed <= 0
         nSpeedZero = np.sum(MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']] <= 0)
         if nSpeedZero > 0:
-
             MRDHlinks.loc[
                 MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']] <= 0,
                 varDict['IMPEDANCE_SPEED_FREIGHT']] = 50
-
             logger.warning(
                 f"{nSpeedZero} links found with freight speed " +
                 f"({varDict['IMPEDANCE_SPEED_FREIGHT']}) <= 0 km/h. " +
@@ -214,40 +199,31 @@ def actually_run_module(
 
         # Assume a speed of 50 km/h if there are links with van speed <= 0
         nSpeedZero = np.sum(MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']] <= 0)
-
         if nSpeedZero > 0:
             MRDHlinks.loc[
                 MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']] <= 0,
                 varDict['IMPEDANCE_SPEED_VAN']] = 50
-
             logger.warning(
                 f"{nSpeedZero} links found with van speed " +
                 f"{varDict['IMPEDANCE_SPEED_VAN']}) <= 0 km/h. " +
                 "Adjusting those to 50 km/h")
 
         # Travel times and travel costs
-        MRDHlinks['T0_FREIGHT'] = (
-            MRDHlinks['LENGTH'] /
-            MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']])
-        MRDHlinks['T0_VAN'] = (
-            MRDHlinks['LENGTH'] /
-            MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']])
+        MRDHlinks['T_FREIGHT'] = MRDHlinks['LENGTH'] / MRDHlinks[varDict['IMPEDANCE_SPEED_FREIGHT']]
+        MRDHlinks['T_VAN'] = MRDHlinks['LENGTH'] / MRDHlinks[varDict['IMPEDANCE_SPEED_VAN']]
         MRDHlinks['COST_FREIGHT'] = (
             costPerKmFreight * MRDHlinks['LENGTH'] +
-            costPerHourFreight * MRDHlinks['T0_FREIGHT'])
+            costPerHourFreight * MRDHlinks['T_FREIGHT'])
         MRDHlinks['COST_VAN'] = (
             costPerKmVan * MRDHlinks['LENGTH'] +
-            costPerHourVan * MRDHlinks['T0_VAN'])
+            costPerHourVan * MRDHlinks['T_VAN'])
 
         costFreightHybrid = MRDHlinks['COST_FREIGHT'].copy()
         costVanHybrid = MRDHlinks['COST_VAN'].copy()
 
         # Set connector travel times high so these are not chosen
         # other than for entering/leaving network
-        MRDHlinks.loc[
-            MRDHlinks['WEGTYPE'] == 'voedingslink',
-            ['COST_FREIGHT', 'COST_VAN']
-        ] = LARGE_NUMBER
+        MRDHlinks.loc[MRDHlinks['WEGTYPE'] == 'voedingslink', ['COST_FREIGHT', 'COST_VAN']] = LARGE_NUMBER
 
         # Set travel times for forbidden-for-freight-links high
         # so these are not chosen for freight
@@ -319,7 +295,9 @@ def actually_run_module(
         vanTripsConstruction = vanTripsConstruction.reshape(nZones, nZones)
 
         # Make some space available on the RAM
-        del zones, zonesGeometry, MRDHnodes
+        del zones, MRDHnodes
+        if addZezToLinks:
+            del zonesGeometry
 
         if root is not None:
             root.progressBar['value'] = 4.0
@@ -427,7 +405,9 @@ def actually_run_module(
         roadtypeArray[whereBuitenweg] = 2
         roadtypeArray[whereSnelweg] = 3
         distArray = np.array(MRDHlinks['LENGTH'])
-        ZEZarray = np.array(MRDHlinks['ZEZ'] >= 1, dtype=int)
+        ZEZarray = (
+            np.array(MRDHlinks['ZEZ'] >= 1, dtype=int) if varDict['LABEL'] == 'UCC'
+            else np.zeros(MRDHlinks.shape[0], dtype=int))
 
         # Bring ORIG and DEST to the front of the list of column names
         newColOrder = volCols.copy()
@@ -959,10 +939,7 @@ def actually_run_module(
                         for j in destZoneIndex:
                             destZone = tripMatrixParcels[j, 1]
 
-                            route = get_route(
-                                i, zoneToCentroid[destZone],
-                                prevVan[0],
-                                linkDict)
+                            route = get_route(i, zoneToCentroid[destZone], prevVan[0], linkDict)
 
                             # Selecteer het deel van de route met
                             # linktype stad/buitenweg/snelweg
@@ -974,10 +951,7 @@ def actually_run_module(
                             ZEZsnelweg = ZEZarray[routeSnelweg] == 1
 
                             if doHybridRoutes:
-                                hybridRoute = get_route(
-                                    i, zoneToCentroid[destZone],
-                                    prevVanHybrid[0],
-                                    linkDict)
+                                hybridRoute = get_route(i, zoneToCentroid[destZone], prevVanHybrid[0], linkDict)
 
                                 hybridRouteStad = hybridRoute[roadtypeArray[hybridRoute] == 1]
                                 hybridRouteBuitenweg = hybridRoute[roadtypeArray[hybridRoute] == 2]
@@ -1107,7 +1081,7 @@ def actually_run_module(
                 (vanTripsConstruction[origZone, :] > 0))[0]
 
             routes = [
-                [get_route( i, zoneToCentroid[j], prevVan[r], linkDict) for j in destZones]
+                [get_route(i, zoneToCentroid[j], prevVan[r], linkDict) for j in destZones]
                 for r in range(varDict['N_MULTIROUTE'])]
                 
             if doHybridRoutes:
@@ -1212,12 +1186,9 @@ def actually_run_module(
                                 buitenwegEmissions[ZEZbuitenweg] = 0.0
                                 snelwegEmissions[ZEZsnelweg] = 0.0
     
-                            linkVanEmissionsArray[1][
-                                routeStad, et] += stadEmissions
-                            linkVanEmissionsArray[1][
-                                routeBuitenweg, et] += buitenwegEmissions
-                            linkVanEmissionsArray[1][
-                                routeSnelweg, et] += snelwegEmissions
+                            linkVanEmissionsArray[1][routeStad, et] += stadEmissions
+                            linkVanEmissionsArray[1][routeBuitenweg, et] += buitenwegEmissions
+                            linkVanEmissionsArray[1][routeSnelweg, et] += snelwegEmissions
 
             if i % int(round(nOrigSelection / 100)) == 0:
                 print(f"{round(i / nOrigSelection * 100, 1)}%", end='\r')
@@ -1299,18 +1270,13 @@ def actually_run_module(
         MRDHlinksIntensities['ZEZ'] = MRDHlinks['ZEZ']
         MRDHlinksIntensities['Gemeentena'] = MRDHlinks['Gemeentena']
 
-        cols = ['LINKNR', 'A', 'B', 'LENGTH', 'ZEZ', 'Gemeentena']
-        for col in intensityFields:
-            cols.append(col)
-
-        MRDHlinksIntensities[cols].to_csv(
+        MRDHlinksIntensities[['LINKNR', 'A', 'B', 'LENGTH', 'ZEZ', 'Gemeentena'] + intensityFields].to_csv(
             f"{varDict['OUTPUTFOLDER']}links_loaded_{varDict['LABEL']}_intensities.csv",
             index=False
         )
 
         if doSelectedLink:
             logger.debug("\tWriting selected link analysis to CSV...")
-
             write_select_link_analysis(selectedLinkTripsArray, MRDHlinks, varDict)
 
         # Make some space available on the RAM

@@ -332,49 +332,27 @@ def write_links_to_shp(
     """
     Writes the loaded links into a shapefile in the output folder.
     """
-    # Set travel times of connectors at 0 for in the output network shape
-    MRDHlinks.loc[MRDHlinks['WEGTYPE'] == 'voedingslink', 'T0'] = 0
+    # Sorteren kolommen
+    MRDHlinks = MRDHlinks[
+        ['LINKNR', 'A', 'B', 'LENGTH', 'WEGTYPE', 'ZEZ', 'Gemeentena'] +
+        ['T_FREIGHT', 'T_VAN', 'COST_FREIGHT', 'COST_VAN'] +
+        intensityFieldsGeojson]
 
-    # Afronden van sommige kolommen met overdreven veel precisie
-    MRDHlinks[intensityFieldsGeojson] = (
-        np.round(MRDHlinks[intensityFieldsGeojson], 5))
-
-    MRDHlinks['Gemeentena'] = MRDHlinks['Gemeentena'].astype(str)
-    MRDHlinks['Gemeentena'] = [
-        x.replace("'","") for x in MRDHlinks['Gemeentena']]
-
-    # Vervang NaN's
-    MRDHlinks.loc[pd.isna(MRDHlinks['ZEZ']), 'ZEZ'] = 0.0
-    MRDHlinks.loc[pd.isna(MRDHlinks['LANES']), 'LANES'] = -99999
-
-    MRDHlinks = MRDHlinks.drop(columns='NAME')
+    MRDHlinks[intensityFieldsGeojson] = np.round(MRDHlinks[intensityFieldsGeojson], 5)
+    MRDHlinks['Gemeentena'] = [x.replace("'","") for x in MRDHlinks['Gemeentena'].astype(str).values]
+    MRDHlinks.loc[pd.isna(MRDHlinks['ZEZ']), 'ZEZ'] = 0
 
     # Initialize shapefile fields
     w = shp.Writer(f"{varDict['OUTPUTFOLDER']}links_loaded_{varDict['LABEL']}.shp")
-    w.field('LINKNR',     'N', size=8, decimal=0)
-    w.field('A',          'N', size=9, decimal=0)
-    w.field('B',          'N', size=9, decimal=0)
-    w.field('LENGTH'      'N', size=7, decimal=3)
-    w.field('LANES',      'N', size=6, decimal=0)
-    w.field('CAPACITY',   'N', size=6, decimal=0)
-    w.field('WEGTYPE',    'C')
-    w.field('COUNT_FR',   'N', size=6, decimal=0)
-    w.field('V0_PA_OS',   'N', size=6, decimal=0)
-    w.field('V0_PA_RD',   'N', size=6, decimal=0)
-    w.field('V0_PA_AS',   'N', size=6, decimal=0)
-    w.field('V0_FR_OS',   'N', size=6, decimal=0)
-    w.field('V0_FR_RD',   'N', size=6, decimal=0)
-    w.field('V0_FR_AS',   'N', size=6, decimal=0)
-    w.field('V_PA_OS',    'N', size=6, decimal=0)
-    w.field('V_PA_RD',    'N', size=6, decimal=0)
-    w.field('V_PA_AS',    'N', size=6, decimal=0)
-    w.field('V_FR_OS',    'N', size=6, decimal=0)
-    w.field('V_FR_RD',    'N', size=6, decimal=0)
-    w.field('V_FR_AS',    'N', size=6, decimal=0)
-    w.field('ZEZ',        'N', size=1, decimal=0)
-    w.field('Gemeentena', 'C')
-    w.field('T0_FREIGHT',  'N', size=8, decimal=5)
-    w.field('T0_VAN',      'N', size=8, decimal=5)
+    w.field('LINKNR',      'N', size=8, decimal=0)
+    w.field('A',           'N', size=9, decimal=0)
+    w.field('B',           'N', size=9, decimal=0)
+    w.field('LENGTH'       'N', size=7, decimal=3)
+    w.field('WEGTYPE',     'C')
+    w.field('ZEZ',         'N', size=1, decimal=0)
+    w.field('Gemeentena',  'C')
+    w.field('T_FREIGHT',   'N', size=8, decimal=5)
+    w.field('T_VAN',       'N', size=8, decimal=5)
     w.field('COST_FREIGHT','N', size=8, decimal=5)
     w.field('COST_VAN',    'N', size=8, decimal=5)
 
