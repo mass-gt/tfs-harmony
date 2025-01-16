@@ -393,7 +393,7 @@ def actually_run_module(
                 nShipsThisTour = nShipmentsPerTour[car][tour]
                 shipmentIsLoaded = [False for i in range(nShipsThisTour)]
                 shipmentIsUnloaded = [False for i in range(nShipsThisTour)]
-                
+
                 timeOfDayPeriodsInTour = np.unique(shipments[
                     tours[car][tour], 13])
                 tourPastMidnight = (
@@ -443,7 +443,7 @@ def actually_run_module(
                             shipUpper = shipments[ship][15]
                             tripLower = tripLowerWindow[car][tour][trip]
                             tripUpper = tripUpperWindow[car][tour][trip]
-                            
+
                             if shipPeriod == 0 and tourPastMidnight:
                                 shipLower += 24
                                 shipUpper += 24
@@ -490,7 +490,7 @@ def actually_run_module(
                         tourSequences[car][tour][trip + 1],
                         skim,
                         nZones)
-                    
+
                     # Time spent at the destination of the current trip
                     np.random.seed(seeds['tour_departure_time'] + 10000 * car + tour)
                     dwellTime = avgDwellTime * 2 * np.random.rand()
@@ -520,10 +520,8 @@ def actually_run_module(
                 # (minimal deviation from time windows)
                 tmpTimeEarly = [x for x in tmpTimeEarly if x is not None]
                 tmpTimeLate = [x for x in tmpTimeLate if x is not None]
-                avgTimeEarly = (
-                    np.average(tmpTimeEarly) if len(tmpTimeEarly) > 0 else 0.0)
-                avgTimeLate = (
-                    np.average(tmpTimeLate) if len(tmpTimeLate) > 0 else 0.0)
+                avgTimeEarly = np.average(tmpTimeEarly) if len(tmpTimeEarly) > 0 else 0.0
+                avgTimeLate = np.average(tmpTimeLate) if len(tmpTimeLate) > 0 else 0.0
 
                 depTimeTour[car][tour] = np.average([avgTimeEarly, avgTimeLate])
 
@@ -719,7 +717,7 @@ def actually_run_module(
 
         # ----------------------- Enrich Shipments CSV ------------------------
 
-        logger.debug(f"\tEnriching Shipments CSV...")
+        logger.debug("\tEnriching Shipments CSV...")
 
         shipmentTourID = {}
         for car in range(nCarriers):
@@ -774,7 +772,7 @@ def actually_run_module(
 
         # -------------------------- Write GeoJSON ----------------------------
 
-        logger.debug(f"\tWriting Shapefile...")
+        logger.debug("\tWriting Shapefile...")
 
         percStart = 90.0
         percEnd = 97.0

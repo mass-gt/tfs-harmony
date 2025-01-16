@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from itertools import product
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from calculation.common.dimensions import ModelDimensions
 
@@ -57,32 +57,32 @@ def assign_shipments_to_carriers(
         [shipments['SEND_DC'][i], shipments['RECEIVE_DC'][i]][np.random.randint(0, 2)]
         for i in shipments.loc[whereBothDC, :].index]
     shipments.loc[whereNoDC, 'CARRIER'] = nDC + np.random.randint(0, nCarriersNonDC, np.sum(whereNoDC))
-    
+
     return shipments
 
 
-def get_traveltime(orig, dest, skim, nZones):
+def get_traveltime(orig: int, dest: int, skim: np.ndarray, nZones: int) -> float:
     '''
     Obtain the travel time [h] for orig to a destination zone.
     '''
     return skim[(orig - 1) * nZones + (dest - 1)][0] / 3600
 
 
-def get_distance(orig, dest, skim, nZones):
+def get_distance(orig: int, dest: int, skim: np.ndarray, nZones: int) -> float:
     '''
     Obtain the distance [km] for orig to a destination zone.
     '''
     return skim[(orig - 1) * nZones + (dest - 1)][1] / 1000
 
 
-def nearest_neighbor(ships, TODs, dc, skim, nZones, nTOD):
+def nearest_neighbor(
+    ships: np.ndarray, TODs: np.ndarray, dc: Optional[int], skim: np.ndarray, nZones: int, nTOD: int
+) -> np.ndarray:
     '''
     Creates a tour sequence to visit all loading and unloading locations.
-    First a nearest-neighbor search is applied,then a 2-opt posterior
-    improvement phase.
+    First a nearest-neighbor search is applied,then a 2-opt posterior improvement phase.
 
-    ships = array with loading locations of shipments in column 0,
-        and unloading locations in column 1
+    ships = array with loading locations of shipments in column 0, and unloading locations in column 1
     dc = zone ID of the DC in case the carrier is located in a DC zone
     '''
     # ------------------------ Initialization -------------------------------
@@ -190,46 +190,42 @@ def nearest_neighbor(ships, TODs, dc, skim, nZones, nTOD):
     if not allSameTOD:
         for currentship in range(nUnloadLastTOD):
             timeCurrentToRemaining = np.zeros(len(unloadingLastTOD))
-    
+
             for remainship in range(len(unloadingLastTOD)):
                 timeCurrentToRemaining[remainship] = get_traveltime(
                     tourSequence[nLoad + nUnloadFirstTOD - 1 + currentship],
                     unloadingLastTOD[remainship],
                     skim,
                     nZones)
-    
+
             nearestShipment = np.argmin(timeCurrentToRemaining)
-    
+
             tourSequence[nLoad + nUnloadFirstTOD + currentship] = unloadingLastTOD[nearestShipment]
 
             unloadingLastTOD = np.delete(unloadingLastTOD, nearestShipment)
 
     # ---------- Some restructuring of tourSequence variable ------------------
 
-    tourSequence = list(tourSequence)
-
     # If the carrier is at a DC, start the tour here
     # (not always necessarily the first loading location)
     if dc is not None:
         if tourSequence[0] != dc:
-            tourSequence.insert(0, int(dc))
+            tourSequence = np.array([dc] + list(tourSequence), dtype=int)
 
     # Make sure the tour does not visit the homebase in between
     # (otherwise it's not 1 tour but 2 tours)
-    nStartLoc = set(np.where(np.array(tourSequence) == tourSequence[0])[0][1:])
+    nStartLoc = set(np.where(tourSequence == tourSequence[0])[0][1:])
     if len(nStartLoc) > 1:
-        tourSequence = [
-            tourSequence[x]
-            for x in range(len(tourSequence))
-            if x not in nStartLoc]
-        tourSequence.append(tourSequence[0])
+        tourSequence = np.array(
+            [tourSequence[x] for x in range(len(tourSequence)) if x not in nStartLoc] + [tourSequence[0]], dtype=int
+        )
     lenTourSequence = len(tourSequence)
 
     # ------------------ 2-opt posterior improvement ------------------
     # Only do 2-opt if tour has more than 3 stops
     if lenTourSequence > 3:
-        startLocations = np.array(tourSequence[:-1]) - 1
-        endLocations = np.array(tourSequence[1:]) - 1
+        startLocations = tourSequence[:-1] - 1
+        endLocations = tourSequence[1:] - 1
         tourDuration = np.sum(skim[startLocations * nZones + endLocations, 0]) / 3600
 
         for shiftLocA, shiftLocB in product(range(1, lenTourSequence), range(1, lenTourSequence)):
@@ -246,16 +242,15 @@ def nearest_neighbor(ships, TODs, dc, skim, nZones, nTOD):
                 for i in range(shiftLocB, shiftLocA):
                     swappedTourSequence[i] = tourSequence[i + 1]
 
-            swappedStartLocations = np.array(swappedTourSequence[:-1]) - 1
-            swappedEndLocations = np.array(swappedTourSequence[1:]) - 1
-            swappedTourDuration = np.sum(
-                skim[swappedStartLocations * nZones + swappedEndLocations, 0]) / 3600
+            swappedStartLocations = swappedTourSequence[:-1] - 1
+            swappedEndLocations = swappedTourSequence[1:] - 1
+            swappedTourDuration = np.sum(skim[swappedStartLocations * nZones + swappedEndLocations, 0]) / 3600
 
             # Only make the swap definitive if it reduces the tour duration
             if swappedTourDuration < tourDuration:
 
                 # Check if the loading locations are visited before the unloading locations
-                precedence = [None for i in range(len(ships))]
+                precedence = [False for i in range(len(ships))]
                 for i in range(len(ships)):
                     load, unload = ships[i, 0], ships[i, 1]
                     precedence[i] = (
@@ -269,7 +264,7 @@ def nearest_neighbor(ships, TODs, dc, skim, nZones, nTOD):
     return np.array(tourSequence, dtype=int)
 
 
-def tourdur(tourSequence, skim, nZones):
+def tourdur(tourSequence: np.ndarray, skim: np.ndarray, nZones: int) -> float:
     '''
     Calculates the tour duration of the tour (so far)
 
@@ -284,7 +279,7 @@ def tourdur(tourSequence, skim, nZones):
     return np.sum(skim[startLocations * nZones + endLocations, 0]) / 3600
 
 
-def tourdist(tourSequence, skim, nZones):
+def tourdist(tourSequence: np.ndarray, skim: np.ndarray, nZones: int) -> float:
     '''
     Calculates the tour distance of the tour (so far)
 
@@ -299,16 +294,17 @@ def tourdist(tourSequence, skim, nZones):
     return np.sum(skim[startLocations * nZones + endLocations, 1]) / 1000
 
 
-def cap_utilization(veh, weights, carryingCapacity):
+def cap_utilization(veh: int, weights: np.ndarray, carryingCapacity: Dict[int, float]) -> float:
     '''
     Calculates the capacity utilzation of the tour (so far).
-    Assume that vehicle type chosen for 1st shipment in tour
-    defines the carrying capacity.
+    Assume that vehicle type chosen for 1st shipment in tour defines the carrying capacity.
     '''
     return sum(weights) / carryingCapacity[veh]
 
 
-def proximity(tourlocs, universal, skim, nZones, selectShipmentMeasure=False):
+def proximity(
+    tourlocs: np.ndarray, universal: np.ndarray, skim: np.ndarray, nZones: int, selectShipmentMeasure: bool = False
+) -> np.ndarray:
     '''
     Reports the proximity value [km] of each shipment in the universal choice set.
 
@@ -341,7 +337,7 @@ def proximity(tourlocs, universal, skim, nZones, selectShipmentMeasure=False):
     for i in range(len(tourLocsLoading)):
         distancesLoading[i, :] = skim[
             (tourLocsLoading[i] - 1) * nZones + (otherShipments[:, 0] - 1), 1] / 1000
-        
+
     for i in range(len(tourLocsUnloading)):
         distancesUnloading[i, :] = skim[
             (tourLocsUnloading[i] - 1) * nZones + (otherShipments[:, 1] - 1), 1] / 1000
@@ -355,32 +351,29 @@ def proximity(tourlocs, universal, skim, nZones, selectShipmentMeasure=False):
     return distances
 
 
-def lognode_loading(tour, shipments):
+def lognode_loading(tour: List[int], shipments: np.ndarray) -> bool:
     '''
-    Returns a Boolean that states whether a logistical node is visited in
-    the tour for loading
+    Returns a Boolean that states whether a logistical node is visited in the tour for loading
     '''
     if len(tour) == 1:
         return shipments[tour][0][7] == 2
     else:
-        return np.any(shipments[tour][0][7] == 2)
+        return any(shipments[tour][0][7] == 2)
 
 
-def lognode_unloading(tour, shipments):
+def lognode_unloading(tour: List[int], shipments: np.ndarray) -> bool:
     '''
-    Returns a Boolean that states whether a logistical node is visited in
-    the tour for unloading
+    Returns a Boolean that states whether a logistical node is visited in the tour for unloading
     '''
     if len(tour) == 1:
         return shipments[tour][0][8] == 2
     else:
-        return np.any(shipments[tour][0][8] == 2)
+        return any(shipments[tour][0][8] == 2)
 
 
-def transship(tour, shipments):
+def transship(tour: List[int], shipments: np.ndarray) -> bool:
     '''
-    Returns a Boolean that states whether a transshipment zone is visited in
-    the tour
+    Returns a Boolean that states whether a transshipment zone is visited in the tour
     '''
     if len(tour) == 1:
         return (
@@ -388,21 +381,21 @@ def transship(tour, shipments):
             shipments[tour][0][8] == 1)
     else:
         return (
-            np.any(shipments[tour][0][7] == 1) or
-            np.any(shipments[tour][0][8] == 1))
+            any(shipments[tour][0][7] == 1) or
+            any(shipments[tour][0][8] == 1))
 
 
-def urbanzone(tour, shipments):
+def urbanzone(tour: List[int], shipments: np.ndarray) -> bool:
     '''
     Returns a Boolean that states whether an urban zone is visited in the tour
     '''
     if len(tour) == 1:
         return shipments[tour][0][9]
     else:
-        return np.any(shipments[tour][0][9] == 1)
+        return any(shipments[tour][0][9] == 1)
 
 
-def is_concrete():
+def is_concrete() -> bool:
     '''
     Returns a Boolean that states whether concrete is transported in the tour.
     This was part of the estimated ET model but is not modelled in the TFS.
@@ -410,7 +403,7 @@ def is_concrete():
     return False
 
 
-def max_nstr(tour, shipments, nNSTR):
+def max_nstr(tour: List[int], shipments: np.ndarray, nNSTR: int) -> int:
     '''
     Returns the NSTR goods type (0-9) of which the highest weight is
     transported in the tour (so far)
@@ -424,10 +417,10 @@ def max_nstr(tour, shipments, nNSTR):
         shipWeight = shipments[tour[i], 6]
         nstrWeight[shipNSTR] += shipWeight
 
-    return np.argmax(nstrWeight)
+    return int(np.argmax(nstrWeight))
 
 
-def sum_weight(tour, shipments):
+def sum_weight(tour: List[int], shipments: np.ndarray) -> float:
     '''
     Returns the weight of all goods that are transported in the tour
 
@@ -444,10 +437,11 @@ def sum_weight(tour, shipments):
     return sumWeight
 
 
-def endtour_first(tourDuration, capUt, tour, params, shipments, nNSTR):
+def endtour_first(
+    tourDuration: float, capUt: float, tour: List[int], params: Dict[str, float], shipments: np.ndarray, nNSTR: int
+) -> bool:
     '''
-    Returns True if we decide to end the tour, False if we decide
-    to add another shipment
+    Returns True if we decide to end the tour, False if we decide  to add another shipment
     '''
     # Calculate explanatory variables
     vehicleTypeIs0 = (shipments[tour[0], 4] == 0) * 1
@@ -481,12 +475,11 @@ def endtour_first(tourDuration, capUt, tour, params, shipments, nNSTR):
 
 
 def endtour_later(
-    tour, tourlocs, tourSequence, universal, skim,
-    nZones, carryingCapacity, params, shipments, nNSTR
-):
+    tour: List[int], tourlocs: np.ndarray, tourSequence: np.ndarray, universal: np.ndarray, skim: np.ndarray,
+    nZones: int, carryingCapacity: Dict[int, float], params: Dict[str, float], shipments: np.ndarray, nNSTR: int
+) -> bool:
     '''
-    Returns True if we decide to end the tour, False if we decide
-    to add another shipment
+    Returns True if we decide to end the tour, False if we decide to add another shipment
     '''
     # Calculate explanatory variables
     tourDuration = tourdur(tourSequence, skim, nZones)
@@ -525,14 +518,14 @@ def endtour_later(
 
 
 def selectshipment(
-    tour, tourlocs, universal, skim,
-    nZones, nTOD, carryingCapacity, shipments
-):
+    tour: List[int], tourlocs: np.ndarray, universal: np.ndarray, skim: np.ndarray,
+    nZones: int, nTOD: int, carryingCapacity: Dict[int, float], shipments: np.ndarray
+) -> Optional[np.ndarray]:
     '''
     Returns the chosen shipment based on Select Shipment MNL
     '''
     # Some tour characteristics as input for the constraint checks
-    if type(tour) == int:
+    if tour is int:
         tourLS = shipments[tour][10]
         tourVT = shipments[tour][4]
         tourTODs = [shipments[tour][13]]
@@ -578,10 +571,9 @@ def selectshipment(
     selectShipConstraints = (shipsCapUt < 1.1) & shipsSameLS & shipsFeasibleTOD
     feasibleChoiceSet = universal[selectShipConstraints]
 
-    # If there are no feasible shipments, the return -2 statement
-    # is used to end the tour
+    # If there are no feasible shipments, the return statement is used to end the tour
     if len(feasibleChoiceSet) == 0:
-        return -2
+        return None
 
     shipsSameVT = shipsSameVT[selectShipConstraints]
     shipsProx = shipsProx[selectShipConstraints]
@@ -598,18 +590,27 @@ def selectshipment(
 
 
 def form_tours(
-    carMarkers, shipments, skim, nZones, maxNumShips,
-    carryingCapacity, dcZones,
-    nShipmentsPerCarrier, nCarriers, nTOD, nNSTR,
-    logitParams_ETfirst, logitParams_ETlater,
-    seed,
-    cars,
-):
+    carMarkers: List[int],
+    shipments: np.ndarray,
+    skim: np.ndarray,
+    nZones: int,
+    maxNumShips: int,
+    carryingCapacity: Dict[int, float],
+    dcZones: List[int],
+    nShipmentsPerCarrier: List[int],
+    nCarriers: int,
+    nTOD: int,
+    nNSTR: int,
+    logitParams_ETfirst: Dict[str, float],
+    logitParams_ETlater: Dict[str, float],
+    seed: int,
+    cars: List[int],
+) -> Tuple[List[List[List[int]]], List[List[np.ndarray]]]:
     '''
     Run the tour formation procedure for a set of carriers with a set of shipments.
     '''
-    tours = [[] for car in range(nCarriers)]
-    tourSequences = [[] for car in range(nCarriers)]
+    tours: List[List[List[int]]] = [[] for car in range(nCarriers)]
+    tourSequences: List[List[np.ndarray]] = [[] for car in range(nCarriers)]
 
     for car in cars:
         print(f'\tForming tours for carrier {car+1} of {nCarriers}...', end='\r')
@@ -620,8 +621,7 @@ def form_tours(
         tourCount = 0
 
         # Universal choice set = all non-allocated shipments per carrier
-        universalChoiceSet = (
-            shipments[carMarkers[car]:carMarkers[car + 1], :].copy())
+        universalChoiceSet = shipments[carMarkers[car]:carMarkers[car + 1], :].copy()
 
         if car < len(dcZones):
             dc = dcZones[car]
@@ -729,21 +729,18 @@ def form_tours(
                                 shipments)
 
                             # If no feasible shipments left
-                            if np.any(chosenShipment == -2):
+                            if chosenShipment is None:
                                 tourCount += 1
                                 break
 
                             else:
                                 shipmentCount += 1
 
-                                # Add the chosen shipment to the tour
-                                # and update tour sequence
-                                tours[car][tourCount] = np.append(
-                                    tours[car][tourCount],
-                                    int(chosenShipment[0]))
+                                # Add the chosen shipment to the tour and update tour sequence
+                                tours[car][tourCount] = tours[car][tourCount] + [int(chosenShipment[0])]
                                 tourLocations[shipmentCount, 0] = int(chosenShipment[1])
                                 tourLocations[shipmentCount, 1] = int(chosenShipment[2])
-                                
+
                                 tourTODs = shipments[tours[car][tourCount], 13]
                                 tourSequences[car][tourCount] = nearest_neighbor(
                                     tourLocations[0:shipmentCount + 1],
@@ -752,8 +749,7 @@ def form_tours(
                                     skim,
                                     nZones, nTOD)
 
-                                # Remove chosen shipment from
-                                # universal choice set
+                                # Remove chosen shipment fromuniversal choice set
                                 shipmentToDelete = np.where(
                                     universalChoiceSet[:, 0] == chosenShipment[0])[0][0]
                                 universalChoiceSet = np.delete(
@@ -762,15 +758,14 @@ def form_tours(
                                     0)
 
                                 if len(universalChoiceSet) != 0:
-                                    # Current tour, tourlocations
-                                    # and toursequence
+                                    # Current tour, tourlocations and toursequence
                                     tour = tours[car][tourCount]
 
                                     # End tour or not
                                     etChoice = endtour_later(
                                         tour,
                                         tourLocations[0:shipmentCount + 1],
-                                        [tourSequences[car][tourCount][0]],
+                                        tourSequences[car][tourCount],
                                         universalChoiceSet, skim,
                                         nZones,
                                         carryingCapacity,
@@ -792,4 +787,4 @@ def form_tours(
                 else:
                     tourCount += 1
 
-    return [tours, tourSequences]
+    return (tours, tourSequences)
