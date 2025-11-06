@@ -2,6 +2,7 @@ import multiprocessing as mp
 import os.path
 import sys
 import tkinter as tk
+import tkinter.filedialog
 import traceback
 
 from base64 import b64decode
@@ -135,7 +136,7 @@ class Root:
         '''
         Open up a file dialog
         '''
-        self.filename = tk.filedialog.askopenfilename(
+        self.filename = tkinter.filedialog.askopenfilename(
             initialdir="/",
             title="Select the .ini control file",
             filetype=(("Control files (.ini)", "*.ini"), ("All files", "*.*")))
