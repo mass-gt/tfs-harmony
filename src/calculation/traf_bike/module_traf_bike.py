@@ -133,13 +133,13 @@ def actually_run_module(
         demand_path = f"{varDict['OUTPUTFOLDER']}ParcelDemand_{label}.csv"
 
         if area == 'OD':
-            loadcsv_path = f"{varDict['OUTPUTFOLDER']}links_loaded_{area}.csv"
-            updated_links_path = f"{varDict['OUTPUTFOLDER']}links_loaded_{area}.shp"
+            loadcsv_path = f"{varDict['OUTPUTFOLDER']}bike_links_loaded_{area}.csv"
+            updated_links_path = f"{varDict['OUTPUTFOLDER']}bike_links_loaded_{area}.shp"
             disaggregated_trips_path = f"{varDict['OUTPUTFOLDER']}disaggregated_trips_{area}.csv"
             parking_heatmap_path = f"{varDict['OUTPUTFOLDER']}parking_heatmap_{area}.shp"
         else:
-            loadcsv_path = f"{varDict['OUTPUTFOLDER']}links_loaded_{area}_{label}.csv"
-            updated_links_path = f"{varDict['OUTPUTFOLDER']}links_loaded_{area}_{label}.shp"
+            loadcsv_path = f"{varDict['OUTPUTFOLDER']}bike_links_loaded_{area}_{label}.csv"
+            updated_links_path = f"{varDict['OUTPUTFOLDER']}bike_links_loaded_{area}_{label}.shp"
             disaggregated_trips_path = f"{varDict['OUTPUTFOLDER']}disaggregated_trips_{area}_{label}.csv"
             parking_heatmap_path = f"{varDict['OUTPUTFOLDER']}parking_heatmap_{area}_{label}.shp"
 
