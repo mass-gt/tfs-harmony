@@ -3,12 +3,14 @@ import pandas as pd
 import logging
 import time
 
-from typing import Any, Dict
+from tqdm import tqdm
+from typing import Any, Dict, List
 
 logger = logging.getLogger("tfs")
 
 
 def create_schedules(
+    varDict: Dict[Any, Any],
     parcelsAgg: pd.DataFrame,
     dropOffTime: float,
     skimTravTime: np.ndarray,
@@ -16,105 +18,81 @@ def create_schedules(
     parcelNodesCEP: Dict[int, str],
     parcelDepTime: np.ndarray,
     tourType: int,
+    tourType_origin: str,
     seed: int,
     root: Any,
     startValueProgress: float,
     endValueProgress: float,
-):
-    '''
-    Create the parcel schedules and store them in a DataFrame
-    '''
+) -> pd.DataFrame:
+    """Create the parcel schedules and store them in a DataFrame."""
     nZones = int(len(skimTravTime)**0.5)
-    depots = np.unique(parcelsAgg['Depot'])
-    nDepots = len(depots)
+    hubs = parcelsAgg[tourType_origin].unique()
 
-    print('\t0%', end='\r')
+    if 'MIC' in varDict['LABEL']:
+        microhubs = pd.read_csv(varDict['MICROHUBS'])
 
-    tours = {}
-    parcelsDelivered = {}
-    departureTimes = {}
+    tours, parcelsDelivered, departureTimes = {}, {}, {}
+
     depotCount = 0
-    nTrips = 0
+    nDepots = len(hubs)
 
-    for depot in np.unique(parcelsAgg['Depot']):
-        depotParcels = parcelsAgg[parcelsAgg['Depot'] == depot]
+    for hub in tqdm(hubs, desc="Processing hubs", unit="hub", ncols=80):
+        hubParcels = parcelsAgg[parcelsAgg[tourType_origin] == hub]
 
-        tours[depot] = {}
-        parcelsDelivered[depot] = {}
-        departureTimes[depot] = {}
+        tours[hub], parcelsDelivered[hub], departureTimes[hub] = {}, {}, {}
 
-        for cluster in np.unique(depotParcels['Cluster']):
-            tour = []
+        for cluster in hubParcels['Cluster'].unique():
+            clusterParcels = hubParcels[hubParcels['Cluster'] == cluster]
+            vehicle = clusterParcels['VEHTYPE'].iloc[0]
 
-            clusterParcels = depotParcels[depotParcels['Cluster'] == cluster]
-            depotZone = list(clusterParcels['Orig'])[0]
-            destZones = list(clusterParcels['Dest'])
+            hubZone = clusterParcels['Orig'].iloc[0]
+            destZones = clusterParcels['Dest'].tolist()
+
             nParcelsPerZone = dict(zip(destZones, clusterParcels['Parcels']))
 
             # Nearest neighbor
-            tour.append(depotZone)
-            for i in range(len(destZones)):
-                distances = [skimDistance[
-                    tour[i] * nZones + dest] for dest in destZones]
+            tour = [hubZone]
+            while destZones:
+                distances = skimDistance[(tour[-1] - 1) * nZones + np.array(destZones) - 1]
                 nextIndex = np.argmin(distances)
-                tour.append(destZones[nextIndex])
-                destZones.pop(nextIndex)
-            tour.append(depotZone)
+                tour.append(destZones.pop(nextIndex))
+            tour.append(hubZone)
 
-            # Shuffle the order of tour locations and accept
-            # the shuffle if it reduces the tour distance
-            nStops = len(tour)
+            # Optimize tour ordering (2-opt-like swap)
             tour = np.array(tour, dtype=int)
-            tourDist = np.sum(skimDistance[tour[:-1] * nZones + tour[1:]])
+            tourDist = skimDistance[(tour[:-1] - 1) * nZones + (tour[1:] - 1)].sum()
 
-            if nStops > 4:
-                for shiftLocA in range(1, nStops - 1):
-                    for shiftLocB in range(1, nStops - 1):
-                        if shiftLocA != shiftLocB:
-                            swappedTour = tour.copy()
-                            swappedTour[shiftLocA] = tour[shiftLocB]
-                            swappedTour[shiftLocB] = tour[shiftLocA]
-                            swappedTourDist = np.sum(skimDistance[
-                                swappedTour[:-1] * nZones + swappedTour[1:]])
-
-                            if swappedTourDist < tourDist:
-                                tour = swappedTour.copy()
-                                tourDist = swappedTourDist
+            if len(tour) > 4:
+                for shiftLocA in range(1, len(tour) - 2):
+                    for shiftLocB in range(shiftLocA + 1, len(tour) - 1):
+                        swappedTour = tour.copy()
+                        swappedTour[shiftLocA], swappedTour[shiftLocB] = swappedTour[shiftLocB], swappedTour[shiftLocA]
+                        swappedTourDist = skimDistance[(swappedTour[:-1] - 1) * nZones + (swappedTour[1:] - 1)].sum()
+                        if swappedTourDist < tourDist:
+                            tour, tourDist = swappedTour, swappedTourDist
 
             # Add current tour to dictionary with all formed tours
-            tours[depot][cluster] = list(tour.copy())
+            tours[hub][cluster] = [tour.tolist(), vehicle]
 
             # Store the number of parcels delivered at each
             # location in the tour
-            nParcelsPerStop = []
-            for i in range(1, nStops - 1):
-                nParcelsPerStop.append(nParcelsPerZone[tour[i]])
-            nParcelsPerStop.append(0)
-            parcelsDelivered[depot][cluster] = list(nParcelsPerStop.copy())
+            parcelsDelivered[hub][cluster] = [
+                nParcelsPerZone.get(t, 0) for t in tour[1:-1]] + [0]
 
             # Determine the departure time of each trip in the tour
-            np.random.seed(seed + 10000 * depot + cluster)
+            np.random.seed(seed + 10000 * hub + cluster)
             np.random.seed(np.random.randint(10000000))
 
             departureTimesTour = [
-                np.where(parcelDepTime > np.random.rand())[0][0] +
-                np.random.rand()]
+                np.searchsorted(parcelDepTime, np.random.rand()) + np.random.rand()]
 
-            for i in range(1, nStops - 1):
-                orig = tour[i - 1]
-                dest = tour[i]
-                travTime = skimTravTime[orig * nZones + dest] / 3600
+            for i in range(1, len(tour)):
+                travTime = skimTravTime[(tour[i - 1] - 1) * nZones + (tour[i] - 1)]
                 departureTimesTour.append(
-                    departureTimesTour[i - 1] +
-                    dropOffTime * nParcelsPerStop[i - 1] +
-                    travTime)
-            departureTimes[depot][cluster] = list(departureTimesTour.copy())
+                    departureTimesTour[-1] +
+                    dropOffTime * parcelsDelivered[hub][cluster][i - 1] + travTime)
 
-            nTrips += (nStops - 1)
-
-        print(
-            '\t' + str(round((depotCount + 1) / nDepots * 100, 1)) + '%',
-            end='\r')
+            departureTimes[hub][cluster] = departureTimesTour
 
         if root is not None:
             root.progressBar['value'] = (
@@ -125,218 +103,198 @@ def create_schedules(
 
     # --------------------------- Create return table -------------------------
     deliveriesCols = [
-        'TourType',
-        'CEP',
-        'Depot_ID', 'Tour_ID', 'Trip_ID', 'Unique_ID',
-        'O_zone', 'D_zone',
-        'N_parcels',
-        'Traveltime',
-        'TourDepTime', 'TripDepTime', 'TripEndTime']
-    deliveries = np.zeros((nTrips, len(deliveriesCols)), dtype=object)
+        'TourType', 'CEP', 'Depot_ID', 'MH_ID',
+        'Tour_ID', 'Trip_ID', 'Unique_ID',
+        'O_zone', 'D_zone', 'N_parcels',
+        'Traveltime', 'Distance', 'TourDepTime', 'TripDepTime', 'TripEndTime', 'Vehicle']
 
-    tripcount = 0
-    for depot in tours.keys():
-        for tour in tours[depot].keys():
-            for trip in range(len(tours[depot][tour]) - 1):
+    deliveries = []
 
-                orig = tours[depot][tour][trip]
-                dest = tours[depot][tour][trip + 1]
+    for hub, tour_data in tqdm(tours.items(), desc="Compiling deliveries", unit="tour", ncols=80):
+        for tour, (tourStops, vehicle) in tour_data.items():
+            for trip in range(len(tourStops) - 1):
+                orig, dest = tourStops[trip], tourStops[trip + 1]
+                deliveries.append([
+                    tourType,
+                    parcelNodesCEP.get(hub, np.nan) if tourType <= 1 else (
+                        microhubs.loc[microhubs.ID == hub, 'CEP'].values[0] if 'MIC' in varDict['LABEL'] else 'ConsolidatedUCC'
+                    ),
+                    hub if tourType <= 1 else np.nan,
+                    np.nan if tourType <= 1 else hub,
+                    f'{hub}_{tour}',
+                    f'{hub}_{tour}_{trip}',
+                    f'{hub}_{tour}_{trip}_{tourType}',
+                    orig,
+                    dest,
+                    parcelsDelivered[hub][tour][trip],
+                    skimTravTime[(orig - 1) * nZones + (dest - 1)],
+                    skimDistance[(orig - 1) * nZones + (dest - 1)] / 1000,
+                    departureTimes[hub][tour][0],
+                    departureTimes[hub][tour][trip],
+                    departureTimes[hub][tour][trip + 1],
+                    vehicle
+                ])
 
-                # Depot to HH (0) or UCC (1), UCC to HH by van (2)/LEVV (3)
-                deliveries[tripcount, 0] = tourType
+    deliveries_df = pd.DataFrame(deliveries, columns=deliveriesCols)
+    deliveries_df = deliveries_df.astype({
+        'TourType': int, 'CEP': str, 'Depot_ID': float, 'MH_ID': float,
+        'Tour_ID': str, 'Trip_ID': str, 'Unique_ID': str,
+        'O_zone': int, 'D_zone': int, 'N_parcels': int,
+        'Traveltime': float, 'Distance': float, 'TourDepTime': float,
+        'TripDepTime': float, 'TripEndTime': float, 'Vehicle': int
+    })
 
-                # Name of the couriers
-                if tourType <= 1:
-                    deliveries[tripcount, 1] = parcelNodesCEP[depot]
-                else:
-                    deliveries[tripcount, 1] = 'ConsolidatedUCC'
+    # Add OrigType and DestType
+    if 'MIC' in varDict['LABEL']:
+        OD_tourtype_Dic = {0: ['Depot', 'HH'], 1: ['Depot', 'MH'], 2: ['MH', 'HH']}
+    elif varDict['LABEL'] == 'USE_CASE_REF':
+        OD_tourtype_Dic = {0: ['Depot', 'HH']}
+    else:
+        OD_tourtype_Dic = {
+            0: ['Depot', 'HH'], 1: ['Depot', 'UCC'],
+            2: ['UCC', 'HH'], 3: ['UCC', 'HH']
+        }
+        deliveries_df['VehType'] = ['Van', 'Van', 'Van', 'LEVV'][tourType]
 
-                # Depot_ID, Tour_ID, Trip_ID,
-                # Unique ID under consideration of tour type
-                deliveries[tripcount, 2] = depot
-                deliveries[tripcount, 3] = f'{depot}_{tour}'
-                deliveries[tripcount, 4] = f'{depot}_{tour}_{trip}'
-                deliveries[tripcount, 5] = f'{depot}_{tour}_{trip}_{tourType}'
+    deliveries_df['OrigType'] = deliveries_df['TourType'].map(lambda x: OD_tourtype_Dic.get(x, [None, None])[0])
+    deliveries_df['DestType'] = deliveries_df['TourType'].map(lambda x: OD_tourtype_Dic.get(x, [None, None])[1])
 
-                # Origin and destination
-                deliveries[tripcount, 6] = orig
-                deliveries[tripcount, 7] = dest
-
-                # Number of parcels
-                deliveries[tripcount, 8] = parcelsDelivered[depot][tour][trip]
-
-                # Travel time in hrs
-                deliveries[tripcount, 9] = skimTravTime[
-                    orig * nZones + dest] / 3600
-
-                # Departure of tour from depot
-                deliveries[tripcount, 10] = departureTimes[depot][tour][0]
-
-                # Departure time of trip
-                deliveries[tripcount, 11] = departureTimes[depot][tour][trip]
-
-                # End of trip/start of next trip if there is another one
-                deliveries[tripcount, 12] = 0.0
-
-                tripcount += 1
-
-    # Place in DataFrame with the right data type per column
-    deliveries = pd.DataFrame(deliveries, columns=deliveriesCols)
-    for col, dtype in (
-        ('TourType', int),
-        ('CEP', str),
-        ('Depot_ID', int),
-        ('Tour_ID', str),
-        ('Trip_ID', str),
-        ('Unique_ID', str),
-        ('O_zone', int),
-        ('D_zone', int),
-        ('N_parcels', int),
-        ('Traveltime', float),
-        ('TourDepTime', float),
-        ('TripDepTime', float),
-        ('TripEndTime', float),
-    ):
-        deliveries[col] = deliveries[col].astype(dtype)
-
-    vehTypes = ['Van', 'Van', 'Van', 'LEVV']
-    origTypes = ['Depot', 'Depot', 'UCC', 'UCC']
-    destTypes = ['HH', 'UCC', 'HH', 'HH']
-
-    deliveries['VehType'] = vehTypes[tourType]
-    deliveries['OrigType'] = origTypes[tourType]
-    deliveries['DestType'] = destTypes[tourType]
-
-    if root is not None:
-        root.progressBar['value'] = endValueProgress
-
-    return deliveries
+    return deliveries_df
 
 
 def cluster_parcels(
-    parcels, maxVehicleLoad, skimDistance,
-    root, startValueProgress, endValueProgress
-):
+    varDict: Dict[str, Any],
+    parcels: pd.DataFrame,
+    typeoftour: int,
+    skimDistance: np.ndarray,
+    root: Any,
+    startValueProgress: float,
+    endValueProgress: float,
+) -> pd.DataFrame:
     '''
-    Assign parcels to clusters based on spatial proximity with
-    cluster size constraints.
+    Assign parcels to clusters based on spatial proximity with cluster size constraints.
     The cluster variable is added as extra column to the DataFrame.
     '''
-    parcels.index = np.arange(len(parcels))
-
-    depotNumbers = np.unique(parcels['DepotNumber'])
     nParcels = len(parcels)
+
+    if 'MIC' in varDict['LABEL']:
+        typeoftoursdic = {0: 'DepotNumber', 1: 'DepotNumber', 2: 'FROM_MH'}
+        microhub_vt_capacity = {
+            int(row['Veh_ID']): int(row['Capacity'])
+            for row in pd.read_csv(varDict['VEHICLETYPES']).to_dict('records')
+        }
+    elif varDict['LABEL'] == 'UCC':
+        typeoftoursdic = {0: 'DepotNumber', 1: 'DepotNumber', 2: 'FROM_UCC', 3: 'FROM_UCC'}
+    else:
+        typeoftoursdic = {0: 'DepotNumber'}
+
+    # vehicletype = parcels.VEHTYPE.unique()
+    parcels['Cluster'] = -1
+    parcels.index = np.arange(len(parcels))
     nParcelsAssigned = 0
     firstClusterID = 0
     nZones = int(len(skimDistance)**0.5)
 
-    parcels['Cluster'] = -1
+    for veh in parcels['VEHTYPE'].unique():
+        parcels_veh: pd.DataFrame = parcels[parcels['VEHTYPE'] == veh].copy()
 
-    print('\t0%', end='\r')
+        # Determine vehicle capacity
+        if 'MIC' in varDict['LABEL']:
+            maxVehicleLoad = varDict['PARCELS_MAXLOAD'] if typeoftour == 0 else microhub_vt_capacity[veh]
+        elif varDict['LABEL'] == 'UCC':
+            maxVehicleLoad = varDict['PARCELS_MAXLOAD'] / 5 if typeoftour == 4 else varDict['PARCELS_MAXLOAD']
+        else:
+            maxVehicleLoad = varDict['PARCELS_MAXLOAD']
+        maxVehicleLoad = int(maxVehicleLoad)
 
-    # First check for depot/destination combination with more than
-    # {maxVehicleLoad} parcels.
-    # These we don't need to use the clustering algorithm for
-    counts = pd.pivot_table(
-        parcels,
-        values=['VEHTYPE'],
-        index=['DepotNumber', 'D_zone'],
-        aggfunc=len)
+        counts = parcels_veh.groupby([typeoftoursdic[typeoftour], 'D_zone']).size()
 
-    whereLargeCluster = list(counts.index[
-        np.where(counts >= maxVehicleLoad)[0]])
+        # Large cluster assignment (where parcels exceed max load)
+        for (hub, destZone), _ in counts[counts >= maxVehicleLoad].items():
+            indices = parcels_veh.index[
+                (parcels_veh[typeoftoursdic[typeoftour]] == hub) &
+                (parcels_veh['D_zone'] == destZone)
+            ]
 
-    for x in whereLargeCluster:
-        depotNumber = x[0]
-        destZone = x[1]
+            while len(indices) >= maxVehicleLoad:
+                parcels.loc[indices[:maxVehicleLoad], 'Cluster'] = firstClusterID
+                indices = indices[maxVehicleLoad:]
 
-        indices = np.where(
-            (parcels['DepotNumber'] == depotNumber) &
-            (parcels['D_zone'] == destZone))[0]
-
-        for i in range(int(np.floor(len(indices) / maxVehicleLoad))):
-            parcels.loc[indices[:maxVehicleLoad], 'Cluster'] = firstClusterID
-            indices = indices[maxVehicleLoad:]
-
-            firstClusterID += 1
-            nParcelsAssigned += maxVehicleLoad
-
-            print('\t' + str(round(nParcelsAssigned / nParcels * 100, 1)) + '%',
-                  end='\r')
+                firstClusterID += 1
+                nParcelsAssigned += maxVehicleLoad
 
             if root is not None:
                 root.progressBar['value'] = (
                     startValueProgress +
                     (endValueProgress - startValueProgress - 1) * nParcelsAssigned / nParcels)
 
-    # For each depot, cluster remaining parcels into batches of
-    # {maxVehicleLoad} parcels
-    for depotNumber in depotNumbers:
+        # Cluster remaining parcels
+        hubs = np.sort(parcels[typeoftoursdic[typeoftour]].unique())
+        for hub in hubs:
+            parcelsToFit: pd.DataFrame = parcels.loc[
+                (parcels[typeoftoursdic[typeoftour]] == hub) & (parcels['Cluster'] == -1)
+            ].copy()
 
-        # Select parcels of the depot that are not assigned a cluster yet
-        parcelsToFit = parcels[
-            (
-                (parcels['DepotNumber'] == depotNumber) &
-                (parcels['Cluster'] == -1)
-            )].copy()
+            if parcelsToFit.empty:
+                continue
 
-        # Sort parcels descending based on distance to depot
-        # so that at the end of the loop the remaining parcels
-        # are all nearby the depot and form a somewhat reasonable
-        # parcels cluster
-        parcelsToFit['Distance'] = skimDistance[
-            (parcelsToFit['O_zone'] - 1) * nZones +
-            (parcelsToFit['D_zone'] - 1)]
-        parcelsToFit = parcelsToFit.sort_values('Distance', ascending=False)
-        parcelsToFitIndex = list(parcelsToFit.index)
-        parcelsToFit.index = np.arange(len(parcelsToFit))
-        dests = np.array(parcelsToFit['D_zone'])
+            # Compute distance to depot and sort descending
+            parcelsToFit['Distance'] = skimDistance[
+                (parcelsToFit['O_zone'] - 1) * nZones + (parcelsToFit['D_zone'] - 1)]
 
-        # How many tours are needed to deliver these parcels
-        nTours = int(np.ceil(len(parcelsToFit) / maxVehicleLoad))
+            parcelsToFit = parcelsToFit.sort_values('Distance', ascending=False)
 
-        # In the case of 1 tour it's simple,
-        # all parcels belong to the same cluster
-        if nTours == 1:
-            parcels.loc[parcelsToFitIndex, 'Cluster'] = firstClusterID
-            firstClusterID += 1
-            nParcelsAssigned += len(parcelsToFit)
+            nTours = int(np.ceil(len(parcelsToFit) / maxVehicleLoad))
 
-        # When there are multiple tours needed, the heuristic is a
-        # little bit more complex
-        else:
-            clusters = np.ones(len(parcelsToFit), dtype=int) * -1
+            # If only one tour is needed
+            if nTours == 1:
+                parcels.loc[parcelsToFit.index, 'Cluster'] = firstClusterID
+                firstClusterID += 1
+                nParcelsAssigned += len(parcelsToFit)
+                continue
 
-            for tour in range(nTours):
-                # Select the first parcel for the new cluster
-                # that is now initialized
-                yetAssigned = (clusters != -1)
-                notYetAssigned = np.where(~yetAssigned)[0]
-                firstParcelIndex = notYetAssigned[0]
-                clusters[firstParcelIndex] = firstClusterID
+            unassigned_parcels = set(parcelsToFit.index)
 
-                # Find the nearest {maxVehicleLoad-1} parcels
-                # to this first parcel that are not in a cluster yet
-                distances = skimDistance[
-                    (dests[firstParcelIndex] - 1) * nZones + (dests - 1)]
-                distances[notYetAssigned[0]] = 99999
-                distances[yetAssigned] = 99999
-                clusters[np.argsort(distances)[
-                    :(maxVehicleLoad - 1)]] = firstClusterID
+            # Multi-tour case: Cluster by proximity
+            with tqdm(
+                total=nTours, desc=f"  Assigning parcels to clusters for hub {hub}",
+                unit="cluster", leave=False, dynamic_ncols=True, ascii=True
+            ) as cluster_pbar:
+                for _ in range(nTours):
+                    if not unassigned_parcels:
+                        break
 
+                    # Select the furthest unassigned parcel as the seed for the new cluster
+                    seed_parcel_idx = parcelsToFit.loc[list(unassigned_parcels), 'Distance'].idxmax()
+                    cluster_parcels = {seed_parcel_idx}
+                    unassigned_parcels.remove(seed_parcel_idx)
+
+                    # Compute distances from the seed parcel to all other unassigned parcels
+                    parcelsToFit['Distance_Relative'] = skimDistance[
+                        (parcelsToFit.loc[seed_parcel_idx, 'D_zone'] - 1) * nZones +
+                        (parcelsToFit['D_zone'] - 1)
+                    ]
+
+                    # Find the closest parcels (excluding the seed), up to vehicle capacity
+                    nearest_parcels = (
+                        parcelsToFit.loc[list(unassigned_parcels), 'Distance_Relative']
+                        .nsmallest(n=maxVehicleLoad - 1)
+                        .index
+                    )
+
+                    cluster_parcels.update(nearest_parcels)
+                    unassigned_parcels.difference_update(nearest_parcels)
+
+                    parcels.loc[list(cluster_parcels), 'Cluster'] = firstClusterID
+                    firstClusterID += 1
+                    cluster_pbar.update(1)
+
+            # Assign any remaining parcels to a final cluster
+            if unassigned_parcels:
+                parcels.loc[list(unassigned_parcels), 'Cluster'] = firstClusterID
                 firstClusterID += 1
 
-            # Group together remaining parcels, these are all nearby the depot
-            yetAssigned = (clusters != -1)
-            notYetAssigned = np.where(~yetAssigned)[0]
-            clusters[notYetAssigned] = firstClusterID
-            firstClusterID += 1
-
-            parcels.loc[parcelsToFitIndex, 'Cluster'] = clusters
             nParcelsAssigned += len(parcelsToFit)
-
-            print('\t' + str(round(nParcelsAssigned / nParcels * 100, 1)) + '%',
-                  end='\r')
 
             if root is not None:
                 root.progressBar['value'] = (
@@ -356,7 +314,7 @@ def write_schedules_to_geojson(
     varDict: Dict[str, str],
     root: Any,
 ) -> None:
-    """Writes the parcel schedules to a geojson file with coordinates."""
+    """Write the parcel schedules to a geojson file with coordinates."""
     # Initialize arrays with coordinates
     Ax = np.zeros(len(deliveries), dtype=int)
     Ay = np.zeros(len(deliveries), dtype=int)
@@ -452,129 +410,70 @@ def write_schedules_to_geojson(
         geoFile.write('}')
 
 
-def export_trip_matrices(
-    deliveries: pd.DataFrame,
-    varDict: Dict[str, str],
-) -> None:
-    """Constructs OD matrices with numbers of trips and exports these to the output folder."""
-    cols = ['ORIG', 'DEST', 'N_TOT']
+def export_trip_matrices(deliveries: pd.DataFrame, varDict: Dict[str, Any]) -> None:
+    """Aggregate deliveries to trip matrices and export to output folder."""
     deliveries['N_TOT'] = 1
 
-    # Gebruik N_TOT om het aantal ritten per HB te bepalen,
-    # voor elk logistiek segment, voertuigtype en totaal
-    pivotTable = pd.pivot_table(
-        deliveries,
-        values=['N_TOT'],
-        index=['O_zone', 'D_zone'],
-        aggfunc=np.sum)
-    pivotTable['ORIG'] = [x[0] for x in pivotTable.index]
-    pivotTable['DEST'] = [x[1] for x in pivotTable.index]
-    pivotTable = pivotTable[cols]
+    for veh in deliveries['Vehicle'].unique():
+        df = deliveries[deliveries['Vehicle'] == veh].copy()
+        tour_type = df['TourType'].iloc[0]
+        df['TripDepTime'] = df['TripDepTime'] % 24  # Wrap times over 24
 
-    # Assume one intrazonal trip for each zone with
-    # multiple deliveries visited in a tour
-    intrazonalTrips = {}
+        is_veh14 = veh == 14
 
-    for i in deliveries[deliveries['N_parcels'] > 1].index:
-        zone = deliveries.at[i, 'D_zone']
-        if zone in intrazonalTrips.keys():
-            intrazonalTrips[zone] += 1
-        else:
-            intrazonalTrips[zone] = 1
+        if is_veh14:
+            # Add trip index and classify
+            df['trip_index'] = df['Trip_ID'].apply(lambda x: int(x.split('_')[-1]))
+            df = df.sort_values(['Tour_ID', 'trip_index'])
+            df['first_trip'] = df.groupby('Tour_ID')['trip_index'].transform('min') == df['trip_index']
+            df['last_trip'] = df.groupby('Tour_ID')['trip_index'].transform('max') == df['trip_index']
+            df['trip_type'] = df.apply(
+                lambda row: 'first' if row['first_trip'] else ('last' if row['last_trip'] else 'intermediate'),
+                axis=1
+            )
 
-    intrazonalKeys = list(intrazonalTrips.keys())
+        # === LOOP OVER TOD ===
+        for tod in range(24):
+            df_tod = df[(df['TripDepTime'] >= tod) & (df['TripDepTime'] < tod + 1)].copy()
+            if df_tod.empty:
+                continue
 
-    for zone in intrazonalKeys:
+            if is_veh14:
+                pivot = pd.pivot_table(
+                    df_tod,
+                    values='N_TOT',
+                    index=['O_zone', 'D_zone'],
+                    columns='trip_type',
+                    aggfunc='sum',
+                    fill_value=0
+                ).reset_index()
+            else:
+                pivot = df_tod.groupby(['O_zone', 'D_zone'])['N_TOT'].sum().reset_index()
 
-        if (zone, zone) in pivotTable.index:
-            pivotTable.at[(zone, zone), 'N_TOT'] += (
-                intrazonalTrips[zone])
+            # Save TOD matrix
+            pivot.to_csv(
+                f"{varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}_{veh}_tourtype{tour_type}_TOD{tod}.txt",
+                index=False, sep='\t'
+            )
 
-            del intrazonalTrips[zone]
-
-    intrazonalTripsDF = pd.DataFrame(np.zeros((len(intrazonalTrips), 3)), columns=cols)
-    intrazonalTripsDF['ORIG'] = intrazonalTrips.keys()
-    intrazonalTripsDF['DEST'] = intrazonalTrips.keys()
-    intrazonalTripsDF['N_TOT'] = intrazonalTrips.values()
-
-    pivotTable = pivotTable.append(intrazonalTripsDF)
-    pivotTable = pivotTable.sort_values(['ORIG', 'DEST'])
-
-    pivotTable.to_csv(
-        (
-            varDict['OUTPUTFOLDER'] +
-            f"tripmatrix_parcels_{varDict['LABEL']}.txt"
-        ),
-        index=False,
-        sep='\t')
-
-    logger.debug(
-        "\tTrip matrix written to " +
-        f"{varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}.txt")
-
-    # Departure time after 24:00 get 24 subtracted
-    deliveries.loc[deliveries['TripDepTime'] >= 24, 'TripDepTime'] -= 24
-    deliveries.loc[deliveries['TripDepTime'] >= 24, 'TripDepTime'] -= 24
-
-    for tod in range(24):
-
-        logger.debug(f"\t\tAlso generating trip matrix for TOD {tod}...")
-
-        output = deliveries[
-            (deliveries['TripDepTime'] >= tod) &
-            (deliveries['TripDepTime'] < (tod + 1))].copy()
-        output['N_TOT'] = 1
-
-        if len(output) > 0:
-            # Gebruik deze dummies om het aantal ritten
-            # per HB te bepalen, voor elk logistiek segment,
-            # voertuigtype en totaal
-            pivotTable = pd.pivot_table(
-                output,
-                values=['N_TOT'],
+        # === FULL-DAY MATRIX ===
+        if is_veh14:
+            pivot_day = pd.pivot_table(
+                df,
+                values='N_TOT',
                 index=['O_zone', 'D_zone'],
-                aggfunc=np.sum)
-            pivotTable['ORIG'] = [x[0] for x in pivotTable.index]
-            pivotTable['DEST'] = [x[1] for x in pivotTable.index]
-            pivotTable = pivotTable[cols]
-
-            # Assume one intrazonal trip for each zone with
-            # multiple deliveries visited in a tour
-            intrazonalTrips = {}
-
-            for i in output[output['N_parcels'] > 1].index:
-                zone = output.at[i, 'D_zone']
-                if zone in intrazonalTrips.keys():
-                    intrazonalTrips[zone] += 1
-                else:
-                    intrazonalTrips[zone] = 1
-
-            intrazonalKeys = list(intrazonalTrips.keys())
-
-            for zone in intrazonalKeys:
-
-                if (zone, zone) in pivotTable.index:
-                    pivotTable.at[(zone, zone), 'N_TOT'] += (
-                        intrazonalTrips[zone])
-
-                    del intrazonalTrips[zone]
-
-            intrazonalTripsDF = pd.DataFrame(
-                np.zeros((len(intrazonalTrips), 3)),
-                columns=cols)
-            intrazonalTripsDF['ORIG'] = intrazonalTrips.keys()
-            intrazonalTripsDF['DEST'] = intrazonalTrips.keys()
-            intrazonalTripsDF['N_TOT'] = intrazonalTrips.values()
-            pivotTable = pivotTable.append(intrazonalTripsDF)
-            pivotTable = pivotTable.sort_values(['ORIG', 'DEST'])
-
+                columns='trip_type',
+                aggfunc='sum',
+                fill_value=0
+            ).reset_index()
         else:
-            pivotTable = pd.DataFrame(columns=cols)
+            pivot_day = df.groupby(['O_zone', 'D_zone'])['N_TOT'].sum().reset_index()
 
-        pivotTable.to_csv(
-            f"{varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}_TOD{tod}.txt",
-            index=False,
-            sep='\t')
+        # Save full-day matrix
+        pivot_day.to_csv(
+            f"{varDict['OUTPUTFOLDER']}tripmatrix_parcels_{varDict['LABEL']}_{veh}_tourtype{tour_type}.txt",
+            index=False, sep='\t'
+        )
 
 
 def do_crowdshipping(
@@ -1142,3 +1041,82 @@ def do_crowdshipping(
 
     if root is not None:
         root.progressBar['value'] = 55.0
+
+
+def create_summary(
+    parcels: pd.DataFrame,
+    deliveries: pd.DataFrame,
+    microhubs: pd.DataFrame,
+    tier: str,
+) -> pd.DataFrame:
+    """Create a table of summary statistics per microhub."""
+    avg_shift_duration = 8
+
+    mh_to_cep = {row['ID']: row['CEP'] for row in microhubs.to_dict('records')}
+
+    pivot_from_mh = parcels['FROM_MH'].value_counts().to_dict()
+    pivot_to_mh = parcels['TO_MH'].value_counts().to_dict()
+
+    summary_list: List[List[Any]] = []
+
+    for mc_id in set(list(pivot_from_mh.keys()) + list(pivot_to_mh.keys())):
+        if mc_id <= 0:
+            continue
+
+        n_parcels_arriving = pivot_to_mh.get(mc_id, 0.0)
+        n_parcels_departing = pivot_from_mh.get(mc_id, 0.0)
+
+        subset_tours = deliveries.loc[deliveries['MH_ID'] == mc_id, :].copy()
+
+        n_trips = subset_tours.shape[0]
+
+        where_tour = subset_tours.groupby('Tour_ID').apply(lambda x: x.index.tolist()).to_dict()
+        n_tours = len(where_tour)
+
+        tour_durations = [
+            subset_tours.at[rows[-1], 'TripEndTime'] - subset_tours.at[rows[0], 'TourDepTime']
+            for tour_id, rows in where_tour.items()
+        ]
+        avg_tour_duration = np.mean(tour_durations)
+        avg_num_tours_in_shift = avg_shift_duration / avg_tour_duration
+        required_fleet_size = np.ceil(n_tours / avg_num_tours_in_shift)
+
+        summary_list.append([
+            mc_id,
+            'Shared' if tier == "Horizontal Collaboration" else mh_to_cep[mc_id],
+            n_parcels_arriving,
+            n_parcels_departing,
+            n_parcels_arriving - n_parcels_departing,
+            n_trips,
+            n_tours,
+            required_fleet_size,
+            subset_tours["Traveltime"].sum(),
+            sum(tour_durations),
+        ])
+
+    summary_list = summary_list + [
+        [
+            'Total',
+            '',
+            *[
+                sum(summary_list[i][j] for i in range(len(summary_list)))
+                for j in range(2, len(summary_list[0]))
+            ]
+        ]
+    ]
+
+    return pd.DataFrame(
+        summary_list,
+        columns=[
+            'Microhub',
+            'Courier',
+            'Total number of parcels handled',
+            'Number of parcels out for delivery',
+            'Number of parcels in pick-up lockers',
+            'Number of trips',
+            'Number of tours',
+            'Required fleet size',
+            'Total time spent driving (h)',
+            'Total time spent overall (h)',
+        ],
+    )

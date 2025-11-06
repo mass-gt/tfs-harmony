@@ -7,12 +7,15 @@ An example of such an .ini-file is shown at the bottom. In this file you specify
 The Tactical Freight Simulator has a large set of input files required for its calculations. To obtain the input files of the implementation in Zuid-Holland, the Netherlands, contact Sebastiaan Thoen (`@sebastiaanth` on GitHub). 
 
 Besides the Python Standard Library, make sure you have the following libraries installed:
-- numpy==1.19.1
-- pandas==1.0.5
-- scipy==1.5.0
-- pyshp==2.1.0
-- shapely==1.7.0
-- numba==0.53.0
+- numpy==2.1.3
+- pandas==2.2.3
+- scipy==1.14.1
+- pyshp==2.3.1
+- shapely==2.0.6
+- numba==0.61.0
+- tqdm==4.67.1
+- psutil==7.1.3
+The environment needs to have Python version 3.10.
 
 Finally, when you are using the Spyder IDE for running your Python scripts, make sure to have selected `Execute in an external system terminal` under `Tools-->Preferences-->Run-->Console`. This is necessary to make the scripts work that use parallelization of processes (tour formation module and traffic assignment module). 
 
@@ -52,53 +55,61 @@ PARAMFOLDER  = C:\...\parameters\
 OUTPUTFOLDER = C:\...\RunREF2016\
 DIMFOLDER = C:\...\dimensions\
 
-# ------------------- Input files ------------------------------------------------
-SKIMTIME     = C:\...\data\LOS\2016\skimTijd_REF.mtx
-SKIMDISTANCE = C:\...\data\LOS\2016\skimAfstand_REF.mtx
-LINKS  = <<INPUTFOLDER>>links_v5.shp
-NODES  = <<INPUTFOLDER>>nodes_v5.shp
-ZONES  = <<INPUTFOLDER>>Zones_v5.shp
-SEGS   = <<INPUTFOLDER>>SEGS2016_verrijkt.csv
-COMMODITYMATRIX    = <<INPUTFOLDER>>CommodityMatrixNUTS3_2016.csv
-PARCELNODES        = <<INPUTFOLDER>>parcelNodes_v2.shp
-CEP_SHARES         = <<INPUTFOLDER>>CEPshares.csv
-DISTRIBUTIECENTRA  = <<INPUTFOLDER>>distributieCentra.csv
-DC_OPP_NUTS3       = <<INPUTFOLDER>>DC_OPP_NUTS3.csv
-NSTR_TO_LS         = <<INPUTFOLDER>>nstrToLogisticSegment.csv
-MAKE_DISTRIBUTION  = <<INPUTFOLDER>>MakeDistribution.csv
-USE_DISTRIBUTION   = <<INPUTFOLDER>>UseDistribution.csv
-SUP_COORDINATES_ID = <<INPUTFOLDER>>SupCoordinatesID.csv
-CORRECTIONS_TONNES = <<INPUTFOLDER>>CorrectionsTonnes2016.csv
-DEPTIME_PARCELS = <<INPUTFOLDER>>departureTimeParcelsCDF.csv
-FIRMSIZE        = <<INPUTFOLDER>>FirmSizeDistributionPerSector_6cat.csv
-SBI_TO_SEGS     = <<INPUTFOLDER>>Koppeltabel_sectoren_SBI_SEGs.csv
 
-COST_VEHTYPE   = <<PARAMFOLDER>>Cost_VehType_2016.csv
-COST_SOURCING  = <<PARAMFOLDER>>Cost_Sourcing_2016.csv
-MRDH_TO_NUTS3  = <<PARAMFOLDER>>MRDHtoNUTS32013.csv
-MRDH_TO_COROP  = <<PARAMFOLDER>>MRDHtoCOROP.csv
-NUTS3_TO_MRDH  = <<PARAMFOLDER>>NUTS32013toMRDH.csv
-SERVICE_DISTANCEDECAY = <<PARAMFOLDER>>Params_DistanceDecay_SERVICE.csv
+# ------------------- Input files ------------------------------------------------
+SKIMTIME     = <<INPUTFOLDER>>skimTijd_REF.mtx
+SKIMDISTANCE = <<INPUTFOLDER>>skimAfstand_REF.mtx
+SKIMDISTANCE_MIC_FIRSTLEG = <<INPUTFOLDER>>skimAfstand_MIC_FIRSTLEG.mtx
+SKIMDISTANCE_MIC_LASTLEG = <<INPUTFOLDER>>skimAfstand_MIC_LASTLEG.mtx
+LINKS  = <<INPUTFOLDER>>links_v13.shp
+NODES  = <<INPUTFOLDER>>nodes_v13.shp
+ZONES  = <<INPUTFOLDER>>areas_validated4.shp
+SEGS   = <<INPUTFOLDER>>SEGS_2020_Verrijkt_v2.csv
+COMMODITYMATRIX    = <<INPUTFOLDER>>commodity_matrix_v4.txt
+PARCELNODES        = <<INPUTFOLDER>>parcelNodes_v2.shp
+CEP_SHARES         = <<INPUTFOLDER>>courier_shares.txt
+DISTRIBUTIECENTRA  = <<INPUTFOLDER>>distribution_centers.txt
+DC_OPP_NUTS3       = <<INPUTFOLDER>>distribution_centers_surface_nuts3.txt
+NSTR_TO_LS         = <<INPUTFOLDER>>nstr_to_logistic_segment.txt
+MAKE_DISTRIBUTION  = <<INPUTFOLDER>>make_distribution.txt
+USE_DISTRIBUTION   = <<INPUTFOLDER>>use_distribution.txt
+SUP_COORDINATES_ID = <<INPUTFOLDER>>corop_coordinates.txt
+CORRECTIONS_TONNES = <<INPUTFOLDER>>local_corrections.txt
+DEPTIME_PARCELS = <<INPUTFOLDER>>departure_time_parcels.txt
+FIRMSIZE        = <<INPUTFOLDER>>firm_size_distribution.txt
+SBI_TO_SEGS     = <<INPUTFOLDER>>industry_sector_to_employment_sector.txt
+
+COST_VEHTYPE   = <<PARAMFOLDER>>cost_figures_vehicle_type (2020).txt
+COST_SOURCING  = <<PARAMFOLDER>>cost_figures_sourcing (2020).txt
+MRDH_TO_NUTS3  = <<PARAMFOLDER>>mrdh_to_nuts3_2020.txt
+MRDH_TO_COROP  = <<PARAMFOLDER>>mrdh_to_corop.txt
+NUTS3_TO_MRDH  = <<PARAMFOLDER>>nuts3_2020_to_mrdh.txt
+FREIGHT_DISTANCEDECAY = <<PARAMFOLDER>>coeffs_distance_decay_freight.txt
+SERVICE_DISTANCEDECAY = <<PARAMFOLDER>>coeffs_distance_decay_service.txt
 SERVICE_PA            = <<PARAMFOLDER>>Params_PA_SERVICE.csv
-VEHICLE_CAPACITY      = <<PARAMFOLDER>>CarryingCapacity.csv
-LOGISTIC_FLOWTYPES    = <<PARAMFOLDER>>LogFlowtype_Shares.csv
+VEHICLE_CAPACITY      = <<PARAMFOLDER>>vehicle_capacity.txt
+LOGISTIC_FLOWTYPES    = <<PARAMFOLDER>>flow_type_distribution.txt
 PARAMS_TOD  = <<PARAMFOLDER>>Params_TOD.csv
-PARAMS_SSVT = <<PARAMFOLDER>>Params_ShipSize_VehType.csv
-PARAMS_ET_FIRST = <<PARAMFOLDER>>Params_EndTourFirst.csv
-PARAMS_ET_LATER = <<PARAMFOLDER>>Params_EndTourLater.csv
-PARAMS_SIF_PROD = <<PARAMFOLDER>>Params_PA_PROD.csv
-PARAMS_SIF_ATTR = <<PARAMFOLDER>>Params_PA_ATTR.csv
+PARAMS_SSVT = <<PARAMFOLDER>>coeffs_shipment_size_vehicle_type.txt
+PARAMS_ET_FIRST = <<PARAMFOLDER>>coeffs_end_tour_first.txt
+PARAMS_ET_LATER = <<PARAMFOLDER>>coeffs_end_tour_later.txt
+PARAMS_SIF_PROD = <<PARAMFOLDER>>coeffs_freight_attr.txt
+PARAMS_SIF_ATTR = <<PARAMFOLDER>>coeffs_freight_prod.txt
 PARAMS_ECOMMERCE = <<PARAMFOLDER>>Params_EcommerceDemand.csv
 
-EMISSIONFACS_BUITENWEG_LEEG = <<INPUTFOLDER>>EmissieFactoren_BUITENWEG_LEEG.csv
-EMISSIONFACS_BUITENWEG_VOL  = <<INPUTFOLDER>>EmissieFactoren_BUITENWEG_VOL.csv
-EMISSIONFACS_SNELWEG_LEEG = <<INPUTFOLDER>>EmissieFactoren_SNELWEG_LEEG.csv
-EMISSIONFACS_SNELWEG_VOL  = <<INPUTFOLDER>>EmissieFactoren_SNELWEG_VOL.csv
-EMISSIONFACS_STAD_LEEG = <<INPUTFOLDER>>EmissieFactoren_STAD_LEEG.csv
-EMISSIONFACS_STAD_VOL  = <<INPUTFOLDER>>EmissieFactoren_STAD_VOL.csv
+EMISSIONFACS = <<INPUTFOLDER>>emission_factors.txt
+ZEZ_CONSOLIDATION = <<INPUTFOLDER>>zez_consolidation_potential.txt
+ZEZ_SCENARIO      = <<INPUTFOLDER>>zez_transition.txt
+SEEDS = <<INPUTFOLDER>>seeds.txt
 
-ZEZ_CONSOLIDATION = <<INPUTFOLDER>>ConsolidationPotential.csv
-ZEZ_SCENARIO      = <<INPUTFOLDER>>ZEZscenario.csv
+BIKE_LINKS = <<INPUTFOLDER>>bike_links_v11.shp
+BIKE_NODES = <<INPUTFOLDER>>bike_nodes_v10.shp
+CENTROIDS = <<INPUTFOLDER>>centroids_v10.shp
+BIKE_MAT_OS = <<INPUTFOLDER>>Fiets-OS.MTX
+BIKE_MAT_RD = <<INPUTFOLDER>>Fiets-RD.MTX
+BIKE_MAT_AS = <<INPUTFOLDER>>Fiets-AS.MTX
+MICRONODES = <<INPUTFOLDER>>micro_nodes.shp
+TRAFFIC_LIGHTS = <<INPUTFOLDER>>traffic_lights.shp
 
 # ------------------- SIF parameters ---------------------------------------------
 NUTSLEVEL_INPUT = 3
@@ -107,7 +118,8 @@ NUTSLEVEL_INPUT = 3
 YEARFACTOR = 209
 
 # ------------------ PARCEL parameters -------------------------------------------
-PARCELS_PER_EMPL = 0.041
+PARCELS_PER_PERSON = 0.1125
+PARCELS_PER_EMPL = 0.0655
 PARCELS_MAXLOAD	 = 180
 PARCELS_DROPTIME = 120
 PARCELS_SUCCESS_B2C   = 0.75
@@ -118,7 +130,7 @@ MICROHUBS    = <<INPUTFOLDER>>Microhubs.csv
 VEHICLETYPES = <<INPUTFOLDER>>Microhubs_vehicleTypes.csv
 
 CROWDSHIPPING    = FALSE
-#CRW_PARCELSHARE  = 0.03
+#CRW_PARCELSHARE  = 0.06
 #CRW_MODEPARAMS   = <<PARAMFOLDER>>Params_UseCase_CrowdShipping.csv
 #CRW_PDEMAND_CAR  = <<INPUTFOLDER>>MRDH_2016_Auto_Etmaal.mtx
 #CRW_PDEMAND_BIKE = <<INPUTFOLDER>>MRDH_2016_Fiets_Etmaal.mtx
@@ -126,12 +138,23 @@ CROWDSHIPPING    = FALSE
 # ---------------------- TRAF parameters -----------------------------------------
 IMPEDANCE_SPEED_FREIGHT = V_FR_OS
 IMPEDANCE_SPEED_VAN     = V_PA_OS
+N_MULTIROUTE = 1
+
+# -------------------- TRAF_BIKE parameters --------------------------------------
+BIKE_USER_CLASSES = CABI
+# Current options are: CABI,DIST,TIME,COMB (separated by commas)
+
+BIKE_PERIODS = OS
+# Current options are OS,RD,AS (separated by commas)
+
+BIKE_TRAFFIC_LIGHT_SECONDS = 30
 
 # ------------------- Optional settings ------------------------------------------
 #SELECTED_LINKS = 
 #SHIPMENTS_REF =
 #FIRMS_REF =
 #N_CPU = 
+DAY_TO_WEEK_FACTOR = 1.0
 #NEAREST_DC =
 #SHIFT_FREIGHT_TO_COMB1 =
 #SHIFT_FREIGHT_TO_COMB2 =

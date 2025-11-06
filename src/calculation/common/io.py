@@ -106,8 +106,7 @@ def get_skims(varDict: Dict[str, str]) -> Tuple[np.ndarray, np.ndarray, int]:
     skimTravTime[skimTravTime < 0] = 0
     skimDistance[skimDistance < 0] = 0
 
-    # For zero times and distances assume half the value to
-    # the nearest (non-zero) zone
+    # For zero times and distances assume half the value to the nearest (non-zero) zone
     # (otherwise we get problem in the distance decay function)
     for orig in range(nZones):
         whereZero = np.where(skimTravTime[orig * nZones + np.arange(nZones)] == 0)[0]
@@ -119,8 +118,28 @@ def get_skims(varDict: Dict[str, str]) -> Tuple[np.ndarray, np.ndarray, int]:
         whereNonZero = np.where(skimDistance[orig * nZones + np.arange(nZones)] != 0)[0]
         if len(whereZero) > 0:
             skimDistance[orig * nZones + whereZero] = 0.5 * np.min(skimDistance[orig * nZones + whereNonZero])
-            
+
     return skimTravTime, skimDistance, nZones
+
+
+def get_skim(varDict: Dict[str, str], matrix_name: str) -> Tuple[np.ndarray, int]:
+    """
+    Reads the time and distance skim matrix and overwrites values for cells with value zero.
+    """
+    skim = read_mtx(varDict[matrix_name])
+
+    nZones = int(len(skim)**0.5)
+
+    skim[skim < 0] = 0
+
+    # For zero times and distances assume half the value to the nearest (non-zero) zone
+    for orig in range(nZones):
+        whereZero = np.where(skim[orig * nZones + np.arange(nZones)] == 0)[0]
+        whereNonZero = np.where(skim[orig * nZones + np.arange(nZones)] != 0)[0]
+        if len(whereZero) > 0:
+            skim[orig * nZones + whereZero] = 0.5 * np.min(skim[orig * nZones + whereNonZero])
+
+    return skim, nZones
 
 
 def get_num_cpu(varDict: Dict[str, str], maxCPU: int) -> int:

@@ -5,10 +5,11 @@ import sys
 import traceback
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_mtx, read_shape, get_seeds, get_skims
+from calculation.common.io import read_mtx, read_shape, get_seeds, get_skims, get_skim
 from .support_parcel_schd import (
     cluster_parcels, create_schedules, do_crowdshipping,
-    write_schedules_to_geojson, export_trip_matrices)
+    write_schedules_to_geojson, export_trip_matrices, create_summary,
+)
 
 from typing import Any, Dict
 
@@ -17,12 +18,10 @@ logger = logging.getLogger("tfs")
 
 def actually_run_module(
     root: Any,
-    varDict: Dict[str, str],
+    varDict: Dict[str, Any],
     dims: ModelDimensions,
 ):
-    """
-    Performs the calculations of the Parcel Demand module.
-    """
+    """Perform the calculations of the Parcel Demand module."""
     try:
 
         if root is not None:
@@ -39,9 +38,6 @@ def actually_run_module(
 
         seeds = get_seeds(varDict)
 
-        parcels = pd.read_csv(
-            f"{varDict['OUTPUTFOLDER']}ParcelDemand_{varDict['LABEL']}.csv", sep=',')
-
         parcelNodes, coords = read_shape(varDict['PARCELNODES'], returnGeometry=True)
         parcelNodes['X'] = [coords[i]['coordinates'][0] for i in range(len(coords))]
         parcelNodes['Y'] = [coords[i]['coordinates'][1] for i in range(len(coords))]
@@ -51,6 +47,8 @@ def actually_run_module(
         parcelNodesCEP = {}
         for i in parcelNodes.index:
             parcelNodesCEP[parcelNodes.at[i, 'id']] = parcelNodes.at[i, 'CEP']
+
+        microhubs = pd.read_csv(varDict['MICROHUBS'], sep=',')
 
         zones = read_shape(varDict['ZONES'])
         zones = zones.sort_values('AREANR')
@@ -69,19 +67,21 @@ def actually_run_module(
 
         nIntZones = len(zones)
         nSupZones = len(supCoordinates)
-        zoneDict = dict(np.transpose(np.vstack(
-            (np.arange(1, nIntZones + 1),
-             zones['AREANR']))))
+        zoneDict = dict(np.transpose(np.vstack((np.arange(1, nIntZones + 1), zones['AREANR']))))
         zoneDict = {int(a): int(b) for a, b in zoneDict.items()}
         for i in range(nSupZones):
             zoneDict[nIntZones + i + 1] = 99999900 + i + 1
         invZoneDict = dict((v, k) for k, v in zoneDict.items())
+
+        parcels = pd.read_csv(
+            f"{varDict['OUTPUTFOLDER']}ParcelDemand_{varDict['LABEL']}.csv", sep=',')
 
         # Change zoning to skim zones which run continuously from 0
         parcels['X'] = [zonesX[x] for x in parcels['D_zone'].values]
         parcels['Y'] = [zonesY[x] for x in parcels['D_zone'].values]
         parcels['D_zone'] = [invZoneDict[x] for x in parcels['D_zone']]
         parcels['O_zone'] = [invZoneDict[x] for x in parcels['O_zone']]
+
         parcelNodes['skim_zone'] = [invZoneDict[x] for x in parcelNodes['AREANR']]
 
         if root is not None:
@@ -90,10 +90,17 @@ def actually_run_module(
         # System input for scheduling
         parcelDepTime = np.array(
             pd.read_csv(varDict['DEPTIME_PARCELS'], sep='\t')['cumulative_share'])
-        dropOffTime = varDict['PARCELS_DROPTIME'] / 3600
+        dropOffTime = float(varDict['PARCELS_DROPTIME']) / 3600
 
         # Skims
-        skimTravTime, skimDistance, nZones = get_skims(varDict)
+        if varDict['LABEL'] in ('REF', 'UCC', 'USE_CASE_REF'):
+            skimTravTime, skimDistance, nZones = get_skims(varDict)
+            skimTravTime /= 3600
+        elif varDict['LABEL'].startswith('MIC'):
+            skimDistance_firstleg, nZones = get_skim(varDict, "SKIMDISTANCE_MIC_FIRSTLEG")  # Distance in metres
+            skimDistance_lastleg, nZones = get_skim(varDict, "SKIMDISTANCE_MIC_LASTLEG")
+        else:
+            raise ValueError(f"Label {varDict['LABEL']} not supported for parcel scheduling")
 
         if root is not None:
             root.progressBar['value'] = 1.0
@@ -167,27 +174,72 @@ def actually_run_module(
 
         logger.debug("\tForming spatial clusters of parcels...")
 
-        # A measure of euclidean distance based on the coordinates
-        skimEuclidean = (
-            np.array(list(zonesX.values())).repeat(nZones).reshape(nZones, nZones) -
-            np.array(list(zonesX.values())).repeat(nZones).reshape(nZones, nZones).transpose())**2
-        skimEuclidean += (
-            np.array(list(zonesY.values())).repeat(nZones).reshape(nZones, nZones) -
-            np.array(list(zonesY.values())).repeat(nZones).reshape(nZones, nZones).transpose())**2
-        skimEuclidean = skimEuclidean**0.5
-        skimEuclidean = skimEuclidean.flatten()
-        skimEuclidean /= np.sum(skimEuclidean)
+        if 'MIC' in varDict['LABEL']:
+            typeoftoursdic = {0: 'DepotNumber', 1: 'DepotNumber', 2: 'FROM_MH'}
+            skimdic = {0: skimDistance_firstleg, 1: skimDistance_firstleg, 2: skimDistance_lastleg}
 
-        # To prevent instability related to possible mistakes in skim,
-        # use average of skim and euclidean distance
-        # (both normalized to a sum of 1)
-        skimClustering = skimDistance.copy()
-        skimClustering /= np.sum(skimClustering)
-        skimClustering += skimEuclidean
+            # Divide parcels into the 3 tour types, namely:
+            # 0: From depots to households : van
+            # 1: From depots to microhubs : truck
+            # 2: From microhubs to households : green vehicle
 
-        del skimEuclidean
+            parcelsMIC = {
+                0: pd.DataFrame(parcels[(parcels['FROM_MH'] == 0) & (parcels['TO_MH'] == 0)]),
+                1: pd.DataFrame(parcels[(parcels['FROM_MH'] == 0) & (parcels['TO_MH'] != 0)]),
+                2: pd.DataFrame(parcels[(parcels['FROM_MH'] != 0) & (parcels['TO_MH'] == 0)])}
 
-        if varDict['LABEL'] == 'UCC':
+            # Cluster parcels based on proximity and constrained
+            # by vehicle capacity
+            for i in range(len(typeoftoursdic)):
+                startValueProgress = 2.0 +       i / 3 * (55.0 - 2.0)
+                endValueProgress   = 2.0 + (i + 1) / 3 * (55.0 - 2.0)
+
+                print('\tTour type ' + str(i) + '...')
+                skimClustering = skimdic[i]
+
+                parcelsMIC[i].index = np.arange(len(parcelsMIC[i]))
+                parcelsMIC[i] = cluster_parcels(
+                    varDict, parcelsMIC[i], i, skimClustering,
+                    root, startValueProgress, endValueProgress,
+                )
+
+                # Aggregate parcels
+                parcelsMIC[i] = (
+                    parcelsMIC[i]
+                    .groupby([typeoftoursdic[i], 'Cluster', 'CEP', 'O_zone', 'D_zone', 'VEHTYPE'])
+                    .agg({'Parcel_ID': 'count'}).reset_index()
+                    .rename(columns={'Parcel_ID': 'Parcels', 'O_zone': 'Orig', 'D_zone': 'Dest'})
+                ).reset_index(drop=True)
+
+                # to_save = parcelsMIC[i].copy()
+                # to_save['Orig'] = [zoneDict[x] for x in to_save['Orig']]
+                # to_save['Dest'] = [zoneDict[x] for x in to_save['Dest']]
+
+                # to_save.to_csv(
+                #     varDict['OUTPUTFOLDER'] + f"ParcelDemand_{varDict['LABEL']}_{i}_clusters.csv",
+                #     index=False)
+
+        elif varDict['LABEL'] == 'UCC':
+            # To prevent instability related to possible mistakes in skim,
+            # use average of skim and euclidean distance
+            # (both normalized to a sum of 1)
+
+            # A measure of euclidean distance based on the coordinates
+            skimEuclidean = (
+                np.array(list(zonesX.values())).repeat(nZones).reshape(nZones, nZones) -
+                np.array(list(zonesX.values())).repeat(nZones).reshape(nZones, nZones).transpose())**2
+            skimEuclidean += (
+                np.array(list(zonesY.values())).repeat(nZones).reshape(nZones, nZones) -
+                np.array(list(zonesY.values())).repeat(nZones).reshape(nZones, nZones).transpose())**2
+            skimEuclidean = skimEuclidean**0.5
+            skimEuclidean = skimEuclidean.flatten()
+            skimEuclidean /= np.sum(skimEuclidean)
+
+            skimClustering = skimDistance.copy()
+            skimClustering /= np.sum(skimClustering)
+            skimClustering += skimEuclidean
+
+            del skimEuclidean
 
             # Divide parcels into the 4 tour types, namely:
             # 0: Depots to households
@@ -203,7 +255,7 @@ def actually_run_module(
 
             # Cluster parcels based on proximity and constrained
             # by vehicle capacity
-            for i in range(3):
+            for i in range(4):
                 if doCrowdShipping:
                     startValueProgress = 56.0 +       i / 3 * (70.0 - 56.0)
                     endValueProgress   = 56.0 + (i + 1) / 3 * (70.0 - 56.0)
@@ -215,20 +267,15 @@ def actually_run_module(
 
                 parcelsUCC[i].index = np.arange(len(parcelsUCC[i]))
                 parcelsUCC[i] = cluster_parcels(
-                    parcelsUCC[i],
-                    maxVehicleLoad, skimClustering,
-                    root, startValueProgress, endValueProgress)
+                    varDict, parcelsUCC[i], i, skimClustering,
+                    root, startValueProgress, endValueProgress,
+                )
 
             # LEVV have smaller capacity
             startValueProgress = 70.0 if doCrowdShipping else 55.0
             startValueProgress = 75.0 if doCrowdShipping else 60.0
 
             logger.debug("\tTour type 4...")
-
-            parcelsUCC[3] = cluster_parcels(
-                parcelsUCC[3],
-                int(round(maxVehicleLoad / 5)), skimClustering,
-                root, startValueProgress, endValueProgress)
 
             # Aggregate parcels based on depot, cluster and destination
             for i in range(4):
@@ -237,54 +284,38 @@ def actually_run_module(
                     parcelsUCC[i] = pd.pivot_table(
                         parcelsUCC[i],
                         values=['Parcel_ID'],
-                        index=['DepotNumber', 'Cluster', 'O_zone', 'D_zone'],
-                        aggfunc={'Parcel_ID': 'count'})
-                    parcelsUCC[i] = parcelsUCC[i].rename(
-                        columns={'Parcel_ID': 'Parcels'})
-
-                    parcelsUCC[i]['Depot'] = [x[0] for x in parcelsUCC[i].index]
-                    parcelsUCC[i]['Cluster'] = [x[1] for x in parcelsUCC[i].index]
-                    parcelsUCC[i]['Orig'] = [x[2] for x in parcelsUCC[i].index]
-                    parcelsUCC[i]['Dest'] = [x[3] for x in parcelsUCC[i].index]
+                        index=['DepotNumber', 'Cluster', 'O_zone', 'D_zone', 'VEHTYPE'],
+                        aggfunc={'Parcel_ID': 'count'},
+                    ).reset_index().rename(columns={'Parcel_ID': 'Parcels', "O_zone": "Orig", "D_zone": "Dest"})
 
                 else:
                     parcelsUCC[i] = pd.pivot_table(
                         parcelsUCC[i],
                         values=['Parcel_ID'],
-                        index=['O_zone', 'Cluster', 'D_zone'],
-                        aggfunc={'Parcel_ID': 'count'})
-                    parcelsUCC[i] = parcelsUCC[i].rename(
-                        columns={'Parcel_ID': 'Parcels'})
-
-                    parcelsUCC[i]['Depot'] = [x[0] for x in parcelsUCC[i].index]
-                    parcelsUCC[i]['Cluster'] = [x[1] for x in parcelsUCC[i].index]
-                    parcelsUCC[i]['Orig'] = [x[0] for x in parcelsUCC[i].index]
-                    parcelsUCC[i]['Dest'] = [x[2] for x in parcelsUCC[i].index]
+                        index=['O_zone', 'Cluster', 'D_zone', 'VEHTYPE'],
+                        aggfunc={'Parcel_ID': 'count'}
+                    ).reset_index().rename(columns={'Parcel_ID': 'Parcels', "O_zone": "Orig", "D_zone": "Dest"})
 
                 parcelsUCC[i].index = np.arange(len(parcelsUCC[i]))
+        else:
+            skimClustering = skimDistance.copy()
 
-        if varDict['LABEL'] != 'UCC':
             # Cluster parcels based on proximity and constrained
             # by vehicle capacity
             startValueProgress = 56.0 if doCrowdShipping else 2.0
             endValueProgress = 75.0 if doCrowdShipping else 60.0
             parcels = cluster_parcels(
-                parcels,
-                maxVehicleLoad, skimClustering,
-                root, startValueProgress, endValueProgress)
+                varDict, parcels, 0, skimClustering,
+                root, startValueProgress, endValueProgress,
+            )
 
             # Aggregate parcels based on depot, cluster and destination
             parcels = pd.pivot_table(
                 parcels,
                 values=['Parcel_ID'],
-                index=['DepotNumber', 'Cluster', 'O_zone', 'D_zone'],
-                aggfunc={'Parcel_ID': 'count'})
-            parcels = parcels.rename(columns={'Parcel_ID': 'Parcels'})
-
-            parcels['Depot'] = [x[0] for x in parcels.index]
-            parcels['Cluster'] = [x[1] for x in parcels.index]
-            parcels['Orig'] = [x[2] for x in parcels.index]
-            parcels['Dest'] = [x[3] for x in parcels.index]
+                index=['DepotNumber', 'Cluster', 'O_zone', 'D_zone', 'VEHTYPE'],
+                aggfunc={'Parcel_ID': 'count'}
+            ).reset_index().rename(columns={'Parcel_ID': 'Parcels', "O_zone": "Orig", "D_zone": "Dest"})
 
             parcels.index = np.arange(len(parcels))
 
@@ -301,12 +332,9 @@ def actually_run_module(
             endValueProgress = 80.0
             tourType = 0
             deliveries = create_schedules(
-                parcelsUCC[0],
-                dropOffTime,
-                skimTravTime, skimDistance,
-                parcelNodesCEP,
-                parcelDepTime,
-                tourType,
+                varDict, parcelsUCC[0],
+                dropOffTime, skimTravTime, skimDistance, parcelNodesCEP,
+                parcelDepTime, tourType, 'DepotNumber',
                 seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
@@ -317,12 +345,9 @@ def actually_run_module(
             endValueProgress = 83.0
             tourType = 1
             deliveries1 = create_schedules(
-                parcelsUCC[1],
-                dropOffTime,
-                skimTravTime, skimDistance,
-                parcelNodesCEP,
-                parcelDepTime,
-                tourType,
+                varDict, parcelsUCC[1],
+                dropOffTime, skimTravTime, skimDistance, parcelNodesCEP,
+                parcelDepTime, tourType, 'DepotNumber',
                 seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
@@ -333,12 +358,9 @@ def actually_run_module(
             endValueProgress = 86.0
             tourType = 2
             deliveries2 = create_schedules(
-                parcelsUCC[2],
-                dropOffTime,
-                skimTravTime, skimDistance,
-                parcelNodesCEP,
-                parcelDepTime,
-                tourType,
+                varDict, parcelsUCC[2],
+                dropOffTime, skimTravTime, skimDistance, parcelNodesCEP,
+                parcelDepTime, tourType, 'DepotNumber',
                 seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
@@ -349,22 +371,63 @@ def actually_run_module(
             endValueProgress = 89.0
             tourType = 3
             deliveries3 = create_schedules(
-                parcelsUCC[3],
-                dropOffTime,
-                skimTravTime, skimDistance,
-                parcelNodesCEP,
-                parcelDepTime,
-                tourType,
+                varDict, parcelsUCC[3],
+                dropOffTime, skimTravTime, skimDistance, parcelNodesCEP,
+                parcelDepTime, tourType, 'DepotNumber',
                 seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
             # Combine deliveries of all tour types
-            deliveries = pd.concat([deliveries, deliveries1, deliveries2, deliveries3])
-            deliveries.index = np.arange(len(deliveries))
+            deliveries = pd.concat(
+                [deliveries, deliveries1, deliveries2, deliveries3]
+            ).reset_index(drop=True)
 
         # ----------- Scheduling of trips (REF scenario) ---------------------
+        if 'MIC' in varDict['LABEL']:
+            logger.debug("\tStarting scheduling procedure for parcels...")
 
-        if varDict['LABEL'] != 'UCC':
+            mode = varDict['LABEL'][-3:]
+            # In case the mode label consists of 2 characters
+            mode = mode.replace("_", "")
+
+            vehicleTypes = pd.read_csv(varDict['VEHICLETYPES'], index_col=2)
+
+            startValueProgress = 75.0 if doCrowdShipping else 60.0
+            endValue = 90.0
+            stepvalue = (endValue - startValueProgress) / 3
+
+            deliveries_list = []
+            for i in range(len(typeoftoursdic)):
+                message = (f'Tourtype {i}')
+                print(message)
+
+                if i == 0:  # Van
+                    skimTravTime, skimDistance, nZones = get_skims(varDict)
+                    skimTravTime /= 3600
+                elif i == 1:  # Truck
+                    skimTravTime = np.round(
+                        (skimDistance_firstleg / 1000) / vehicleTypes['AvgSpeed'][mode], 4)
+                else:  # Green vehicle
+                    skimTravTime = np.round(
+                        (skimDistance_lastleg / 1000) / vehicleTypes['AvgSpeed'][mode], 4)
+
+                endValueProgress = startValueProgress + stepvalue
+                deliveries_type = create_schedules(
+                    varDict,
+                    parcelsMIC[i], dropOffTime, skimTravTime, skimdic[i],
+                    parcelNodesCEP, parcelDepTime, i, typeoftoursdic[i],
+                    seeds['parcel_departure_time'] * i,
+                    root, startValueProgress, endValueProgress)
+
+                startValueProgress = endValueProgress
+
+                deliveries_list.append(deliveries_type)
+
+            # Combine deliveries of all tour types
+            deliveries = pd.concat(deliveries_list)
+            deliveries.index = np.arange(len(deliveries))
+
+        if varDict['LABEL'] in ('REF', 'USE_CASE_REF'):
 
             logger.debug("\tStarting scheduling procedure for parcels...")
 
@@ -373,12 +436,9 @@ def actually_run_module(
             tourType = 0
 
             deliveries = create_schedules(
-                parcels,
-                dropOffTime,
-                skimTravTime, skimDistance,
-                parcelNodesCEP,
-                parcelDepTime,
-                tourType,
+                varDict,
+                parcels, dropOffTime, skimTravTime, skimDistance,
+                parcelNodesCEP, parcelDepTime, tourType, 'DepotNumber',
                 seeds['parcel_departure_time'] * tourType,
                 root, startValueProgress, endValueProgress)
 
@@ -408,8 +468,7 @@ def actually_run_module(
 
         logger.debug(
             "\tParcel schedules written to " +
-            varDict['OUTPUTFOLDER'] +
-            f"ParcelSchedule_{varDict['LABEL']}.geojson")
+            f"{varDict['OUTPUTFOLDER']}ParcelSchedule_{varDict['LABEL']}.geojson")
 
         # ---------------------- Create and export trip matrices --------------
 
@@ -417,7 +476,31 @@ def actually_run_module(
 
             logger.debug("\tGenerating trip matrix...")
 
+            # deliveries = pd.read_csv("P:/Projects_Active/23034 ROT GLEAM Cargo Bike Simulation/Work/Model/TFS/output/MIC_collab_EB/ParcelSchedule_MIC_collab_EB.csv")
             export_trip_matrices(deliveries, varDict)
+
+        if varDict["LABEL"].startswith("MIC"):
+            logger.debug("\tGenerating microhub parcel summary...")
+
+            if 'collab' in varDict['LABEL']:
+                tier = 'Horizontal Collaboration'
+            elif 'indiv' in varDict['LABEL']:
+                tier = 'Individual CEP'
+            else:
+                raise Exception(
+                    f"Invalid scenario input: consolidation type in LABEL: '{varDict['LABEL']}'."
+                )
+
+            summary = create_summary(parcels, deliveries, microhubs, tier)
+
+            logger.debug(
+                "\tWriting microhub parcel summary to " +
+                varDict['OUTPUTFOLDER'] + f"ParcelSummaryMicrohubs_{varDict['LABEL']}.csv")
+
+            summary.to_csv(
+                varDict['OUTPUTFOLDER'] + f"ParcelSummaryMicrohubs_{varDict['LABEL']}.csv",
+                index=False,
+            )
 
         # ------------------------ End of module ------------------------------
 

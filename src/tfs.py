@@ -21,6 +21,7 @@ import calculation.ship.module_ship as module_ship
 import calculation.sif.module_sif as module_sif
 import calculation.tour.module_tour as module_tour
 import calculation.traf.module_traf as module_traf
+import calculation.traf_bike.module_traf_bike as module_traf_bike
 import calculation.common.arguments as common_arguments
 
 from calculation.common.dimensions import ModelDimensions
@@ -41,8 +42,9 @@ class Root:
             'SHIP', 'TOUR',
             'PARCEL_DMND', 'PARCEL_SCHD',
             'SERVICE',
-            'TRAF',
-            'OUTP']
+            'TRAF', 'TRAF_BIKE',
+            'OUTP',
+        ]
 
         # Set graphics parameters
         self.width = 950
@@ -191,7 +193,7 @@ class Root:
                     while value[-1] == ' ' or value[-1] == '\t':
                         value = value[:-1]
 
-                    print(key + ' = ' + value.replace('\n', ""))
+                    # print(key + ' = ' + value.replace('\n', ""))
 
                     # Warning for unknown argument in control file
                     if key.upper() not in common_arguments.variables:
@@ -209,7 +211,7 @@ class Root:
                             value = value.replace("'", "").replace('"', "").replace('\n', "")
 
                             try:
-                               varDict[variableName]= float(value)
+                                varDict[variableName]= float(value)
                             except ValueError:
                                 if not (value == '' and variableName in common_arguments.optional):
                                     varDict[variableName] = value
@@ -219,15 +221,9 @@ class Root:
                                     run = False
 
                         # The argument which states which modules should be run
-                        elif variableName in common_arguments.modules:
+                        elif variableName in common_arguments.lists:
                             value = value.replace("'", "").replace('"', "").replace('\n', "").replace(' ', '')
                             varDict[variableName] = [x.upper() for x in value.split(',')]
-
-                            for tmpModule in varDict[variableName]:
-                                if tmpModule not in self.moduleNames:
-                                    errorMessage = (
-                                        f"{errorMessage}Module '{tmpModule}' does not exist.\n")
-                                    run = False
 
                         # For string arguments, also replace possible '\' by '/'
                         else:
@@ -248,6 +244,13 @@ class Root:
 
                         if tmp[0] in common_arguments.directories:
                             varDict[variableName] = varDict[tmp[0]] + tmp[1]
+
+            # Check if specified modules exist
+            for variableName in common_arguments.modules:
+                for tmpModule in varDict[variableName]:
+                    if tmpModule not in self.moduleNames:
+                        errorMessage = f"{errorMessage}Module '{tmpModule}' does not exist.\n"
+                        run = False
 
             # Check for existence of directories and files
             for variableName in common_arguments.variables:
@@ -277,8 +280,8 @@ class Root:
                 if varDict[variableName] == "" and variableName not in common_arguments.optional:
                     errorMessage = (
                         f"{errorMessage}Warning, no value given for parameter '{variableName}'" +
-                         " in the controle file.\n")
-                    run = False                    
+                        " in the controle file.\n")
+                    run = False
 
         except Exception:
             errorMessage = (
@@ -310,7 +313,7 @@ class Root:
                     errorMessage = errorMessage + (
                         f"Expected a text file called '{filename}'" +
                         " in DIMFOLDER, but could not find it.")
-            
+
         # Open the logfile and write the header, specified arguments and
         # possible error messages
         if writeLog:
@@ -375,60 +378,40 @@ class Root:
         """
         if os.path.isdir(varDict['OUTPUTFOLDER']):
             outFileChecks = [
-                ["SHIP",
-                 "SIF",
-                 "CommodityMatrixNUTS3.csv"],
-                ["TOUR",
-                 "SHIP",
-                 "Shipments_" + varDict['LABEL'] + ".csv"],
-                ["PARCEL_SCHD",
-                 "PARCEL_DMND",
-                 "ParcelDemand_" + varDict['LABEL'] + ".csv"],
-                ["TRAF",
-                 "TOUR",
-                 "Tours_" + varDict['LABEL'] + ".csv"],
-                ["TRAF",
-                 "TOUR",
-                 "tripmatrix_" + varDict['LABEL'] + ".txt"],
-                ["TRAF",
-                 "TOUR",
-                 "tripmatrix_" + varDict['LABEL'] + "_TOD0" + ".txt"],
-                ["TRAF",
-                 "PARCEL_SCHD",
-                 "ParcelSchedule_" + varDict['LABEL'] + ".csv"],
-                ["TRAF",
-                 "PARCEL_SCHD",
-                 "tripmatrix_parcels_" + varDict['LABEL'] + ".txt"],
-                ["TRAF",
-                 "PARCEL_SCHD",
-                 "tripmatrix_parcels_" + varDict['LABEL'] + "_TOD0" + ".txt"],
-                ["TRAF",
-                 "SERVICE",
-                 "TripsVanService.mtx"],
-                ["TRAF",
-                 "SERVICE",
-                 "TripsVanConstruction.mtx"]]
+                ["SHIP", "SIF", "CommodityMatrixNUTS3.csv"],
+                ["TOUR", "SHIP", "Shipments_" + varDict['LABEL'] + ".csv"],
+                ["PARCEL_SCHD", "PARCEL_DMND", "ParcelDemand_" + varDict['LABEL'] + ".csv"],
+                ["TRAF", "TOUR", "Tours_" + varDict['LABEL'] + ".csv"],
+                ["TRAF", "TOUR", "tripmatrix_" + varDict['LABEL'] + ".txt"],
+                ["TRAF", "TOUR", "tripmatrix_" + varDict['LABEL'] + "_TOD0" + ".txt"],
+                ["TRAF", "PARCEL_SCHD", "ParcelSchedule_" + varDict['LABEL'] + ".csv"],
+                ["TRAF", "PARCEL_SCHD", "tripmatrix_parcels_" + varDict['LABEL'] + ".txt"],
+                ["TRAF", "PARCEL_SCHD", "tripmatrix_parcels_" + varDict['LABEL'] + "_TOD0" + ".txt"],
+                ["TRAF", "SERVICE", "TripsVanService.mtx"],
+                ["TRAF", "SERVICE", "TripsVanConstruction.mtx"]
+            ]
 
             if varDict['FIRMS_REF'] == '':
-                outFileChecks.append([
-                    "SHIP",
-                    "FS",
-                    "Firms.csv"])
+                outFileChecks.append(["SHIP", "FS", "Firms.csv"])
 
             for moduleWhichIsRun, moduleWhichIsNotRun, outfileToCheck in outFileChecks:
-                if moduleWhichIsRun in varDict['MODULES']:
-                    if moduleWhichIsNotRun not in varDict['MODULES']:
-                        if not os.path.isfile(varDict['OUTPUTFOLDER'] + outfileToCheck):
-                            run = False
-                            errorMessage = errorMessage + (
-                                'Module ' +
-                                moduleWhichIsRun +
-                                ' is run but preceding module ' +
-                                moduleWhichIsNotRun +
-                                ' is not run. ' +
-                                'In that case the following file is expected' +
-                                ' in the OUTPUTFOLDER, but it is not found: "' +
-                                outfileToCheck + '".\n')
+                if moduleWhichIsRun not in varDict['MODULES']:
+                    continue
+
+                if moduleWhichIsNotRun in varDict['MODULES']:
+                    continue
+
+                if not os.path.isfile(varDict['OUTPUTFOLDER'] + outfileToCheck):
+                    run = False
+                    errorMessage = errorMessage + (
+                        'Module ' +
+                        moduleWhichIsRun +
+                        ' is run but preceding module ' +
+                        moduleWhichIsNotRun +
+                        ' is not run. ' +
+                        'In that case the following file is expected' +
+                        ' in the OUTPUTFOLDER, but it is not found: "' +
+                        outfileToCheck + '".\n')
 
         return run, errorMessage
 
@@ -466,6 +449,7 @@ class Root:
             ("PARCEL_SCHD", "Parcel Scheduling", module_parcel_schd),
             ("SERVICE", "Vans Service/Construction", module_service),
             ("TRAF", "Traffic Assignment", module_traf),
+            ("TRAF_BIKE", "Traffic Assignment (Bicycle)", module_traf_bike),
             ("OUTP", "Output Indicators", module_outp),
 
         ):

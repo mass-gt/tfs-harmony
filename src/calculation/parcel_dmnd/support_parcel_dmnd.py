@@ -5,7 +5,7 @@ from typing import Dict
 from calculation.common.dimensions import ModelDimensions
 
 
-def get_cum_shares_vt_ucc(varDict: Dict[str, str], dims: ModelDimensions) -> Dict[int, np.ndarray]:
+def get_cum_shares_vt_ucc(varDict: Dict[str, str], dims: ModelDimensions) -> np.ndarray:
     """
     Returns the cumulative shares of vehicle types for the switch to UCCs.
     """
@@ -33,14 +33,14 @@ def aggregate_parcels(parcels: pd.DataFrame, varDict: Dict[str, str]) -> pd.Data
                 "DepotNumber", 'CEP', 'D_zone', 'O_zone', 'VEHTYPE',
                 'FROM_UCC', 'TO_UCC'],
             aggfunc={
-                'DepotNumber': np.mean,
+                'DepotNumber': "mean",
                 'CEP': 'first',
-                'O_zone': np.mean,
-                'D_zone': np.mean,
+                'O_zone': "mean",
+                'D_zone': "mean",
                 'Parcel_ID': 'count',
-                'VEHTYPE': np.mean,
-                'FROM_UCC': np.mean,
-                'TO_UCC': np.mean})
+                'VEHTYPE': "mean",
+                'FROM_UCC': "mean",
+                'TO_UCC': "mean"})
         parcelsAggr = parcelsAggr.rename(columns={'Parcel_ID':'Parcels'})
         parcelsAggr = parcelsAggr.set_index(np.arange(len(parcelsAggr)))
         parcelsAggr = parcelsAggr.reindex(
@@ -62,23 +62,24 @@ def aggregate_parcels(parcels: pd.DataFrame, varDict: Dict[str, str]) -> pd.Data
             values=['Parcel_ID'],
             index=[
                 "DepotNumber", 'CEP', 'D_zone', 'O_zone', 'VEHTYPE',
-                'FROM_MH', 'TO_MH'],
+                'FROM_MH', 'TO_MH', 'Receiver'],
             aggfunc={
-                'DepotNumber': np.mean,
+                'DepotNumber': "mean",
                 'CEP': 'first',
-                'O_zone': np.mean,
-                'D_zone': np.mean,
+                'O_zone': "mean",
+                'D_zone': "mean",
                 'Parcel_ID': 'count',
-                'VEHTYPE': np.mean,
-                'FROM_MH': np.mean,
-                'TO_MH': np.mean})
+                'VEHTYPE': "mean",
+                'FROM_MH': "mean",
+                'TO_MH': "mean",
+                'Receiver': 'first'})
         parcelsAggr = parcelsAggr.rename(
             columns={'Parcel_ID': 'Parcels'})
         parcelsAggr = parcelsAggr.set_index(np.arange(len(parcelsAggr)))
         parcelsAggr = parcelsAggr.reindex(
             columns=[
                 'O_zone', 'D_zone', 'Parcels', 'DepotNumber', 'CEP', 'VEHTYPE',
-                'FROM_MH', 'TO_MH'])
+                'FROM_MH', 'TO_MH', 'Receiver'])
         parcelsAggr = parcelsAggr.astype({
             'DepotNumber': int,
             'O_zone': int,
@@ -86,18 +87,19 @@ def aggregate_parcels(parcels: pd.DataFrame, varDict: Dict[str, str]) -> pd.Data
             'Parcels': int,
             'VEHTYPE': int,
             'FROM_MH': int,
-            'TO_MH': int})
+            'TO_MH': int,
+            'Receiver': str})
 
-        parcelsPerCEP = pd.pivot_table(
-            parcels[parcels['FROM_MH'] > 0],
-            values=['Parcel_ID'],
-            index=['CEP', 'FROM_MH', 'O_zone'],
-            aggfunc={'Parcel_ID': 'count'})
-        parcelsPerCEP.columns = ['ParcelCount']
+        # parcelsPerCEP = pd.pivot_table(
+        #     parcels[parcels['FROM_MH'] > 0],
+        #     values=['Parcel_ID'],
+        #     index=['CEP', 'FROM_MH', 'O_zone', 'Receiver'],
+        #     aggfunc={'Parcel_ID': 'count'})
+        # parcelsPerCEP.columns = ['ParcelCount']
 
-        parcelsPerCEP.to_csv(
-            varDict['OUTPUTFOLDER'] + "ParcelsPerMicrohubCEP_MIC.csv",
-            index=True)
+        # parcelsPerCEP.to_csv(
+        #     varDict['OUTPUTFOLDER'] + "ParcelsPerMicrohubCEP_MIC.csv",
+        #     index=True)
 
     else:
         parcelsAggr = pd.pivot_table(
@@ -105,10 +107,10 @@ def aggregate_parcels(parcels: pd.DataFrame, varDict: Dict[str, str]) -> pd.Data
             values=['Parcel_ID'],
             index=["DepotNumber", 'CEP', 'D_zone', 'O_zone'],
             aggfunc={
-                'DepotNumber': np.mean,
+                'DepotNumber': "mean",
                 'CEP': 'first',
-                'O_zone': np.mean,
-                'D_zone': np.mean,
+                'O_zone': "mean",
+                'D_zone': "mean",
                 'Parcel_ID': 'count'})
         parcelsAggr = parcelsAggr.rename(columns={'Parcel_ID': 'Parcels'})
         parcelsAggr = parcelsAggr.set_index(np.arange(len(parcelsAggr)))
@@ -119,7 +121,7 @@ def aggregate_parcels(parcels: pd.DataFrame, varDict: Dict[str, str]) -> pd.Data
             'O_zone': int,
             'D_zone': int,
             'Parcels': int})
-        
+
     return parcelsAggr
 
 

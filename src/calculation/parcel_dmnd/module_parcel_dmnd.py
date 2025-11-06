@@ -5,7 +5,7 @@ import sys
 import traceback
 
 from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_seeds, get_skims
+from calculation.common.io import read_shape, get_seeds, get_skims, get_skim
 from calculation.common.vrt import draw_choice_mcs
 from .support_parcel_dmnd import get_cum_shares_vt_ucc, write_parcels_to_geojson, aggregate_parcels
 
@@ -83,31 +83,52 @@ def actually_run_module(
             root.progressBar['value'] = 1.0
 
         # ------------- Get skim data and make parcel skim for REF ------------
-        skimTravTime, skimDistance, nZones = get_skims(varDict)
-        parcelSkim = np.zeros((nZones, nParcelNodes))
+        if varDict['LABEL'] in ('REF', 'UCC', 'USE_CASE_REF'):
+            skimTravTime, skimDistance, nZones = get_skims(varDict)
 
-        # Skim with travel times between parcel nodes and all other zones
-        i = 0
-        for parcelNodeZone in parcelNodes['AREANR']:
-            orig = invZoneDict[parcelNodeZone]
-            dest = 1 + np.arange(nZones)
+            parcelSkim = np.zeros((nZones, nParcelNodes))
 
-            # Time in hours
-            parcelSkim[:, i] = np.round(
-                (skimTravTime[(orig - 1) * nZones + (dest - 1)] / 3600), 4)
+            # Skim with travel times between parcel nodes and all other zones
+            i = 0
+            for parcelNodeZone in parcelNodes['AREANR']:
+                orig = invZoneDict[parcelNodeZone]
+                dest = 1 + np.arange(nZones)
 
-            i += 1
+                # Time in hours
+                parcelSkim[:, i] = np.round(
+                    (skimTravTime[(orig - 1) * nZones + (dest - 1)] / 3600), 4)
+
+                i += 1
 
         if root is not None:
             root.progressBar['value'] = 2.0
 
         # ---------- Import and prepare data for microhub scenario ------------
         if varDict['LABEL'].startswith('MIC'):
-
             mode = varDict['LABEL'][-3:]
-
             # In case the mode label consists of 2 characters
             mode = mode.replace("_", "")
+
+            # Read information about vehicle types and scenario configuration
+            vehicleTypes = pd.read_csv(varDict['VEHICLETYPES'], index_col=2)
+            modeLabelsDict = dict(zip(vehicleTypes.index, vehicleTypes['Name']))
+            modeNumbersDict = dict(zip(vehicleTypes.index, vehicleTypes['Veh_ID']))
+
+            # Distance in metres
+            skimDistance_firstleg, nZones = get_skim(varDict, "SKIMDISTANCE_MIC_FIRSTLEG")
+            skimDistance_lastleg, nZones = get_skim(varDict, "SKIMDISTANCE_MIC_LASTLEG")
+
+            parcelSkim = np.zeros((nZones, nParcelNodes))
+            # Skim with travel times between parcel nodes and all other zones
+            for i, parcelNodeZone in enumerate(parcelNodes['AREANR']):
+                orig = invZoneDict[parcelNodeZone]
+                dest = 1 + np.arange(nZones)
+
+                # Time in hours
+                parcelSkim[:, i] = np.round((
+                    (skimDistance_firstleg[(orig - 1) * nZones + (dest - 1)] / 1000) /
+                    vehicleTypes['AvgSpeed'][mode]
+                ), 4)
 
             # Check if vehicle tag is valid
             if 'collab' in varDict['LABEL']:
@@ -116,155 +137,126 @@ def actually_run_module(
                 tier = 'Individual CEP'
             else:
                 raise Exception(
-                    'Invalid scenario input: ' +
-                    'consolidation type in LABEL '
-                    "'" + varDict['LABEL'] + '".')
-
-            # Read information about vehicle types and scenario configuration
-            vehicleTypes = pd.read_csv(varDict['VEHICLETYPES'], index_col=2)
-            modeLabelsDict = dict(zip(vehicleTypes.index, vehicleTypes['Name']))
-            modeNumbersDict = dict(zip(vehicleTypes.index, vehicleTypes['Veh_ID']))
+                    f"Invalid scenario input: consolidation type in LABEL: '{varDict['LABEL']}'."
+                )
 
             if mode not in vehicleTypes.index:
                 raise Exception(
                     f"Invalid scenario input: vehicle type in LABEL '{varDict['LABEL']}' not found in VEHICLETYPES.")
 
+            logger.debug(f"\tRunning microhubs scenario with {tier} and {modeLabelsDict[mode]}.")
+
+            # Read csv with microhubs (ID, areanr, CEP)
+            microhubs = pd.read_csv(varDict['MICROHUBS'], index_col=0)
+
+            if any([x <= 0 for x in microhubs.index]):
+                raise Exception("Please make sure the microhubs IDs are greater than 0.")
+
+            # # Find and add coordinates of microhub zones
+            # microhubs['X'] = [zones.iloc[i]['X'].copy() for i in microhubs['AREANR']]
+            # microhubs['Y'] = [zones.iloc[i]['Y'].copy() for i in microhubs['AREANR']]
+
+            mh_id_dict = dict(zip(microhubs.index, microhubs['AREANR']))
+
+            if tier == 'Horizontal Collaboration':
+
+                # Get selected hubs for mode and tier from input data
+                hubsConfig = [
+                    int(x) for x in
+                    vehicleTypes['collab_microhubs'][mode].split(",")]
+                nMH = len(hubsConfig)
+                hubZones = microhubs['AREANR'][hubsConfig]
+
+                # Make skim for selected MHs and all zones with chosen mode
+                mh_to_zone_skim = np.zeros((nZones, nMH))
+                for i, mh_zone in enumerate(hubZones):
+                    mh_orig = invZoneDict[mh_zone]
+                    mh_dest = np.arange(1, nZones + 1)
+
+                    # Time skim in hours
+                    mh_to_zone_skim[:, i] = np.round((
+                        (skimDistance_lastleg[(mh_orig - 1) * nZones + (mh_dest - 1)] / 1000) /
+                        vehicleTypes['AvgSpeed'][mode]
+                    ), 4)
+
+                # For each zone, find the closest microhub
+                # based on travel time in mh_to_zone_skim
+                closest_MH = pd.DataFrame(columns=["MH_ID", "MH_AREA"])
+                min_indices = pd.DataFrame(mh_to_zone_skim).idxmin(axis=1).astype(int)
+
+                closest_MH["MH_ID"] = [hubsConfig[i] for i in min_indices]
+                closest_MH["MH_AREA"] = closest_MH["MH_ID"].map(mh_id_dict)
+
+                # Add column to main zones df:
+                # for zones served from microhub, fill in areanr
+                # of their closest hub
+                zones["MH_zone"] = 0
+                for i in zones.loc[zones['ZEZ'] == 2].index:
+                    zones.at[i, "MH_zone"] = closest_MH.loc[invZoneDict[i] - 1, "MH_AREA"]
+
+            # Individual CEP
             else:
 
-                logger.debug(f"\tRunning microhubs scenario with{tier} and {modeLabelsDict[mode]}.")
+                # Get the hubs that are part of the scenario
+                hubsConfig = list(map(int, vehicleTypes['individual_microhubs'][mode].split(",")))
+                hubsIndex = [x - 1 for x in hubsConfig]
+                microhubsConfig = microhubs.iloc[hubsIndex]
+                cep_hubs = [
+                    microhubsConfig.index[microhubsConfig['CEP'] == cep].tolist()
+                    for cep in microhubsConfig.CEP.unique()]
+                selectedHubsByCEP = {k: v for k, v in zip(microhubsConfig['CEP'].unique(), cep_hubs)}
 
-                # Read csv with microhubs (ID, areanr, CEP)
-                microhubs = pd.read_csv(varDict['MICROHUBS'], index_col=0)
+                for courier in cepList:
 
-                # Find and add coordinates of microhub zones
-                microhubs['X'] = [
-                    zones.iloc[i]['X'].copy()
-                    for i in microhubs['AREANR']]
-                microhubs['Y'] = [
-                    zones.iloc[i]['Y'].copy()
-                    for i in microhubs['AREANR']]
+                    # Number of MH of current cep
+                    nMH = len(selectedHubsByCEP[courier])
+                    logger.debug(f"\t\tPreparing microhub(s) no. {selectedHubsByCEP[courier]} for {courier}")
 
-                mh_id_dict = dict(zip(microhubs.index, microhubs['AREANR']))
+                    # If only one hub of courier is selected,
+                    # that's the one from which the courier will deliver
+                    if nMH == 1:
+                        current_mh_zone = mh_id_dict[selectedHubsByCEP[courier][0]]
+                        zones[f"MH_zone_{courier}"] = 0
+                        zones.loc[zones['ZEZ'] == 2, f"MH_zone_{courier}"] = current_mh_zone
 
-                # Make skim with travel DISTANCES between
-                # parcel nodes and all other zones
-                nZones = int(len(skimDistance) ** 0.5)
-                distSkim = np.zeros((nZones, nParcelNodes))
-                i = 0
-                for parcelNodeZone in parcelNodes['AREANR']:
-                    orig = invZoneDict[parcelNodeZone]
-                    dest = 1 + np.arange(nZones)
-                    distSkim[:, i] = np.round(skimDistance[(orig - 1) * nZones + (dest - 1)], 4)
-                    i += 1
+                    # If 2+ hubs of the same courier are in the selection,
+                    # determine which one serves which area
+                    if nMH > 1:
+                        # Make skim for selected MHs and all zones
+                        mh_to_zone_skim = np.zeros((nZones, nMH))
+                        i = 0
+                        for mh in selectedHubsByCEP[courier]:
+                            mh_orig = invZoneDict[mh_id_dict[mh]]
+                            mh_dest = np.arange(1, nZones + 1)
 
-                if tier == 'Horizontal Collaboration':
+                            # Time skim in hours
+                            mh_to_zone_skim[:, i] = np.round((
+                                (skimDistance_lastleg[(mh_orig - 1) * nZones + (mh_dest - 1)] / 1000) /
+                                vehicleTypes['AvgSpeed'][mode]
+                            ), 4)
 
-                    # Get selected hubs for mode and tier from input data
-                    hubsConfig = [
-                        int(x) for x in
-                        vehicleTypes['collab_microhubs'][mode].split(",")]
-                    nMH = len(hubsConfig)
-                    hubZones = microhubs['AREANR'][hubsConfig]
+                            i += 1
 
-                    # Make skim for selected MHs and all zones with chosen mode
-                    mh_to_zone_skim = np.zeros((nZones, nMH))
-                    i = 0
-                    for mh_zone in hubZones:
-                        mh_orig = invZoneDict[mh_zone]
-                        mh_dest = np.arange(1, nZones + 1)
+                        # For each zone, find the closest microhub based
+                        # on travel time in mh_to_zone_skim
+                        closest_MH = pd.DataFrame(columns=["MH_ID", "MH_AREA"])
 
-                        # Time skim in seconds
-                        mh_to_zone_skim[:, i] = np.round(
-                            (skimDistance[(mh_orig - 1) * nZones + (mh_dest - 1)] /
-                             vehicleTypes['AvgSpeed'][mode] / 3.6), 4)
+                        # Find for each zone the closest MH with MH_ID
+                        closest_MH_pos = pd.DataFrame(mh_to_zone_skim).idxmin(axis=1) + 1
+                        closest_MH["MH_ID"] = [
+                            selectedHubsByCEP[courier][closest_MH_pos[x] - 1]
+                            for x in closest_MH_pos.index]
+                        closest_MH["MH_AREA"] = [
+                            mh_id_dict[closest_MH["MH_ID"][i]]
+                            for i in closest_MH.index]
 
-                        i += 1
-
-                    # For each zone, find the closest microhub
-                    # based on travel time in mh_to_zone_skim
-                    closest_MH = pd.DataFrame(columns=["MH_ID", "MH_AREA"])
-                    closest_MH["MH_ID"] = pd.DataFrame(
-                        mh_to_zone_skim).idxmin(axis=1) + 1
-                    closest_MH["MH_AREA"] = [
-                        mh_id_dict[closest_MH["MH_ID"][i]]
-                        for i in closest_MH.index]
-
-                    # Add column to main zones df:
-                    # for zones served from microhub, fill in areanr
-                    # of their closest hub
-                    for i in zones.index:
-                        if zones.at[i, "ZEZ"] == 2:
-                            zones.at[i, "MH_zone"] = (
-                                closest_MH.loc[invZoneDict[i], "MH_AREA"])
-                        else:
-                            zones.at[zones['ZEZ'] != 2, "MH_zone"] = 0
-
-                # Individual CEP
-                else:
-
-                    # Get the hubs that are part of the scenario
-                    hubsConfig = list(map(int, vehicleTypes['individual_microhubs'][mode].split(",")))
-                    hubsIndex = [x - 1 for x in hubsConfig]
-                    microhubsConfig = microhubs.iloc[hubsIndex]
-                    cep_hubs = [
-                        microhubsConfig.index[microhubsConfig['CEP'] == cep].tolist()
-                        for cep in microhubsConfig.CEP.unique()]
-                    selectedHubsByCEP = {k: v for k, v in zip(microhubsConfig['CEP'].unique(), cep_hubs)}
-
-                    for courier in cepList:
-
-                        # Number of MH of current cep
-                        nMH = len(selectedHubsByCEP[courier])
-                        logger.debug(f"\t\tPreparing microhub(s) no. {selectedHubsByCEP[courier][1:-1]} for {courier}")
-
-                        # If only one hub of courier is selected,
-                        # that's the one from which the courier will deliver
-                        if nMH == 1:
-                            current_mh_zone = mh_id_dict[
-                                selectedHubsByCEP[courier][0]]
-                            zones[f"MH_zone_{courier}"] = 0
-                            zones.loc[
-                                zones['ZEZ'] == 2,
-                                f"MH_zone_{courier}"] = current_mh_zone
-
-                        # If 2+ hubs of the same courier are in the selection,
-                        # determine which one serves which area
-                        if nMH > 1:
-                            # Make skim for selected MHs and all zones
-                            mh_to_zone_skim = np.zeros((nZones, nMH))
-                            i = 0
-                            for mh in selectedHubsByCEP[courier]:
-                                mh_orig = invZoneDict[mh_id_dict[mh]]
-                                mh_dest = np.arange(1, nZones + 1)
-
-                                # Time skim in seconds
-                                mh_to_zone_skim[:, i] = np.round(
-                                    (skimDistance[(mh_orig - 1) * nZones + (mh_dest - 1)] /
-                                     (vehicleTypes['AvgSpeed'][mode] / 3.6)), 4)
-
-                                i += 1
-
-                            # For each zone, find the closest microhub based
-                            # on travel time in mh_to_zone_skim
-                            closest_MH = pd.DataFrame(columns=["MH_ID", "MH_AREA"])
-
-                            # Find for each zone the closest MH with MH_ID
-                            closest_MH_pos = pd.DataFrame
-                            (mh_to_zone_skim).idxmin(axis=1) + 1
-                            closest_MH["MH_ID"] = [
-                                selectedHubsByCEP[courier][closest_MH_pos[x] - 1]
-                                for x in closest_MH_pos.index]
-                            closest_MH["MH_AREA"] = [
-                                mh_id_dict[closest_MH["MH_ID"][i]]
-                                for i in closest_MH.index]
-
-                            # Add column to main zones df:
-                            # for zones served from microhub,
-                            # fill in areanr of their closest hub
-                            zones[f"MH_zone_{courier}"] = 0
-                            zones.loc[zones['ZEZ'] == 2, f"MH_zone_{courier}"] = [
-                                closest_MH.loc[invZoneDict[i], "MH_AREA"]
-                                for i in zones.index[zones['ZEZ'] == 2]]
+                        # Add column to main zones df:
+                        # for zones served from microhub,
+                        # fill in areanr of their closest hub
+                        zones[f"MH_zone_{courier}"] = 0
+                        zones.loc[zones['ZEZ'] == 2, f"MH_zone_{courier}"] = [
+                            closest_MH.loc[invZoneDict[i] - 1, "MH_AREA"]
+                            for i in zones.index[zones['ZEZ'] == 2]]
 
         if root is not None:
             root.progressBar['value'] = 3.0
@@ -339,7 +331,7 @@ def actually_run_module(
 
             for a in ageList:
                 tmpKLEEFT = segs.at[z, f'KLEEFT_{a}']
-                
+
                 for i in incList:
                     tmpHHINK = segs.at[z, f'HHINK_{i}']
 
@@ -409,7 +401,7 @@ def actually_run_module(
         # ---------------------------------------------------------------------
         # 4) calculate cumprobs and then probs
 
-        logger.debug("\t\t\tCalculative cumulative probabilities...")
+        logger.debug("\t\t\tCalculate cumulative probabilities...")
 
         # Make dictionary with threshold parameters (mu)
         # and corresponding number of parcels
@@ -475,23 +467,34 @@ def actually_run_module(
         demandPerZone['parcels'] *= corrFactorParcels
 
         # Add the B2C parcels to the B2B parcels
+        zones['employee_parcels'] = zones['parcels'] 
+        zones['inhabitants_parcels'] = demandPerZone['parcels']
+
         zones['parcels'] += demandPerZone['parcels']
 
         logger.debug("\t\tAssign parcels to couriers and depots...")
 
         # Spread over couriers based on market shares
         for cep in cepList:
-            zones['parcels_' + str(cep)] = np.array(
-                np.round(cepShares['share_total'][cep] * zones['parcels']),
+            zones['employee_parcels_' + str(cep)] = np.array(
+                np.round(cepShares['share_total'][cep] * zones['employee_parcels']),
+                dtype=int)
+
+        for cep in cepList:
+            zones['inhabitants_parcels_' + str(cep)] = np.array(
+                np.round(cepShares['share_total'][cep] * zones['inhabitants_parcels']),
                 dtype=int)
 
         # Total number of parcels per courier
         nParcels = int(zones[
-            ["parcels_" + str(cep) for cep in cepList]].sum().sum())
+            ["employee_parcels_" + str(cep) for cep in cepList]
+        ].sum().sum()) + int(zones[
+            ["inhabitants_parcels_" + str(cep) for cep in cepList]
+        ].sum().sum())
 
         # Put parcel demand in Numpy array (faster indexing)
-        cols = ['Parcel_ID', 'O_zone', 'D_zone', 'DepotNumber']
-        parcels = np.zeros((nParcels, len(cols)), dtype=int)
+        cols = ['Parcel_ID', 'O_zone', 'D_zone', 'DepotNumber', 'Receiver']
+        parcels = np.empty((nParcels, len(cols)), dtype=object)
         parcelsCep = np.array(['' for i in range(nParcels)], dtype=object)
 
         if root is not None:
@@ -518,8 +521,10 @@ def actually_run_module(
                     # number in ongoing df from index count-1 the next x=no.
                     # of parcels rows, fill the cell in the column Parcel_ID
                     # with a number
-                    n = zones.at[zoneID, 'parcels_' + str(cep)]
+                    n_empl = zones.at[zoneID, 'employee_parcels_' + str(cep)]
+                    n_inhab = zones.at[zoneID, 'inhabitants_parcels_' + str(cep)]
 
+                    n = n_empl + n_inhab
                     if n == 0:
                         continue
 
@@ -529,12 +534,15 @@ def actually_run_module(
                     # O_zone
                     parcels[count:(count + n), 1] = parcelNodes.at[parcelNodeIndex + 1, 'AREANR']
 
-                    # D_zone, DepotNumber and CEP
+                    # D_zone, DepotNumber, receiver and CEP
                     parcels[count:(count + n), 2] = zoneID
                     parcels[count:(count + n), 3] = parcelNodeIndex + 1
+                    parcels[count:(count + n_empl), 4] = "empl"
+                    parcels[(count + n_empl):(count + n_empl + n_inhab), 4] = "inhab"
+
                     parcelsCep[count:(count + n)] = cep
 
-                    count += zones.at[zoneID, 'parcels_' + str(cep)]
+                    count += n
 
         # Put the parcel demand data back in a DataFrame
         parcels = pd.DataFrame(parcels, columns=cols)
@@ -554,7 +562,7 @@ def actually_run_module(
             logger.debug(f"\tWriting REF parcels to ParcelDemand_{tier}_{mode}_.csv")
             parcels.to_csv(f"{varDict['OUTPUTFOLDER']}ParcelDemand_REF.csv", index=False)
 
-            logger.debug(f"\tRedirecting parcels through microhubs...")
+            logger.debug("\tRedirecting parcels through microhubs...")
 
             parcels['FROM_MH'] = 0
             parcels['TO_MH'] = 0
@@ -566,34 +574,40 @@ def actually_run_module(
             depotNumbers = np.array(parcels['DepotNumber'].astype(int))
 
             # Store indices of parcels in destZones where destZone is in ZEZ==2
-            mh_parcels = np.where(zones['ZEZ'][destZones] == 2)[0]
+            mh_parcels = np.where(zones.loc[destZones, "ZEZ"].values == 2)[0]
 
-            newParcels = np.zeros((len(mh_parcels), parcels.shape[1]), dtype=object)
+            newParcels = parcels.loc[parcels['Parcel_ID'].isin(mh_parcels)].copy().reset_index(drop=True)
 
-            count = 0
-            for parcel_id in mh_parcels: 
+            np.random.seed(seeds['parcel_pickup_point'])
 
+            for count, parcel_id in enumerate(mh_parcels):
                 trueDest = destZones[parcel_id]
                 cep = parcelsCep[parcel_id]
 
-                if tier =='Horizontal Collaboration':
+                if tier == 'Horizontal Collaboration':
                     mhzone = zones['MH_zone'][trueDest]
-                if tier =='Individual CEP':
+                elif tier == 'Individual CEP':
                     mhzone = zones[f'MH_zone_{cep}'][trueDest]
+                else:
+                    raise ValueError(f"Unknown tier {tier}")
 
                 # Leg A: from depots to MH
                 # (change existing record of the parcel)
                 parcels.at[parcel_id, 'D_zone'] = mhzone.copy()   # MH as destination leg A
-                parcels.at[parcel_id, 'TO_MH'] = microhubs.index[
-                    microhubs['AREANR'] == mhzone][0]
+                parcels.at[parcel_id, 'TO_MH'] = microhubs.index[microhubs['AREANR'] == mhzone][0]
                 parcels.at[parcel_id, 'VEHTYPE'] = modeNumbersDict["TR"]
+
+                prob_pickup = microhubs.at[parcels.at[parcel_id, 'TO_MH'], 'PROB_PICKUP']
+
+                if np.random.rand() <= prob_pickup:
+                    continue
 
                 # Leg B: microhub to final destination
                 # (make new record to add to the end of the parcels-df)
-                newParcels[count, 1] = mhzone                         # MH as origin Leg B 
-                newParcels[count, 2] = trueDest                       # Destination leg B (zone of HH or business)
-                newParcels[count, 3] = depotNumbers[parcel_id]        # Depot ID 
-                newParcels[count, 4] = cep                            # Courier name
+                newParcels.at[count, 'O_zone'] = mhzone                         # MH as origin Leg B 
+                newParcels.at[count, 'D_zone'] = trueDest                       # Destination leg B (zone of HH or business)
+                newParcels.at[count, 'DepotNumber'] = depotNumbers[parcel_id]   # Depot ID 
+                newParcels.at[count, 'CEP'] = cep                               # Courier name
 
                 if mode == "AR":
                     dist = np.round((skimDistance[
@@ -604,25 +618,23 @@ def actually_run_module(
 
                     # Vehicle type electric bike
                     if dist > radius:
-                        newParcels[count, 5] = modeNumbersDict["EB"]
+                        newParcels.at[count, 'VEHTYPE'] = modeNumbersDict["EB"]
                     # Vehicle type autonomous robot
                     else:
-                        newParcels[count, 5] = modeNumbersDict[mode]
+                        newParcels.at[count, 'VEHTYPE'] = modeNumbersDict[mode]
 
                 # Green vehicle type
                 else:
-                    newParcels[count, 5] = modeNumbersDict[mode]
+                    newParcels.at[count, 'VEHTYPE'] = modeNumbersDict[mode]
 
                 #  MH that is origin of this leg
-                newParcels[count, 6] = microhubs.index[microhubs['AREANR'] == mhzone][0]
+                newParcels.at[count, 'FROM_MH'] = microhubs.index[microhubs['AREANR'] == mhzone][0]
 
-                 # To MH is zero here (leg B)
-                newParcels[count, 7] = 0
+                # To MH is zero here (leg B)
+                newParcels.at[count, 'TO_MH'] = 0
 
-                count += 1
-
-            newParcels = pd.DataFrame(newParcels)
-            newParcels.columns = parcels.columns
+            parcels = pd.concat([parcels, newParcels.loc[newParcels['FROM_MH'] > 0]]).reset_index(drop=True)
+            parcels['Parcel_ID'] = 1 + np.arange(len(parcels))
 
             dtypes = {
                 'Parcel_ID': int,
@@ -630,16 +642,15 @@ def actually_run_module(
                 'D_zone': int,
                 'DepotNumber': int,
                 'CEP': str,
+                'Receiver': str,
                 'VEHTYPE': int,
                 'FROM_MH': int,
                 'TO_MH': int}
             for col in dtypes.keys():
-                newParcels[col] = newParcels[col].astype(dtypes[col])
+                parcels[col] = parcels[col].astype(dtypes[col])
 
-            parcels = parcels.append(newParcels)
-            parcels.index = np.arange(len(parcels))
-            parcels['Parcel_ID'] = np.arange(1, len(parcels) + 1)
-
+            if tier == 'Horizontal Collaboration':
+                parcels['CEP'] = 'all'
             nParcels = len(parcels)
 
             logger.debug(f"\t\t{len(newParcels)} out of {nParcels} parcels are redirected through microhubs")
@@ -650,7 +661,7 @@ def actually_run_module(
 
         # ---------------------------- UCC ------------------------------------
         # Rerouting through UCCs in the UCC-scenario
-        if varDict['LABEL'] == 'UCC': 
+        if varDict['LABEL'] == 'UCC':
 
             # Write the REF parcel demand
             logger.debug(f"\tWriting parcels to {varDict['OUTPUTFOLDER']}ParcelDemand_REF.csv")
@@ -664,7 +675,7 @@ def actually_run_module(
             # Vehicle/combustion shares (for UCC scenario)
             cumSharesVehUCC = get_cum_shares_vt_ucc(varDict, dims)
 
-            logger.debug(f"\tRedirecting parcels via UCC...")
+            logger.debug("\tRedirecting parcels via UCC...")
 
             parcels['FROM_UCC'] = 0
             parcels['TO_UCC'] = 0
@@ -736,7 +747,7 @@ def actually_run_module(
             for col in dtypes.keys():
                 newParcels[col] = newParcels[col].astype(dtypes[col])
 
-            parcels = parcels.append(newParcels)
+            parcels = pd.concat([parcels, newParcels])
             parcels.index = np.arange(len(parcels))
             parcels['Parcel_ID'] = np.arange(1, len(parcels) + 1)
 
