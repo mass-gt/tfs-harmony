@@ -318,7 +318,7 @@ class Root:
 
             self.logger.debug('##################################################')
             self.logger.debug('### Tactical Freight Simulator HARMONY         ###')
-            self.logger.debug('### Prototype version, July 2024               ###')
+            self.logger.debug('### Prototype version, January 2025            ###')
             self.logger.debug('##################################################')
             self.logger.debug('\n')
 
