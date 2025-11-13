@@ -16,6 +16,12 @@ Besides the Python Standard Library, make sure you have the following libraries 
 
 Finally, when you are using the Spyder IDE for running your Python scripts, make sure to have selected `Execute in an external system terminal` under `Tools-->Preferences-->Run-->Console`. This is necessary to make the scripts work that use parallelization of processes (tour formation module and traffic assignment module). 
 
+## Versions
+The following branches are available as releases:
+- `prototype-2023-08`: this is the code base that resulted from the HARMONY project
+- `prototype-2025-01`: here the code was refactored and adjusted to work with the new MRDH base year data (for Gemeente Rotterdam)
+
+
 ## Further information
 For more information on MASS-GT and the Tactical Freight Simulator, see: 
 https://www.tudelft.nl/transport/onderzoeksthemas/goederenvervoer-logistiek/sleutelprojecten/mass-gt
