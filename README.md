@@ -30,15 +30,19 @@ https://www.tudelft.nl/transport/onderzoeksthemas/goederenvervoer-logistiek/sleu
 Please note that this code is made available under the GNU General Public License v2.0. 
 
 ## References
-de Bok, M, L Tavasszy, I Kourounioti, S Thoen, L Eggers, V Mayland Nielsen, J Streng (2021) Application of the HARMONY tactical freight simulator to a case study for zero emission zones in Rotterdam, Transportation Research Records, in press
+de Bok, M., L Tavasszy , S Thoen , L Eggers , I Kourounioti (2025). “MASS-GT: an empirical model for the simulation of freight policies”, Simulation Modelling Practice and Theory 142 DOI: (https://doi.org/10.1016/j.simpat.2025.103140).
+
+de Bok, M., S Giasoumi, L Tavasszy,S Thoen, A Nadi, J Streng (2024). "A simulation study of the impacts of micro-hub scenarios for city logistics in Rotterdam." Research in Transportation Business & Management 56 DOI: (https://doi.org/10.1016/j.rtbm.2024.101186).
+
+de Bok, M, L Tavasszy, S Thoen (2022) Application of an empirical multi-agent model for urban goods transport to analyze impacts of zero emission zones in The Netherlands, Transport Policy, Volume 124, Pages 119 – 127.
+
+de Bok, M, L Tavasszy, I Kourounioti, S Thoen, L Eggers, V Mayland Nielsen, J Streng (2021) Application of the HARMONY tactical freight simulator to a case study for zero emission zones in Rotterdam, Transportation Research Records, Vol 2675(10), 776–785. (https://DOI.org/10.1177/03611981211012694).
 
 Thoen, S, L Tavasszy, M de Bok, G Correia, R van Duin (2020) Descriptive modeling of freight tour formation: A shipment-based approach, Transportation Research Part E, Volume 140, Pages XX – XX (https://doi.org/10.1016/j.tre.2020.101989)
 
 de Bok, M, I Bal, L Tavasszy, T Tillema (2020) Exploring the impacts of an emission based truck charge in the Netherlands, Case Studies on Transport Policy, Volume 8, Pages 887 – 894. (https://doi.org/10.1016/j.cstp.2020.05.013)
 
 Thoen, S, M de Bok and L Tavasszy (2020) Shipment-based urban freight emission calculation. 2020 Forum on Integrated and Sustainable Transportation Systems (FISTS) in Delft. (DOI: 10.1109/FISTS46898.2020.9264858)
-
-de Bok, M, L Tavasszy, S Thoen (2020) Application of an empirical multi-agent model for urban goods transport to analyze impacts of zero emission zones in The Netherlands, Transport Policy, Volume XX, Pages XX – XX. (in press). (https://doi.org/10.1016/j.tranpol.2020.07.010)
 
 de Bok, M, L Tavasszy (2018) "An empirical agent-based simulation system for urban goods transport (MASS-GT)." Procedia Computer Science, 130: 8. (https://doi.org/10.1016/j.procs.2018.04.021)
 
