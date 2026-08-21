@@ -1,2 +1,26 @@
-.pytest_cache
+# Python
+__pycache__/
 *.pyc
+.pytest_cache/
+
+# Environment
+.env
+.venv/
+
+# Data (private; never committed)
+data/
+*.mtx
+*.shp
+*.shx
+*.dbf
+*.prj
+*.geojson
+*.csv
+!dimensions/*.txt
+
+# Logs
+*.log
+Logfile_*.txt
+
+# Docs build output
+docs/build/
