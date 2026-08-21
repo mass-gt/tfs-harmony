@@ -1,150 +1,126 @@
-# tfs-harmony
+# MASS-GT: Tactical Freight Simulator for Urban Logistics (tfs-harmony)
 
-## Setting up a run
-To calculate a scenario, run the MASS_GT_GUI.py script and enter the path to the .ini-file with configuration settings. 
-An example of such an .ini-file is shown at the bottom. In this file you specify parameters and the paths to the input files to be used in the model run. 
+The **Tactical Freight Simulator (TFS)** is the freight-modelling core of
+**MASS-GT** — an open, empirically-calibrated, agent-based simulation platform
+for urban freight and logistics policy analysis developed at
+[Delft University of Technology](https://www.tudelft.nl/transport/onderzoeksthemas/goederenvervoer-logistiek/sleutelprojecten/mass-gt).
 
-The Tactical Freight Simulator has a large set of input files required for its calculations. To obtain the input files of the implementation in Zuid-Holland, the Netherlands, contact Sebastiaan Thoen (`@sebastiaanth` on GitHub). 
+`tfs-harmony` simulates the full urban-freight chain at truck/tour level:
+**freight generation → distribution → shipping → tour formation → parcel demand & scheduling → service provision → traffic assignment → emissions output**.
 
-Besides the Python Standard Library, make sure you have the following libraries installed:
-- numpy==1.19.1
-- pandas==1.0.5
-- scipy==1.5.0
-- pyshp==2.1.0
-- shapely==1.7.0
-- numba==0.53.0
+## Repository context
 
-Finally, when you are using the Spyder IDE for running your Python scripts, make sure to have selected `Execute in an external system terminal` under `Tools-->Preferences-->Run-->Console`. This is necessary to make the scripts work that use parallelization of processes (tour formation module and traffic assignment module). 
+MASS-GT exists in three GitHub repositories sharing an identical architecture:
 
-## Versions
-The following branches are available as releases:
-- `prototype-2023-08`: this is the code base that resulted from the HARMONY project
-- `prototype-2025-01`: here the code was refactored and adjusted to work with the new MRDH base year data (for Gemeente Rotterdam)
+| Repo                | Focus                              |
+|---------------------|------------------------------------|
+| `tfs-harmony` *(this)* | Core tactical freight simulator |
+| `mass-gt-emotion`   | E-bike policy extensions           |
+| `mass-gt-safety`    | Safety analysis extensions         |
 
+Branches: `main` (upstream baseline), `restructure-layout` (active), `prototype-2023-08` (HARMONY), `prototype-2025-01` (MRDH Rotterdam).
 
-## Further information
-For more information on MASS-GT and the Tactical Freight Simulator, see: 
-https://www.tudelft.nl/transport/onderzoeksthemas/goederenvervoer-logistiek/sleutelprojecten/mass-gt
+## Features
+- Modular pipeline: FS, SIF, SHIP, TOUR, PARCEL_DMND, PARCEL_SCHD, SERVICE, TRAF, OUTP
+- Headless CLI with progress reporting; Tkinter GUI for interactive runs.
+- Data-driven `.ini` control files with `<<INPUTFOLDER>>` / `<<PARAMFOLDER>>` placeholder substitution.
+
+## 15-minute setup
+
+### Prerequisites
+- **Python 3.11**
+- **Git**
+- Private model input data — see [Data](#data-configuration).
+
+### 1. Clone
+```bash
+git clone https://github.com/mass-gt/tfs-harmony.git
+cd tfs-harmony
+```
+
+### 2. Virtual environment
+```bash
+python -m venv .venv
+source .venv/bin/activate      # Linux/macOS
+# .venv\Scripts\activate          # Windows
+```
+
+### 3. Install
+```bash
+pip install -e .[dev]
+```
+
+## Data configuration
+MASS-GT requires **private input data** (zones, skims, firms, etc.) **not** in this repo.
+
+1. `cp .env.example .env`
+2. Set `MASS_GT_DATA_DIR` to your local data directory containing `input/`, `output/`, and `reference/dimensions/`.
+3. Place your `.ini` (see `run/example.ini`) in `data/input/`.
+
+Without `.env`, paths default under the repo's `data/`. Unit tests need no data.
+
+## Running the model
+
+### CLI (headless)
+```bash
+python run_scenario.py --config data/input/Run_REF.ini
+python run_scenario.py --config /path/to/scenario.ini --quiet
+```
+Flags: `--config` (default `data/input/Run_REF.ini`), `--quiet` (silent, `root=None`).
+
+### GUI (interactive)
+```bash
+python -m mass_gt.tfs
+```
+
+### As a library
+```python
+from mass_gt import settings
+from mass_gt.calculation.fs import module_fs
+
+vd = settings.parse_control_file("data/input/Run_REF.ini")
+settings.validate_control_file(vd)
+result = module_fs.actually_run_module(root=None, varDict=vd, dims=None)
+```
+
+## Testing
+```bash
+pytest            # 23 tests, no data required
+```
+
+## Documentation
+Full Sphinx docs build locally:
+```bash
+sphinx-build -b html docs/source docs/build/html
+```
+Rendered guide: [tfs-harmony.readthedocs.io](https://tfs-harmony.readthedocs.io/)
+
+See `docs/source/index.rst` for the documentation table of contents.
+
+## Repository structure
+```
+tfs-harmony/
+├── pyproject.toml       # packaging (Hatchling) & tool config
+├── run_scenario.py      # CLI entry point
+├── run/example.ini      # documented control-file template
+├── data/                # git-ignored; .env points here for your data
+│   └── reference/dimensions/   # taxonomy reference files
+├── docs/                # Sphinx documentation
+└── src/mass_gt/
+    ├── __init__.py      # __version__ = "3.1.0"
+    ├── config.py        # BASE_DIR, DATA_DIR, paths (via .env)
+    ├── settings.py      # .ini → varDict parser & validator
+    ├── tfs.py           # GUI entry point
+    ├── calculation/     # model pipeline modules (common, fs, sif, ship, …)
+    └── tests/           # pytest suite
+```
 
 ## License
-Please note that this code is made available under the GNU General Public License v2.0. 
+GNU General Public License v2.0 — see [LICENSE](LICENSE).
 
 ## References
-de Bok, M., L Tavasszy , S Thoen , L Eggers , I Kourounioti (2025). “MASS-GT: an empirical model for the simulation of freight policies”, Simulation Modelling Practice and Theory 142 DOI: (https://doi.org/10.1016/j.simpat.2025.103140).
-
-de Bok, M., S Giasoumi, L Tavasszy,S Thoen, A Nadi, J Streng (2024). "A simulation study of the impacts of micro-hub scenarios for city logistics in Rotterdam." Research in Transportation Business & Management 56 DOI: (https://doi.org/10.1016/j.rtbm.2024.101186).
-
-de Bok, M, L Tavasszy, S Thoen (2022) Application of an empirical multi-agent model for urban goods transport to analyze impacts of zero emission zones in The Netherlands, Transport Policy, Volume 124, Pages 119 – 127.
-
-de Bok, M, L Tavasszy, I Kourounioti, S Thoen, L Eggers, V Mayland Nielsen, J Streng (2021) Application of the HARMONY tactical freight simulator to a case study for zero emission zones in Rotterdam, Transportation Research Records, Vol 2675(10), 776–785. (https://DOI.org/10.1177/03611981211012694).
-
-Thoen, S, L Tavasszy, M de Bok, G Correia, R van Duin (2020) Descriptive modeling of freight tour formation: A shipment-based approach, Transportation Research Part E, Volume 140, Pages XX – XX (https://doi.org/10.1016/j.tre.2020.101989)
-
-de Bok, M, I Bal, L Tavasszy, T Tillema (2020) Exploring the impacts of an emission based truck charge in the Netherlands, Case Studies on Transport Policy, Volume 8, Pages 887 – 894. (https://doi.org/10.1016/j.cstp.2020.05.013)
-
-Thoen, S, M de Bok and L Tavasszy (2020) Shipment-based urban freight emission calculation. 2020 Forum on Integrated and Sustainable Transportation Systems (FISTS) in Delft. (DOI: 10.1109/FISTS46898.2020.9264858)
-
-de Bok, M, L Tavasszy (2018) "An empirical agent-based simulation system for urban goods transport (MASS-GT)." Procedia Computer Science, 130: 8. (https://doi.org/10.1016/j.procs.2018.04.021)
-
-
-## Example .ini-file
-```
-# -------------- Which modules to run (separated by commas) ---------------------
-MODULES=FS,SIF,SHIP,TOUR,PARCEL_DMND,PARCEL_SCHD,SERVICE,TRAF,OUTP
-
-# ------------------- Scenario name ----------------------------------------------
-LABEL = REF
-#Current options are: REF, UCC
-
-# -------------- Input and output folders ----------------------------------------
-INPUTFOLDER  = C:\...\data\2016\
-PARAMFOLDER  = C:\...\parameters\
-OUTPUTFOLDER = C:\...\RunREF2016\
-DIMFOLDER = C:\...\dimensions\
-
-# ------------------- Input files ------------------------------------------------
-SKIMTIME     = C:\...\data\LOS\2016\skimTijd_REF.mtx
-SKIMDISTANCE = C:\...\data\LOS\2016\skimAfstand_REF.mtx
-LINKS  = <<INPUTFOLDER>>links_v5.shp
-NODES  = <<INPUTFOLDER>>nodes_v5.shp
-ZONES  = <<INPUTFOLDER>>Zones_v5.shp
-SEGS   = <<INPUTFOLDER>>SEGS2016_verrijkt.csv
-COMMODITYMATRIX    = <<INPUTFOLDER>>CommodityMatrixNUTS3_2016.csv
-PARCELNODES        = <<INPUTFOLDER>>parcelNodes_v2.shp
-CEP_SHARES         = <<INPUTFOLDER>>CEPshares.csv
-DISTRIBUTIECENTRA  = <<INPUTFOLDER>>distributieCentra.csv
-DC_OPP_NUTS3       = <<INPUTFOLDER>>DC_OPP_NUTS3.csv
-NSTR_TO_LS         = <<INPUTFOLDER>>nstrToLogisticSegment.csv
-MAKE_DISTRIBUTION  = <<INPUTFOLDER>>MakeDistribution.csv
-USE_DISTRIBUTION   = <<INPUTFOLDER>>UseDistribution.csv
-SUP_COORDINATES_ID = <<INPUTFOLDER>>SupCoordinatesID.csv
-CORRECTIONS_TONNES = <<INPUTFOLDER>>CorrectionsTonnes2016.csv
-DEPTIME_PARCELS = <<INPUTFOLDER>>departureTimeParcelsCDF.csv
-FIRMSIZE        = <<INPUTFOLDER>>FirmSizeDistributionPerSector_6cat.csv
-SBI_TO_SEGS     = <<INPUTFOLDER>>Koppeltabel_sectoren_SBI_SEGs.csv
-
-COST_VEHTYPE   = <<PARAMFOLDER>>Cost_VehType_2016.csv
-COST_SOURCING  = <<PARAMFOLDER>>Cost_Sourcing_2016.csv
-MRDH_TO_NUTS3  = <<PARAMFOLDER>>MRDHtoNUTS32013.csv
-MRDH_TO_COROP  = <<PARAMFOLDER>>MRDHtoCOROP.csv
-NUTS3_TO_MRDH  = <<PARAMFOLDER>>NUTS32013toMRDH.csv
-SERVICE_DISTANCEDECAY = <<PARAMFOLDER>>Params_DistanceDecay_SERVICE.csv
-SERVICE_PA            = <<PARAMFOLDER>>Params_PA_SERVICE.csv
-VEHICLE_CAPACITY      = <<PARAMFOLDER>>CarryingCapacity.csv
-LOGISTIC_FLOWTYPES    = <<PARAMFOLDER>>LogFlowtype_Shares.csv
-PARAMS_TOD  = <<PARAMFOLDER>>Params_TOD.csv
-PARAMS_SSVT = <<PARAMFOLDER>>Params_ShipSize_VehType.csv
-PARAMS_ET_FIRST = <<PARAMFOLDER>>Params_EndTourFirst.csv
-PARAMS_ET_LATER = <<PARAMFOLDER>>Params_EndTourLater.csv
-PARAMS_SIF_PROD = <<PARAMFOLDER>>Params_PA_PROD.csv
-PARAMS_SIF_ATTR = <<PARAMFOLDER>>Params_PA_ATTR.csv
-PARAMS_ECOMMERCE = <<PARAMFOLDER>>Params_EcommerceDemand.csv
-
-EMISSIONFACS_BUITENWEG_LEEG = <<INPUTFOLDER>>EmissieFactoren_BUITENWEG_LEEG.csv
-EMISSIONFACS_BUITENWEG_VOL  = <<INPUTFOLDER>>EmissieFactoren_BUITENWEG_VOL.csv
-EMISSIONFACS_SNELWEG_LEEG = <<INPUTFOLDER>>EmissieFactoren_SNELWEG_LEEG.csv
-EMISSIONFACS_SNELWEG_VOL  = <<INPUTFOLDER>>EmissieFactoren_SNELWEG_VOL.csv
-EMISSIONFACS_STAD_LEEG = <<INPUTFOLDER>>EmissieFactoren_STAD_LEEG.csv
-EMISSIONFACS_STAD_VOL  = <<INPUTFOLDER>>EmissieFactoren_STAD_VOL.csv
-
-ZEZ_CONSOLIDATION = <<INPUTFOLDER>>ConsolidationPotential.csv
-ZEZ_SCENARIO      = <<INPUTFOLDER>>ZEZscenario.csv
-
-# ------------------- SIF parameters ---------------------------------------------
-NUTSLEVEL_INPUT = 3
-
-# ------------------- SHIP parameters --------------------------------------------
-YEARFACTOR = 209
-
-# ------------------ PARCEL parameters -------------------------------------------
-PARCELS_PER_EMPL = 0.041
-PARCELS_MAXLOAD	 = 180
-PARCELS_DROPTIME = 120
-PARCELS_SUCCESS_B2C   = 0.75
-PARCELS_SUCCESS_B2B   = 0.95
-PARCELS_GROWTHFREIGHT = 1.0
-
-MICROHUBS    = <<INPUTFOLDER>>Microhubs.csv
-VEHICLETYPES = <<INPUTFOLDER>>Microhubs_vehicleTypes.csv
-
-CROWDSHIPPING    = FALSE
-#CRW_PARCELSHARE  = 0.03
-#CRW_MODEPARAMS   = <<PARAMFOLDER>>Params_UseCase_CrowdShipping.csv
-#CRW_PDEMAND_CAR  = <<INPUTFOLDER>>MRDH_2016_Auto_Etmaal.mtx
-#CRW_PDEMAND_BIKE = <<INPUTFOLDER>>MRDH_2016_Fiets_Etmaal.mtx
-
-# ---------------------- TRAF parameters -----------------------------------------
-IMPEDANCE_SPEED_FREIGHT = V_FR_OS
-IMPEDANCE_SPEED_VAN     = V_PA_OS
-
-# ------------------- Optional settings ------------------------------------------
-#SELECTED_LINKS = 
-#SHIPMENTS_REF =
-#FIRMS_REF =
-#N_CPU = 
-#NEAREST_DC =
-#SHIFT_FREIGHT_TO_COMB1 =
-#SHIFT_FREIGHT_TO_COMB2 =
-#SHIFT_VAN_TO_COMB1
-```
-  
+- de Bok et al. (2025). "MASS-GT: an empirical model for the simulation of freight policies." *Simulation Modelling Practice and Theory*, 142. https://doi.org/10.1016/j.simpat.2025.103140
+- de Bok et al. (2024). "Micro-hub scenarios for city logistics in Rotterdam." *Res. Transp. Bus. & Manag.*, 56. https://doi.org/10.1016/j.rtbm.2024.101186
+- Thoen et al. (2020). "Descriptive modeling of freight tour formation." *Transp. Res. Part E*, 140. https://doi.org/10.1016/j.tre.2020.101989
+- de Bok & Tavasszy (2018). "An empirical agent-based simulation system for urban goods transport (MASS-GT)." *Procedia CS*, 130. https://doi.org/10.1016/j.procs.2018.04.021
+`
