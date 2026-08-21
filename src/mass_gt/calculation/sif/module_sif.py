@@ -4,7 +4,7 @@ import pandas as pd
 import sys
 import traceback
 
-from calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.dimensions import ModelDimensions
 
 from typing import Any, Dict
 

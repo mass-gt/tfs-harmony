@@ -9,9 +9,9 @@ import traceback
 from scipy.sparse import lil_matrix
 from typing import Any, Dict, List
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import get_num_cpu, get_seeds, read_mtx, read_shape
-from .traf_support import (
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import get_num_cpu, get_seeds, read_mtx, read_shape
+from .support_traf import (
     add_zez_to_links, calc_prev, get_route, get_link_dict, get_emission_factors,
     get_applicable_emission_fac,
     write_emissions_into_tours, write_emissions_into_shipments,

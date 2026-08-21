@@ -7,7 +7,7 @@ Submodules
 calculation.outp.module\_outp module
 ------------------------------------
 
-.. automodule:: calculation.outp.module_outp
+.. automodule:: mass_gt.calculation.outp.module_outp
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ calculation.outp.module\_outp module
 Module contents
 ---------------
 
-.. automodule:: calculation.outp
+.. automodule:: mass_gt.calculation.outp
    :members:
    :undoc-members:
    :show-inheritance:

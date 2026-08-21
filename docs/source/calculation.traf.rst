@@ -7,15 +7,15 @@ Submodules
 calculation.traf.module\_traf module
 ------------------------------------
 
-.. automodule:: calculation.traf.module_traf
+.. automodule:: mass_gt.calculation.traf.module_traf
    :members:
    :undoc-members:
    :show-inheritance:
 
-calculation.traf.traf\_support module
+calculation.traf.support\_traf module
 -------------------------------------
 
-.. automodule:: calculation.traf.traf_support
+.. automodule:: mass_gt.calculation.traf.support_traf
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ calculation.traf.traf\_support module
 Module contents
 ---------------
 
-.. automodule:: calculation.traf
+.. automodule:: mass_gt.calculation.traf
    :members:
    :undoc-members:
    :show-inheritance:

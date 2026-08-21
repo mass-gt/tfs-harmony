@@ -6,9 +6,9 @@ import traceback
 
 from typing import Any, Dict
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_seeds
-from calculation.common.vrt import draw_choice_mcs
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_shape, get_seeds
+from mass_gt.calculation.common.vrt import draw_choice_mcs
 from .support_fs import validation_checks, add_firm_coordinates, get_shapely_zones, read_segs
 
 logger = logging.getLogger("tfs")

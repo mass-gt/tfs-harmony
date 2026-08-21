@@ -4,8 +4,8 @@ import pandas as pd
 import sys
 import traceback
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_mtx, read_shape, get_seeds, get_skims
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_mtx, read_shape, get_seeds, get_skims
 from .support_parcel_schd import (
     cluster_parcels, create_schedules, do_crowdshipping,
     write_schedules_to_geojson, export_trip_matrices)

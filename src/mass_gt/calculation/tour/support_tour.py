@@ -4,7 +4,7 @@ import pandas as pd
 from itertools import product
 from typing import Dict, List, Optional, Tuple
 
-from calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.dimensions import ModelDimensions
 
 
 def get_cum_shares_comb_ucc(varDict: Dict[str, str], dims: ModelDimensions) -> Dict[Tuple[int, int], np.ndarray]:

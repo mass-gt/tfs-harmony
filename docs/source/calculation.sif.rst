@@ -7,7 +7,7 @@ Submodules
 calculation.sif.module\_sif module
 ----------------------------------
 
-.. automodule:: calculation.sif.module_sif
+.. automodule:: mass_gt.calculation.sif.module_sif
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ calculation.sif.module\_sif module
 Module contents
 ---------------
 
-.. automodule:: calculation.sif
+.. automodule:: mass_gt.calculation.sif
    :members:
    :undoc-members:
    :show-inheritance:

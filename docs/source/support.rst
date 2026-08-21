@@ -1,7 +1,7 @@
 support module
 ==============
 
-.. automodule:: support
+.. automodule:: mass_gt.support
    :members:
    :undoc-members:
    :show-inheritance:

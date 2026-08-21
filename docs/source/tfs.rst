@@ -1,7 +1,7 @@
 tfs module
 ==========
 
-.. automodule:: tfs
+.. automodule:: mass_gt.tfs
    :members:
    :undoc-members:
    :show-inheritance:

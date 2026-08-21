@@ -12,19 +12,19 @@ from tkinter.ttk import Progressbar
 from typing import Dict
 from zlib import decompress
 
-import calculation.fs.module_fs as module_fs
-import calculation.outp.module_outp as module_outp
-import calculation.parcel_dmnd.module_parcel_dmnd as module_parcel_dmnd
-import calculation.parcel_schd.module_parcel_schd as module_parcel_schd
-import calculation.service.module_service as module_service
-import calculation.ship.module_ship as module_ship
-import calculation.sif.module_sif as module_sif
-import calculation.tour.module_tour as module_tour
-import calculation.traf.module_traf as module_traf
-import calculation.common.arguments as common_arguments
+import mass_gt.calculation.fs.module_fs as module_fs
+import mass_gt.calculation.outp.module_outp as module_outp
+import mass_gt.calculation.parcel_dmnd.module_parcel_dmnd as module_parcel_dmnd
+import mass_gt.calculation.parcel_schd.module_parcel_schd as module_parcel_schd
+import mass_gt.calculation.service.module_service as module_service
+import mass_gt.calculation.ship.module_ship as module_ship
+import mass_gt.calculation.sif.module_sif as module_sif
+import mass_gt.calculation.tour.module_tour as module_tour
+import mass_gt.calculation.traf.module_traf as module_traf
+import mass_gt.calculation.common.arguments as common_arguments
 
-from calculation.common.dimensions import ModelDimensions
-from support import get_logger
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.support import get_logger
 
 
 class Root:

@@ -21,7 +21,7 @@ Subpackages
 Module contents
 ---------------
 
-.. automodule:: calculation
+.. automodule:: mass_gt.calculation
    :members:
    :undoc-members:
    :show-inheritance:

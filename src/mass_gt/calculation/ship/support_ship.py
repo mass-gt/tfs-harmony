@@ -5,8 +5,8 @@ import shapefile as shp
 from itertools import product
 from typing import Any, Dict, List, Tuple, Union
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.vrt import draw_choice_mcs
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.vrt import draw_choice_mcs
 
 
 def get_coeffs_distance_decay(varDict: Dict[str, str]) -> Tuple[float, float]:

@@ -7,9 +7,9 @@ import traceback
 from itertools import product
 from typing import Any, Dict
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_seeds, get_skims
-from calculation.common.vrt import draw_choice_mcs
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_shape, get_seeds, get_skims
+from mass_gt.calculation.common.vrt import draw_choice_mcs
 from .support_ship import (
     get_coeffs_distance_decay, get_nstr_to_ls, get_commodity_matrix,
     get_urban_density, get_make_use_distribution, get_flow_type_shares,

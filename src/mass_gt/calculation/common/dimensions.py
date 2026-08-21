@@ -1,5 +1,7 @@
 import pandas as pd
 
+from mass_gt.config import DIMENSIONS_DIR
+
 from typing import Any, Dict
 
 
@@ -20,7 +22,7 @@ class ModelDimensions:
     van_segment: Dict[int, Dict[str, Any]]
     vehicle_type: Dict[int, Dict[str, Any]]
 
-    def __init__(self, dim_folder: str):
+    def __init__(self, dim_folder: str = f"{DIMENSIONS_DIR}/"):
         """Constructor of a ModelDimensions object, fills its attributes."""
         for attr_name in (
             'combustion_type',

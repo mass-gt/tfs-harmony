@@ -11,8 +11,8 @@ from scipy.sparse import lil_matrix
 from shapely.geometry import Point, Polygon, MultiPolygon
 from typing import Any, Dict, List, Tuple
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import get_skims
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import get_skims
 
 logger = logging.getLogger("tfs")
 

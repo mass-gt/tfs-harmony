@@ -1,4 +1,3 @@
-import array
 import pandas as pd
 import numpy as np
 import time
@@ -7,11 +6,11 @@ import sys
 import traceback
 import multiprocessing as mp
 import functools
-import shapefile as shp
 
 from scipy.sparse.csgraph import dijkstra
 from scipy.sparse import lil_matrix
 from typing import Any, List, Tuple, Union
+from mass_gt.calculation.common.io import read_shape, write_mtx
 
 
 datapathO = "P:/Projects_Active/23034 ROT GLEAM Cargo Bike Simulation/Work/Updaten basisjaar/[02] Netwerk/"
@@ -24,71 +23,6 @@ label = 'REF'
 
 
 #%%
-
-def write_mtx(file_path: str, mat: np.ndarray, nZones: int) -> None:
-    '''
-    Write an array into a binary file
-    '''
-    mat = np.append(nZones, mat)
-    matBin = array.array('f')
-    matBin.fromlist(list(mat))
-    matBin.tofile(open(file_path, 'wb'))
-
-
-def read_shape(
-    shapePath: str, encoding: str = 'latin1', returnGeometry: bool=False
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, List[Any]]]:
-    '''
-    Read the shapefile with zones (using pyshp --> import shapefile as shp)
-    '''
-    # Load the shape
-    sf = shp.Reader(shapePath, encoding=encoding)
-    records = sf.records()
-    if returnGeometry:
-        geometry = sf.__geo_interface__
-        geometry = geometry['features']
-        geometry = [geometry[i]['geometry'] for i in range(len(geometry))]
-    fields = sf.fields
-    sf.close()
-
-    # Get information on the fields in the DBF
-    columns = [x[0] for x in fields[1:]]
-    colTypes = [x[1:] for x in fields[1:]]
-    nRecords = len(records)
-
-    # Check for headers that appear twice
-    for col in range(len(columns)):
-        name = columns[col]
-        whereName = [i for i in range(len(columns)) if columns[i] == name]
-        if len(whereName) > 1:
-            for i in range(1, len(whereName)):
-                columns[whereName[i]] = (
-                    str(columns[whereName[i]]) + '_' + str(i))
-
-    # Put all the data records into a NumPy array
-    # (much faster than Pandas DataFrame)
-    shape = np.zeros((nRecords, len(columns)), dtype=object)
-    for i in range(nRecords):
-        shape[i, :] = records[i][0:]
-
-    # Then put this into a Pandas DataFrame with
-    # the right headers and data types
-    shape = pd.DataFrame(shape, columns=columns)
-    for col in range(len(columns)):
-        if colTypes[col][0] == 'C':
-            shape[columns[col]] = shape[columns[col]].astype(str)
-        else:
-            shape.loc[pd.isna(shape[columns[col]]), columns[col]] = -99999
-            if colTypes[col][-1] > 0:
-                shape[columns[col]] = shape[columns[col]].astype(float)
-            else:
-                shape[columns[col]] = shape[columns[col]].astype(int)
-
-    if returnGeometry:
-        return (shape, geometry)
-    else:
-        return shape
-
 
 def get_skims(csgraph, nNodes, zoneDict, linkDict, linksTime, linksDist, nZones, indices):
     '''

@@ -9,9 +9,9 @@ import traceback
 
 from typing import Any, Dict
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_num_cpu, get_seeds, get_skims
-from calculation.common.vrt import draw_choice_mcs
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_shape, get_num_cpu, get_seeds, get_skims
+from mass_gt.calculation.common.vrt import draw_choice_mcs
 from .support_tour import (
     assign_shipments_to_carriers, form_tours,
     get_traveltime, max_nstr, sum_weight, get_cum_shares_comb_ucc)

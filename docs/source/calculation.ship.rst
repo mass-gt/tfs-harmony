@@ -7,7 +7,7 @@ Submodules
 calculation.ship.module\_ship module
 ------------------------------------
 
-.. automodule:: calculation.ship.module_ship
+.. automodule:: mass_gt.calculation.ship.module_ship
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ calculation.ship.module\_ship module
 calculation.ship.support\_ship module
 -------------------------------------
 
-.. automodule:: calculation.ship.support_ship
+.. automodule:: mass_gt.calculation.ship.support_ship
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ calculation.ship.support\_ship module
 Module contents
 ---------------
 
-.. automodule:: calculation.ship
+.. automodule:: mass_gt.calculation.ship
    :members:
    :undoc-members:
    :show-inheritance:

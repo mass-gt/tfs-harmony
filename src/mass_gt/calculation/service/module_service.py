@@ -4,8 +4,8 @@ import pandas as pd
 import sys
 import traceback
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_skims, write_mtx
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_shape, get_skims, write_mtx
 
 from typing import Any, Dict
 

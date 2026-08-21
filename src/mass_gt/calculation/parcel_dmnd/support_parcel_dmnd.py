@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict
 
-from calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.dimensions import ModelDimensions
 
 
 def get_cum_shares_vt_ucc(varDict: Dict[str, str], dims: ModelDimensions) -> Dict[int, np.ndarray]:

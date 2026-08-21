@@ -5,7 +5,7 @@ import pandas as pd
 from shapely.geometry import Point, Polygon, MultiPolygon
 from typing import Any, Dict, List, Union
 
-from calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.dimensions import ModelDimensions
 
 logger = logging.getLogger("tfs")
 

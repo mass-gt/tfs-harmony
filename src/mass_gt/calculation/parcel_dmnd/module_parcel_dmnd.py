@@ -4,9 +4,9 @@ import pandas as pd
 import sys
 import traceback
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_shape, get_seeds, get_skims
-from calculation.common.vrt import draw_choice_mcs
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_shape, get_seeds, get_skims
+from mass_gt.calculation.common.vrt import draw_choice_mcs
 from .support_parcel_dmnd import get_cum_shares_vt_ucc, write_parcels_to_geojson, aggregate_parcels
 
 from typing import Any, Dict

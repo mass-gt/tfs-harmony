@@ -7,7 +7,7 @@ Submodules
 calculation.service.module\_service module
 ------------------------------------------
 
-.. automodule:: calculation.service.module_service
+.. automodule:: mass_gt.calculation.service.module_service
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ calculation.service.module\_service module
 Module contents
 ---------------
 
-.. automodule:: calculation.service
+.. automodule:: mass_gt.calculation.service
    :members:
    :undoc-members:
    :show-inheritance:

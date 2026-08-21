@@ -5,8 +5,8 @@ import sys
 import traceback
 import os.path
 
-from calculation.common.dimensions import ModelDimensions
-from calculation.common.io import read_mtx, read_shape
+from mass_gt.calculation.common.dimensions import ModelDimensions
+from mass_gt.calculation.common.io import read_mtx, read_shape
 
 from typing import Any, Dict
 

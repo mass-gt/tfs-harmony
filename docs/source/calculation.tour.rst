@@ -7,7 +7,7 @@ Submodules
 calculation.tour.module\_tour module
 ------------------------------------
 
-.. automodule:: calculation.tour.module_tour
+.. automodule:: mass_gt.calculation.tour.module_tour
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ calculation.tour.module\_tour module
 calculation.tour.support\_tour module
 -------------------------------------
 
-.. automodule:: calculation.tour.support_tour
+.. automodule:: mass_gt.calculation.tour.support_tour
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ calculation.tour.support\_tour module
 Module contents
 ---------------
 
-.. automodule:: calculation.tour
+.. automodule:: mass_gt.calculation.tour
    :members:
    :undoc-members:
    :show-inheritance:
