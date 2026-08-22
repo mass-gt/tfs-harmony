@@ -93,7 +93,7 @@ if not errors:
 
 ## Testing
 ```bash
-pytest            # 29 tests, no data required
+pytest            # 30 tests, no data required
 ```
 
 ## Documentation
