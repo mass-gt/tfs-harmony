@@ -1,8 +1,9 @@
 # MASS-GT: Tactical Freight Simulator (tfs-harmony)
 
 The **Tactical Freight Simulator (TFS)** is the freight-modelling core of
-**MASS-GT**, an open, empirically calibrated, agent-based simulation platform
-for urban freight and logistics policy analysis developed at
+**MASS-GT** (Multi-Agent Simulation System for Goods Transport), an open,
+empirically calibrated, agent-based simulation platform for urban freight and
+logistics policy analysis developed at
 [Delft University of Technology](https://www.tudelft.nl/transport/onderzoeksthemas/goederenvervoer-logistiek/sleutelprojecten/mass-gt).
 The core simulator was developed in the EU Horizon 2020 HARMONY project.
 
@@ -15,19 +16,27 @@ PARCEL_DMND (Parcel Demand) → PARCEL_SCHD (Parcel Scheduling) →
 SERVICE (Vans Service/Construction) → TRAF (Traffic Assignment) →
 OUTP (Output Indicators)
 
-## Repository context
+## Project context
 
-MASS-GT exists in three GitHub repositories sharing an identical architecture:
+MASS-GT is developed at Delft University of Technology together with technical
+partner [Significance](https://www.significance.nl), and evolves through
+successive research projects, including the EU Horizon 2020 projects
+[HARMONY](https://harmony-h2020.eu/), [LEAD](https://leadproject.eu/) and
+[URBANE](https://urbane-horizoneurope.eu/). The model also serves as donor
+model for the Dutch strategic freight transport model BasGoed
+(Rijkswaterstaat).
 
-| Repo                     | Focus                              |
-|--------------------------|------------------------------------|
-| `tfs-harmony` *(this)*   | Core tactical freight simulator    |
-| `mass-gt-emotion`        | E-bike policy extensions           |
-| `mass-gt-safety`         | Safety analysis extensions         |
+This repository contains the Tactical Freight Simulator as developed in the
+HARMONY project. Available branches:
 
-Branches: `main` (upstream baseline), `restructure-layout` (active),
-`prototype-2023-08` (HARMONY prototype), `prototype-2025-01`
-(MRDH Rotterdam prototype).
+- `main` — upstream baseline
+- `restructure-layout` — standardized packaging and configuration layer (active)
+- `prototype-2023-08` — code base resulting from the HARMONY project
+- `prototype-2025-01` — refactored for the MRDH base year data (Gemeente Rotterdam)
+
+For access to the code or the operational input dataset, send your GitHub
+account name or e-mail address to thoen@significance.nl or
+m.a.debok@tudelft.nl.
 
 ## Getting started
 
@@ -62,7 +71,9 @@ pip install -e .[dev]
 
 MASS-GT requires an operational input dataset (zones, skims, firms, networks,
 parameters) that is **not** part of this repository. Request access from the
-model maintainers.
+model maintainers (thoen@significance.nl or m.a.debok@tudelft.nl).
+The dataset of the implementation for Zuid-Holland, the Netherlands is
+available via Sebastiaan Thoen (`@sebastiaanth` on GitHub).
 
 1. Copy `.env.example` to `.env`.
 2. Set `MASS_GT_DATA_DIR` to your local data directory containing `input/`,
@@ -112,6 +123,11 @@ else:
 ```
 
 See `run_scenario.py` for the full module-execution pattern.
+
+Note: if you run the model from the Spyder IDE, set
+*Tools → Preferences → Run → Console* to *Execute in an external system
+terminal*; the tour formation and traffic assignment modules use process
+parallelisation and require it.
 
 ## Testing
 

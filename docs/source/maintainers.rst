@@ -4,7 +4,8 @@ Maintainer Guide & Handover
 This page is for researchers and developers who maintain MASS-GT after the
 ``restructure-layout`` restructuring. It explains *what* changed relative to
 the original prototype code, *why*, and how to repeat the same modernisation
-on the sibling repositories (``mass-gt-emotion``, ``mass-gt-safety``).
+on other MASS-GT repositories (such as the BasGoed logistics module) and
+future project forks.
 
 What changed on ``restructure-layout``
 --------------------------------------
@@ -115,10 +116,10 @@ Known limitations (honest list)
 * When the output folder is invalid the GUI cannot write a logfile, so parsed
   settings are only visible in the error dialog for that run.
 
-Porting blueprint: repeating this on sibling repositories
----------------------------------------------------------
+Porting blueprint: applying this structure to other MASS-GT repositories
+------------------------------------------------------------------------
 
-Apply the same recipe to ``mass-gt-emotion`` and ``mass-gt-safety``:
+Apply the same recipe to any other MASS-GT repository:
 
 1. **Baseline first.** On the untouched branch, run a reference scenario and
    store its outputs (golden files) outside the repository.
@@ -133,7 +134,7 @@ Apply the same recipe to ``mass-gt-emotion`` and ``mass-gt-safety``:
    ``from mass_gt…`` / ``import mass_gt…``. Nothing may read env vars
    directly — everything goes through ``mass_gt.config``.
 6. **Entry points**: add ``run_scenario.py`` and adapt its module table for
-   repo-specific pipeline extensions (e-bike / safety modules). Wrap tkinter
+   repo-specific pipeline extensions. Wrap tkinter
    imports in try/except and delegate GUI parsing to ``load_settings``.
 7. **Tests**: copy ``tests/conftest.py``, ``test_config.py``,
    ``test_settings.py``; adjust fixtures if the taxonomy or module list
