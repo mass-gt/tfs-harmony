@@ -72,20 +72,28 @@ Flags: `--config` (default `data/input/Run_REF.ini`), `--quiet` (silent, `root=N
 ```bash
 python -m mass_gt.tfs
 ```
+Requires ``tkinter`` and a display. On headless machines the `mass_gt.tfs` module
+can still be imported (e.g. for testing); only the GUI launch is skipped.
 
 ### As a library
 ```python
 from mass_gt import settings
 from mass_gt.calculation.fs import module_fs
 
+# Parse + validate (raises ControlFileError on problems)
 vd = settings.parse_control_file("data/input/Run_REF.ini")
 settings.validate_control_file(vd)
 result = module_fs.actually_run_module(root=None, varDict=vd, dims=None)
+
+# Or use the non-raising loader (returns (varDict, errors) for GUIs):
+vd, errors = settings.load_settings("data/input/Run_REF.ini", validate=True)
+if not errors:
+    ...
 ```
 
 ## Testing
 ```bash
-pytest            # 23 tests, no data required
+pytest            # 29 tests, no data required
 ```
 
 ## Documentation

@@ -20,7 +20,7 @@ control files keep working unchanged:
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from mass_gt.calculation.common import arguments as common_arguments
 from mass_gt.config import BASE_DIR
@@ -213,3 +213,65 @@ def load_control_file(
     if validate:
         validate_control_file(varDict)
     return varDict
+
+
+def load_settings(
+    control_file_path: PathLike,
+    module_names: Optional[List[str]] = None,
+    validate: bool = True,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Parse (and optionally validate) a control file, returning errors instead
+    of raising.
+
+    This is the GUI-friendly counterpart to :func:`load_control_file`. It
+    delegates to :func:`parse_control_file` and (optionally)
+    :func:`validate_control_file`, catching :class:`ControlFileError` so the
+    caller can collect error messages — for example to display them in a
+    dialog — instead of aborting.
+
+    Parameters
+    ----------
+    control_file_path
+        Path to the ``.ini`` control file.
+    module_names
+        Optional override for the canonical module list. Defaults to
+        :data:`MODULE_NAMES`.
+    validate
+        When *True* (default) directories/files are checked to exist and
+        required arguments are flagged, exactly as in
+        :func:`validate_control_file`.
+
+    Returns
+    -------
+    varDict : dict
+        The fully initialised variable dictionary. On a *parse* failure the
+        dictionary is returned with all values set to ``""`` so the caller
+        can safely access keys.
+    errors : list of str
+        Human-readable error messages. An empty list means the control file
+        parsed (and, when ``validate`` is True, validated) without issues.
+    """
+    errors: List[str] = []
+
+    # Start from an all-empty varDict so callers can safely access keys even
+    # when parsing fails outright (mirrors the original GUI initialisation).
+    varDict: Dict[str, Any] = dict(
+        (name, "") for name in common_arguments.variables
+    )
+
+    try:
+        parsed = parse_control_file(control_file_path, module_names=module_names)
+        varDict.update(parsed)
+    except ControlFileError as exc:
+        # Parse errors are collected verbatim; validation is skipped because
+        # we have no reliable varDict to validate.
+        errors.extend(str(exc).split("\n"))
+        return varDict, errors
+
+    if validate:
+        try:
+            validate_control_file(varDict)
+        except ControlFileError as exc:
+            errors.extend(str(exc).split("\n"))
+
+    return varDict, errors

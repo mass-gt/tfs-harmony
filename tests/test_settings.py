@@ -158,3 +158,78 @@ def test_model_dimensions_defaults_to_dimensions_dir():
         assert getattr(dims, attr), attr
     assert 0 in dims.vehicle_type
     assert dims.vehicle_type[0]["Comment"] == "Truck (small)"
+
+
+# --------------------------------------------------------------------------
+# load_settings (GUI-friendly, non-raising)
+# --------------------------------------------------------------------------
+
+
+def test_load_settings_returns_tuple(control_file):
+    var_dict, errors = settings.load_settings(control_file, validate=False)
+    assert isinstance(var_dict, dict)
+    assert isinstance(errors, list)
+
+
+def test_load_settings_no_errors_on_valid_config(tmp_path):
+    """A minimal config whose INPUTFOLDER/OUTPUTFOLDER exist should load
+    with zero errors when validation is on."""
+    text = (
+        "MODULES=FS\n"
+        f"INPUTFOLDER={tmp_path}/\n"
+        f"PARAMFOLDER={tmp_path}/\n"
+        f"OUTPUTFOLDER={tmp_path}/\n"
+        f"DIMFOLDER={tmp_path}/\n"
+        "YEARFACTOR=209\n"
+        "NUTSLEVEL_INPUT=3\n"
+        "ZONES=dummy.shp\n"
+        "LABEL=REF\n"
+    )
+    ini = tmp_path / "ok.ini"
+    ini.write_text(text, encoding="utf-8")
+    vd, errors = settings.load_settings(ini, validate=False)
+    assert errors == []
+    assert vd["MODULES"] == ["FS"]
+    assert vd["YEARFACTOR"] == 209.0
+    assert vd["LABEL"] == "REF"
+
+
+def test_load_settings_captures_parse_errors(tmp_path):
+    """Unknown keys and modules are reported, not raised."""
+    ini = tmp_path / "bad.ini"
+    ini.write_text("MODULES=FS,NOPE\nBOGUS=1\n", encoding="utf-8")
+    vd, errors = settings.load_settings(ini)
+    assert len(errors) > 0
+    # varDict still has all keys present (empty strings)
+    for name in common_arguments.variables:
+        assert name in vd
+    assert any("BOGUS" in e for e in errors)
+    assert any("NOPE" in e for e in errors)
+
+
+def test_load_settings_captures_validation_errors(tmp_path):
+    """Validation problems (missing dirs, missing required args) are
+    returned as error strings rather than raising."""
+    ini = tmp_path / "val.ini"
+    ini.write_text("MODULES=FS\nINPUTFOLDER=/no/such/dir\n", encoding="utf-8")
+    vd, errors = settings.load_settings(ini, validate=True)
+    assert len(errors) > 0
+    assert any("INPUTFOLDER" in e for e in errors)
+    # Required args like NUTSLEVEL_INPUT should be flagged
+    assert any("NUTSLEVEL_INPUT" in e for e in errors)
+
+
+def test_load_settings_validate_false_skips_validation(tmp_path):
+    ini = tmp_path / "skip.ini"
+    ini.write_text("MODULES=FS\nINPUTFOLDER=/no/such/dir\n", encoding="utf-8")
+    vd, errors = settings.load_settings(ini, validate=False)
+    assert errors == []
+
+
+def test_load_settings_empty_var_dict_on_parse_failure(tmp_path):
+    """When the file can't even be parsed, varDict has all-empty defaults."""
+    ini = tmp_path / "missing.ini"
+    vd, errors = settings.load_settings(ini)
+    assert errors  # non-empty errors list
+    for name in common_arguments.variables:
+        assert vd[name] == ""

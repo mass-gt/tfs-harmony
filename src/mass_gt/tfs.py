@@ -1,16 +1,27 @@
 import multiprocessing as mp
 import os.path
 import sys
-import tkinter as tk
 import traceback
 
 from base64 import b64decode
 from sys import argv
 from tempfile import mkstemp
 from threading import Thread
-from tkinter.ttk import Progressbar
 from typing import Dict
 from zlib import decompress
+
+# Tkinter is only needed for the interactive GUI.  Wrapping the imports in
+# a try/except allows ``import mass_gt.tfs`` (and therefore library use /
+# testing / CI) to succeed on headless machines where ``tkinter`` is not
+# installed or no display server is available.
+try:
+    import tkinter as tk
+    from tkinter.ttk import Progressbar
+    _TKINTER_AVAILABLE = True
+except ImportError:
+    tk = None  # type: ignore[assignment]
+    Progressbar = None  # type: ignore[assignment]
+    _TKINTER_AVAILABLE = False
 
 import mass_gt.calculation.fs.module_fs as module_fs
 import mass_gt.calculation.outp.module_outp as module_outp
@@ -23,6 +34,7 @@ import mass_gt.calculation.tour.module_tour as module_tour
 import mass_gt.calculation.traf.module_traf as module_traf
 import mass_gt.calculation.common.arguments as common_arguments
 
+from mass_gt import settings
 from mass_gt.calculation.common.dimensions import ModelDimensions
 from mass_gt.support import get_logger
 
@@ -146,12 +158,15 @@ class Root:
         Thread(target=self.actually_run_main, daemon=True).start()
 
     def actually_run_main(self):
-        '''
+        """
         Reads the control file and runs 'main'.
-        '''
-        # A dictionary for the values belonging to each key in the control file
-        varDict = dict((variableName, "") for variableName in common_arguments.variables)
 
+        Configuration loading (parsing + validation) is delegated to
+        :func:`mass_gt.settings.load_settings`, which returns a varDict and a
+        list of error messages rather than raising.  This keeps the GUI's
+        "collect errors and show them in a dialog" behaviour while removing
+        the duplicated parser that previously lived here.
+        """
         # Run the modules or not, is set to False if, for example,
         # an input file could not be found
         run = True
@@ -163,122 +178,26 @@ class Root:
         # In this string we collect the error messages
         errorMessage = ""
 
+        # A fully-initialised varDict (all-empty if loading fails).
+        varDict = dict(
+            (variableName, "")
+            for variableName in common_arguments.variables
+        )
+
         try:
+            varDict, errors = settings.load_settings(
+                self.controlFile.get(),
+                module_names=self.moduleNames,
+            )
 
-            with open(self.controlFile.get(), 'r') as f:
+            if errors:
+                run = False
+                errorMessage = "\n".join(errors)
 
-                for line in f.readlines():
-
-                    if line[0] == '#':
-                        continue
-
-                    if '=' not in line:
-                        continue
-
-                    key = line.split('=')[0]
-                    value = line.split('=')[1]
-
-                    # Allow spaces and tabs before/after the key and the value
-                    while key[0] == ' ' or key[0] == '\t':
-                        key = key[1:]
-
-                    while key[-1] == ' ' or key[-1] == '\t':
-                        key = key[:-1]
-
-                    while value[0] == ' ' or value[0] == '\t':
-                        value = value[1:]
-
-                    while value[-1] == ' ' or value[-1] == '\t':
-                        value = value[:-1]
-
-                    print(key + ' = ' + value.replace('\n', ""))
-
-                    # Warning for unknown argument in control file
-                    if key.upper() not in common_arguments.variables:
-                        errorMessage = f"{errorMessage}Unknown parameter in control file: {key}\n"
-                        run = False
-                        continue
-
-                    # Read the arguments in the control file
-                    for variableName in common_arguments.variables:
-                        if key.upper() != variableName:
-                            continue
-
-                        # For numeric arguments, check if they can be converted from string to float
-                        if variableName in common_arguments.numeric:
-                            value = value.replace("'", "").replace('"', "").replace('\n', "")
-
-                            try:
-                               varDict[variableName]= float(value)
-                            except ValueError:
-                                if not (value == '' and variableName in common_arguments.optional):
-                                    varDict[variableName] = value
-                                    errorMessage = (
-                                        f"{errorMessage}Fill in a numeric value for '{variableName}'" +
-                                        f", could not convert following value to a number: '{value}'.\n")
-                                    run = False
-
-                        # The argument which states which modules should be run
-                        elif variableName in common_arguments.modules:
-                            value = value.replace("'", "").replace('"', "").replace('\n', "").replace(' ', '')
-                            varDict[variableName] = [x.upper() for x in value.split(',')]
-
-                            for tmpModule in varDict[variableName]:
-                                if tmpModule not in self.moduleNames:
-                                    errorMessage = (
-                                        f"{errorMessage}Module '{tmpModule}' does not exist.\n")
-                                    run = False
-
-                        # For string arguments, also replace possible '\' by '/'
-                        else:
-                            value = value.replace(os.sep, '/').replace("'", "").replace('"', "").replace('\n', "")
-                            varDict[variableName] = value
-
-                            if variableName in common_arguments.directories:
-                                if varDict[variableName][-1] != '/':
-                                    varDict[variableName] = varDict[variableName] + '/'
-
-            # Replace reference to another variable with the value of that variable
-            for variableName in common_arguments.variables:
-                if variableName in common_arguments.files:
-                    tmp = varDict[variableName].split("<<")
-
-                    if len(tmp) > 1:
-                        tmp = tmp[1].split(">>")
-
-                        if tmp[0] in common_arguments.directories:
-                            varDict[variableName] = varDict[tmp[0]] + tmp[1]
-
-            # Check for existence of directories and files
-            for variableName in common_arguments.variables:
-
-                # Warnings for non-existing directories
-                if variableName in common_arguments.directories:
-                    if not os.path.isdir(varDict[variableName]) and varDict[variableName] != "":
-                        errorMessage = (
-                            f"{errorMessage}The folder for parameter '{variableName}'" +
-                            f" does not exist: '{varDict[variableName]}'.\n")
-                        run = False
-
-                        # Can't write a logfile if the outputfolder does not exist
-                        if variableName == "OUTPUTFOLDER":
-                            writeLog = False
-
-                # Warnings for non-existing files
-                if variableName in common_arguments.files:
-                    if not os.path.isfile(varDict[variableName]) and varDict[variableName] != "":
-                        errorMessage = (
-                            f"{errorMessage}The file for parameter '{variableName}'" +
-                            f" does not exist: '{varDict[variableName]}'.\n")
-                        run = False
-
-            # Warnings for omitted arguments in control file
-            for variableName in common_arguments.variables:
-                if varDict[variableName] == "" and variableName not in common_arguments.optional:
-                    errorMessage = (
-                        f"{errorMessage}Warning, no value given for parameter '{variableName}'" +
-                         " in the controle file.\n")
-                    run = False                    
+            # Can't write a logfile if the outputfolder does not exist
+            if (varDict['OUTPUTFOLDER']
+                    and not os.path.isdir(varDict['OUTPUTFOLDER'])):
+                writeLog = False
 
         except Exception:
             errorMessage = (
@@ -310,7 +229,7 @@ class Root:
                     errorMessage = errorMessage + (
                         f"Expected a text file called '{filename}'" +
                         " in DIMFOLDER, but could not find it.")
-            
+
         # Open the logfile and write the header, specified arguments and
         # possible error messages
         if writeLog:
@@ -363,8 +282,9 @@ class Root:
                 f"Could not start the run for the following reasons: \n\n {errorMessage}")
             self.error_screen(text=errorMessage, size=[950, 150])
 
-        self.logger.removeHandler(log_stream_handler)
-        self.logger.removeHandler(log_file_handler)
+        if writeLog:
+            self.logger.removeHandler(log_stream_handler)
+            self.logger.removeHandler(log_file_handler)
 
     def check_for_output_files(
         self, varDict: Dict[str, str], run: bool, errorMessage: str
@@ -495,4 +415,10 @@ class Root:
 
 if __name__ == '__main__':
     mp.freeze_support()
+    if not _TKINTER_AVAILABLE:
+        sys.stderr.write(
+            "Error: Tkinter is not available on this system. "
+            "The GUI requires tkinter with a display server.\n"
+            "Run headlessly instead:  python run_scenario.py --config <file.ini>\n")
+        sys.exit(1)
     root = Root()
