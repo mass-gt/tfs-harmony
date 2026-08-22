@@ -14,13 +14,13 @@ authors = [
     { name = "Michiel de Bok" },
 ]
 dependencies = [
-    "pandas>=2.0.0",
     "numpy>=1.24.0",
+    "pandas>=2.0.0",
     "scipy>=1.10.0",
-    "geopandas>=0.13.0",
-    "networkx>=3.0",
-    "python-dotenv>=1.0.0",
+    "numba>=0.55.0",
+    "pyshp>=2.1.0",
     "shapely>=2.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
