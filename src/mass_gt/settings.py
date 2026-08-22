@@ -23,7 +23,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from mass_gt.calculation.common import arguments as common_arguments
-from mass_gt.config import BASE_DIR
+from mass_gt.config import BASE_DIR, DATA_DIR
 
 # Canonical, ordered list of runnable modules (mirrors the simulation pipeline).
 MODULE_NAMES = [
@@ -56,11 +56,14 @@ def _strip(value: str) -> str:
 
 
 def _resolve_placeholders(varDict: Dict[str, Any]) -> None:
-    """Resolve ``<<DIRECTORY>>`` and ``<<BASE>>`` placeholders in file paths in place.
+    """Resolve ``<<DIRECTORY>>``, ``<<BASE>>`` and ``<<DATA>>`` placeholders
+    in file paths in place.
 
     ``<<DIRECTORY>>`` is resolved when ``DIRECTORY`` is a key in
     ``common_arguments.directories`` (INPUTFOLDER, OUTPUTFOLDER, etc.).
     ``<<BASE>>`` is resolved to the repository root (``BASE_DIR``).
+    ``<<DATA>>`` is resolved to the private data directory (``DATA_DIR``,
+    set via ``MASS_GT_DATA_DIR`` in the local ``.env``).
     """
     for variableName in common_arguments.variables:
         if variableName not in common_arguments.files:
@@ -71,8 +74,12 @@ def _resolve_placeholders(varDict: Dict[str, Any]) -> None:
             placeholder = tmp[0]
             if placeholder == "BASE":
                 varDict[variableName] = str(BASE_DIR) + "/" + tmp[1]
+            elif placeholder == "DATA":
+                varDict[variableName] = str(DATA_DIR) + "/" + tmp[1]
             elif placeholder in common_arguments.directories:
                 varDict[variableName] = varDict[placeholder] + tmp[1]
+
+
 def parse_control_file(
     control_file_path: PathLike,
     module_names: Optional[List[str]] = None,

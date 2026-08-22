@@ -50,6 +50,23 @@ def test_file_placeholder_is_resolved(var_dict):
     assert "<<INPUTFOLDER>>" not in var_dict["ZONES"]
 
 
+def test_base_and_data_placeholders_are_resolved(tmp_path):
+    """``<<BASE>>`` resolves against the repository root and ``<<DATA>``
+    against the configured private data directory."""
+    from mass_gt import config
+
+    ini = tmp_path / "ph.ini"
+    ini.write_text(
+        "MODULES=FS\n"
+        "ZONES=<<BASE>>data/input/Zones_v5.shp\n"
+        "SEGS=<<DATA>>reference/SEGS.csv\n",
+        encoding="utf-8",
+    )
+    vd = settings.parse_control_file(ini)
+    assert vd["ZONES"] == str(config.BASE_DIR) + "/data/input/Zones_v5.shp"
+    assert vd["SEGS"] == str(config.DATA_DIR) + "/reference/SEGS.csv"
+
+
 def test_backslashes_are_normalised_to_forward_slashes(tmp_path):
     text = (
         "# comment\n"
