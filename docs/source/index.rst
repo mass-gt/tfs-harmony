@@ -1,14 +1,26 @@
-.. tfs-harmony documentation master file, created by
-   sphinx-quickstart on Tue Nov 19 10:02:15 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+Welcome to MASS-GT (tfs-harmony) documentation!
+=================================================
 
-Welcome to tfs-harmony's documentation!
-=======================================
+MASS-GT (Multi-Agent Simulation of freight and logistics in Cities) is an open,
+empirically-calibrated, agent-based simulation platform for urban freight and
+logistics policy analysis developed at Delft University of Technology.
+
+**tfs-harmony** is the core Tactical Freight Simulator: an end-to-end pipeline
+that simulates the urban-freight chain from freight generation through to
+emissions at the traffic-assignment level.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+
+   installation
+   quickstart
+   data_guide
+   configuration
+   pipeline
+   methodology
+   api
+   maintainers
 
 Indices and tables
 ==================

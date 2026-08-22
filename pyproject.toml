@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mass-gt-tfs"
+version = "3.1.0"
+description = "MASS-GT Tactical Freight Simulator (tfs-harmony) — standardized packaging and configuration"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-2.0-or-later" }
+authors = [
+    { name = "Sebastiaan Thoen", email = "sebastiaanth@users.noreply.github.com" },
+    { name = "Michiel de Bok" },
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+    "numba>=0.55.0",
+    "pyshp>=2.1.0",
+    "shapely>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+    "sphinx>=7.0",
+    "sphinx-rtd-theme",
+    "myst-parser",
+]
+
+[project.urls]
+Homepage = "https://github.com/mass-gt/tfs-harmony"
+Documentation = "https://github.com/mass-gt/tfs-harmony/tree/main/docs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mass_gt"]
