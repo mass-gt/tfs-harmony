@@ -1,0 +1,26 @@
+# Repository Rules — MASS-GT (tfs-harmony)
+
+## Code placement
+- ALL Python package code belongs under `src/mass_gt/`.
+- Do not add new top-level modules to `src/` (e.g. don't create `src/foo.py`).
+
+## Paths & configuration
+- All filesystem paths MUST come from `mass_gt.config` (BASE_DIR, DATA_DIR,
+  INPUT_DIR, OUTPUT_DIR, DIMENSIONS_DIR).
+- Never hardcode paths or read environment variables directly; go through
+  `mass_gt.config`.
+- Configuration is loaded via python-dotenv; the local `.env` file is
+  git-ignored (copy from `.env.example`).
+
+## Calculation code (hard constraint)
+- Mathematical / stochastic models (random draws, FRATAR scaling, tour
+  formation, traffic assignment, emission calculations) MUST remain STRICTLY
+  UNALTERED.
+- Any refactor is additive: wrap, never rewrite. Golden-file baseline outputs
+  must be reproduced before and after changes.
+- The `varDict` configuration contract consumed by the modules is frozen.
+
+## Workflow
+- Keep commits small and focused on a single concern.
+- Never force-push to shared branches.
+- Private / proprietary data must never enter the repository.
