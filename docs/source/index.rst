@@ -20,6 +20,7 @@ emissions at the traffic-assignment level.
    pipeline
    methodology
    api
+   maintainers
 
 Indices and tables
 ==================
