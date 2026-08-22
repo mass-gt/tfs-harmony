@@ -114,13 +114,13 @@ tfs-harmony/
 ├── data/                # git-ignored; .env points here for your data
 │   └── reference/dimensions/   # taxonomy reference files
 ├── docs/                # Sphinx documentation
-└── src/mass_gt/
-    ├── __init__.py      # __version__ = "3.1.0"
-    ├── config.py        # BASE_DIR, DATA_DIR, paths (via .env)
-    ├── settings.py      # .ini → varDict parser & validator
-    ├── tfs.py           # GUI entry point
-    ├── calculation/     # model pipeline modules (common, fs, sif, ship, …)
-    └── tests/           # pytest suite
+├── src/mass_gt/         # installable package
+│   ├── __init__.py      # __version__ = "3.1.0"
+│   ├── config.py        # BASE_DIR, DATA_DIR, paths (via .env)
+│   ├── settings.py      # .ini → varDict parser & validator (load_settings)
+│   ├── tfs.py           # GUI entry point (headless-safe import)
+│   └── calculation/     # model pipeline modules (common, fs, sif, ship, …)
+└── tests/               # pytest suite (repository root)
 ```
 
 ## License

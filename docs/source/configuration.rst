@@ -5,10 +5,18 @@ Control files
 -------------
 
 MASS-GT is driven by a plain-text control file (`.ini`) with `KEY = value`
-lines. Two placeholders are substituted at parse time:
+lines. Placeholders in file arguments are substituted at parse time:
 
-- `<<INPUTFOLDER>>` — resolved to `INPUTFOLDER`
-- `<<PARAMFOLDER>>` — resolved to `PARAMFOLDER`
+- `<<INPUTFOLDER>>`, `<<OUTPUTFOLDER>>`, `<<PARAMFOLDER>>`, `<<DIMFOLDER>>` —
+  resolved to the current value of that directory parameter
+- `<<BASE>>` — resolved to the repository root (`mass_gt.config.BASE_DIR`)
+- `<<DATA>>` — resolved to the private data directory
+  (`mass_gt.config.DATA_DIR`, set via `MASS_GT_DATA_DIR` in your `.env`)
+
+Example::
+
+   ZONES      = <<INPUTFOLDER>>Zones_v5.shp
+   PARAMS_TOD = <<DATA>>params/tod.csv
 
 Path separators are normalised to forward slashes, and all directory paths
 receive a trailing `/`.
