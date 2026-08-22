@@ -16,7 +16,8 @@ follows the package version in `pyproject.toml`.
 - `<<BASE>>` (repository root) and `<<DATA>>` (`MASS_GT_DATA_DIR`) path
   placeholders alongside the directory-parameter placeholders.
 - Headless CLI entry point `run_scenario.py` with `--config` / `--quiet`.
-- Pytest suite (30 tests) locking the `varDict` contract; GitHub Actions CI.
+- Pytest suite covering the configuration contract and the import surface of
+  every module; GitHub Actions CI runs it on each push and pull request.
 - Sphinx documentation (quickstart, data guide, configuration reference,
   pipeline, methodology, API, maintainer guide).
 

@@ -67,6 +67,20 @@ source .venv/bin/activate      # Linux/macOS
 pip install -e .[dev]
 ```
 
+### Dependencies
+
+Besides the Python standard library, the model builds on:
+
+- numpy, pandas, scipy — numerical work and data handling
+- numba — just-in-time compilation of choice-model kernels
+- pyshp — reading ESRI shapefiles
+- shapely — geometric operations on zones and networks
+- python-dotenv — local `.env` path configuration
+
+`pip install -e .[dev]` installs all of these automatically; manual
+installation with fixed versions (as needed in older releases) is no longer
+necessary.
+
 ## Data setup
 
 MASS-GT requires an operational input dataset (zones, skims, firms, networks,
@@ -132,7 +146,7 @@ parallelisation and require it.
 ## Testing
 
 ```bash
-pytest            # 30 tests; runs without model data
+pytest            # 47 tests; runs without model data
 ```
 
 ## Documentation
@@ -180,16 +194,42 @@ GNU General Public License v2.0 or later — see [LICENSE](LICENSE).
 
 If you use MASS-GT in academic research, please cite:
 
-- de Bok et al. (2025). "MASS-GT: an empirical model for the simulation of
-  freight policies." *Simulation Modelling Practice and Theory*, 142.
+- de Bok, M., L. Tavasszy, S. Thoen, L. Eggers, I. Kourounioti (2025).
+  "MASS-GT: an empirical model for the simulation of freight policies."
+  *Simulation Modelling Practice and Theory*, 142, 103140.
   https://doi.org/10.1016/j.simpat.2025.103140
-- de Bok et al. (2024). "A simulation study of the impacts of micro-hub
-  scenarios for city logistics in Rotterdam."
-  *Research in Transportation Business & Management*, 56.
-  https://doi.org/10.1016/j.rtbm.2024.101186
-- Thoen et al. (2020). "Descriptive modeling of freight tour formation: A
-  shipment-based approach." *Transportation Research Part E*, 140.
+- de Bok, M., S. Giasoumi, L. Tavasszy, A. Nadi, S. Thoen, J. Streng (2024).
+  "A simulation study of the impacts of micro-hub scenarios for city
+  logistics in Rotterdam." *Research in Transportation Business &
+  Management*, 56, 101186. https://doi.org/10.1016/j.rtbm.2024.101186
+- de Bok, M., L. Tavasszy, A. Nadi, S. Thoen, S. Giasoumi, J. Streng (2024).
+  "Learnings from the simulation of use cases in city logistics in the
+  HARMONY project." *Transportation Research Procedia*, 79, 249–256.
+- Tapia, R., I. Kourounioti, S. Thoen, M. de Bok, L. Tavasszy (2023).
+  "A disaggregate model of passenger-freight matching in crowdshipping
+  services." *Transportation Research Part A: Policy and Practice*, 169.
+- Mohammed, A. R., A. Nadi, L. Tavasszy, M. de Bok (2023). "A data fusion
+  approach to identify distribution chain segments in freight shipment
+  databases." *Transportation Research Record*, 2677, 310–323.
+- de Bok, M., L. Tavasszy, S. Thoen (2022). "Application of an empirical
+  multi-agent model for urban goods transport to analyze impacts of zero
+  emission zones in The Netherlands." *Transport Policy*, 124, 117–127.
+- de Bok, M., L. Tavasszy, I. Kourounioti, S. Thoen, L. Eggers,
+  V. Mayland Nielsen, J. Streng (2021). "Impacts of a low-emission zone on
+  freight delivery patterns in Rotterdam: a case study with the HARMONY
+  tactical freight simulator." *Transportation Research Record*, 2675(10),
+  776–785. https://doi.org/10.1177/03611981211012694
+- Thoen, S., L. Tavasszy, M. de Bok, G. Correia, R. van Duin (2020).
+  "Descriptive modeling of freight tour formation: A shipment-based
+  approach." *Transportation Research Part E*, 140, 101989.
   https://doi.org/10.1016/j.tre.2020.101989
-- de Bok & Tavasszy (2018). "An empirical agent-based simulation system for
-  urban goods transport (MASS-GT)." *Procedia Computer Science*, 130.
-  https://doi.org/10.1016/j.procs.2018.04.021
+- de Bok, M., I. Bal, L. Tavasszy, T. Tillema (2020). "Exploring the impacts
+  of an emission based truck charge in the Netherlands." *Case Studies on
+  Transport Policy*, 8, 887–894. https://doi.org/10.1016/j.cstp.2020.05.013
+- Thoen, S., M. de Bok, L. Tavasszy (2020). "Shipment-based urban freight
+  emission calculation." *2020 Forum on Integrated and Sustainable
+  Transportation Systems (FISTS)*.
+  https://doi.org/10.1109/FISTS46898.2020.9264858
+- de Bok, M., L. Tavasszy (2018). "An empirical agent-based simulation
+  system for urban goods transport (MASS-GT)." *Procedia Computer Science*,
+  130. https://doi.org/10.1016/j.procs.2018.04.021

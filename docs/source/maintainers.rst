@@ -148,9 +148,9 @@ Apply the same recipe to any other MASS-GT repository:
 Gotchas we hit (so you don't have to)
 -------------------------------------
 
-* Verify any external AI-generated task list against the actual repository
-  before executing: two of five suggested clean-up items referenced functions
-  that did not exist here.
+* Check any checklist or task list against the actual repository before
+  acting on it: during one review round, two of five suggested clean-up
+  items referenced code that did not exist.
 * Line-ending churn on Windows: keep ``.gitattributes`` enforcing LF for text
   files to avoid noisy CRLF warnings.
 * Placeholders are resolved *after* parsing but *before* validation, so
